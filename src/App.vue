@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import Board from './components/Board.vue'
 import { musicOn, muted } from './audio'
-import { effectLeft, fitGrid, isActive, pause, play, reset, state, toggle, turn, type DirName } from './game'
+import { effectLeft, fitGrid, fitLayout, isActive, layout, pause, play, reset, state, toggle, turn, type DirName } from './game'
+import TouchPad from './components/TouchPad.vue'
 
 const EFFECTS = [
   { key: 'shield', label: 'shield', color: 'var(--sky)' },
@@ -15,6 +16,11 @@ const KEYMAP: Record<string, DirName> = {
   w: 'up', s: 'down', a: 'left', d: 'right',
   W: 'up', S: 'down', A: 'left', D: 'right',
 }
+
+/** On touch screens the cards stop short of the pad, so the pad stays usable. */
+const overlayStyle = computed(() =>
+  layout.pad === 'bottom' ? { bottom: `${layout.bottom}px` } : layout.pad === 'side' ? { right: `${layout.right}px` } : {},
+)
 
 function toggleMute() {
   muted.value = !muted.value
@@ -61,6 +67,8 @@ function onTouchMove(event: TouchEvent) {
 
 /** The grid follows the window, but only between games. */
 function onResize() {
+  // The pad moves with the window (turning the phone); the grid only between games.
+  fitLayout()
   if (state.status === 'ready') reset()
   else if (state.status === 'over') fitGrid()
 }
@@ -87,7 +95,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="screen" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove">
-    <div class="arena"><Board /></div>
+    <div
+      class="arena"
+      :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
+    ><Board /></div>
+    <TouchPad v-if="layout.pad !== 'none'" :placement="layout.pad" />
 
     <!-- HUD -->
     <div class="hud hud-left">
@@ -95,7 +107,7 @@ onBeforeUnmount(() => {
         <span class="brand">Laserwyrm<span class="brand-dot">.</span></span>
         <span class="divider"></span>
         <span class="stat"><span class="chrome-label">score</span><b>{{ state.score }}</b></span>
-        <span class="stat"><span class="chrome-label">length</span><b>{{ state.snake.length }}</b></span>
+        <span class="stat hide-xs"><span class="chrome-label">length</span><b>{{ state.snake.length }}</b></span>
         <span class="stat hide-sm"><span class="chrome-label">best</span><b>{{ state.best }}</b></span>
         <span class="divider hide-sm"></span>
         <span class="stat hide-sm"><span class="chrome-label">level</span><b>{{ state.level + 1 }}</b></span>
@@ -111,7 +123,7 @@ onBeforeUnmount(() => {
       </template>
     </div>
     <div class="hud hud-right">
-      <button class="round" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
+      <button class="round hide-touch-grid" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
         <svg v-if="state.status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
         <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
       </button>
@@ -137,7 +149,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Start -->
-    <div v-if="state.status === 'ready'" class="overlay">
+    <div v-if="state.status === 'ready'" class="overlay" :style="overlayStyle">
       <div class="card">
         <p class="chrome-label">snake, set to the beat · sound on</p>
         <h1>Laserwyrm<span class="brand-dot">.</span></h1>
@@ -164,12 +176,12 @@ onBeforeUnmount(() => {
         <p class="keys hide-touch">
           <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> or <kbd>WASD</kbd> to move · <kbd>Space</kbd> pause · <kbd>B</kbd> music · <kbd>M</kbd> sound
         </p>
-        <p class="keys show-touch">Swipe anywhere to steer.</p>
+        <p class="keys show-touch">Steer with the pad below, or swipe anywhere.</p>
       </div>
     </div>
 
     <!-- Paused -->
-    <div v-else-if="state.status === 'paused'" class="overlay">
+    <div v-else-if="state.status === 'paused'" class="overlay" :style="overlayStyle">
       <div class="card card-small">
         <p class="chrome-label">paused</p>
         <h2>Take a breath</h2>
@@ -179,7 +191,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Game over -->
-    <div v-else-if="state.status === 'over'" class="overlay">
+    <div v-else-if="state.status === 'over'" class="overlay" :style="overlayStyle">
       <div class="card card-small">
         <span class="badge">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -215,7 +227,6 @@ onBeforeUnmount(() => {
 /* The board keeps clear of the HUD, so nothing hides under it. */
 .arena {
   position: absolute;
-  inset: 72px 12px 12px;
 }
 
 /* ─── HUD ─── */
@@ -283,7 +294,7 @@ onBeforeUnmount(() => {
 }
 .card {
   width: min(30rem, 100%);
-  max-height: calc(100vh - 32px);
+  max-height: 100%;
   overflow: auto;
   padding: 2rem;
   background: var(--bg);
@@ -479,7 +490,27 @@ onBeforeUnmount(() => {
 .show-touch { display: none; }
 @media (pointer: coarse) {
   .hide-touch { display: none; }
+  /* The pad has its own play/pause in the middle. */
+  .hide-touch-grid { display: none; }
+  .round { width: 40px; height: 40px; }
+  .rules li { font-size: 12px; line-height: 1.5; }
+  .rules { gap: 0.6rem; margin-bottom: 1rem; }
+  .note { font-size: 11px; }
+  .card h1 { margin-bottom: 0.9rem; }
   .show-touch { display: block; }
+}
+@media (max-width: 420px) {
+  .hide-xs { display: none; }
+  .brand { font-size: 16px; }
+}
+@media (max-height: 500px) {
+  .card { padding: 1.1rem 1.4rem; }
+  .card h1 { font-size: 2rem; margin-bottom: 0.6rem; }
+  .card h2 { font-size: 1.3rem; margin-top: 0.3rem; }
+  .badge { width: 34px; height: 34px; }
+  .tally { margin-top: 0.75rem; }
+  .tally div { padding: 0.35rem 0.6rem; }
+  .tally b { font-size: 1rem; }
 }
 @media (max-width: 520px) {
   .hide-sm { display: none; }

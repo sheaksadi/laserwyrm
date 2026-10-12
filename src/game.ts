@@ -148,11 +148,36 @@ function later(ms: number, run: () => void) {
 
 /* ─── Setup ──────────────────────────────────────────────────────────── */
 
-/** Fit the grid to the window: bigger cells on big screens, never tiny ones. */
+/** Phones and tablets get on-screen controls, so the board makes room for them. */
+export const isTouch = () =>
+  typeof window !== 'undefined' &&
+  (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window)
+
+/**
+ * Where the board sits, in px from each window edge. The HUD band is on top;
+ * on touch screens the control pad takes the bottom (portrait) or the right
+ * side (landscape). App.vue places the board and the pad from these numbers.
+ */
+export function arenaInsets() {
+  const w = window.innerWidth
+  const h = window.innerHeight
+  if (!isTouch()) return { top: 72, right: 12, bottom: 12, left: 12, pad: 'none' as const }
+  if (w > h) return { top: 64, right: 200, bottom: 8, left: 8, pad: 'side' as const }
+  return { top: 64, right: 8, bottom: 196, left: 8, pad: 'bottom' as const }
+}
+
+export const layout = reactive(arenaInsets())
+
+/** Keep the board and pad placement in step with the window. */
+export function fitLayout() {
+  Object.assign(layout, arenaInsets())
+}
+
+/** Fit the grid to the board area: bigger cells on big screens, never tiny ones. */
 export function fitGrid() {
-  // Matches `.arena` in App.vue: 72px HUD band on top, 12px gutters elsewhere.
-  const w = window.innerWidth - 24
-  const h = window.innerHeight - 84
+  fitLayout()
+  const w = window.innerWidth - layout.left - layout.right
+  const h = window.innerHeight - layout.top - layout.bottom
   const cell = w < 640 ? 22 : w < 1200 ? 28 : 32
   state.cols = Math.max(12, Math.floor(w / cell))
   state.rows = Math.max(12, Math.floor(h / cell))
