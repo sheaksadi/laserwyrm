@@ -1,0 +1,127 @@
+/* ─── Design System: Minimal Pastel ─────────────────────────────────────
+ *
+ * Taken from the sem3 course deck: white backgrounds, JetBrains Mono, bold
+ * pastel blocks, flat graphics, no shadows, 2px borders.
+ *
+ * ─────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── surfaces ── */
+  --bg:          #FFFFFF;
+  --bg-off:      #F5F5F0;
+  --bg-warm:     #FFF8F3;
+
+  /* ── ink ── */
+  --text:        #1A1A1A;
+  --text-dim:    #6B6B6B;
+  --text-muted:  #B0B0B0;
+  --border:      #E5E5E5;
+
+  /* ── pastels ── */
+  --coral:       #FF6B6B;
+  --mint:        #4ECDC4;
+  --sky:         #74B9FF;
+  --rose:        #F78DA7;
+  --sun:         #FFEAA7;
+  --lavender:    #A29BFE;
+  --peach:       #FAB1A0;
+  --sage:        #B8E994;
+
+  --font-code:   'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-code);
+  -webkit-font-smoothing: antialiased;
+  /* `!=` and `==` stay two characters: beginners read the code as typed. */
+  font-variant-ligatures: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Labels in pills sit in the true middle, not riding high. */
+.text-trim {
+  display: block;
+  text-box: trim-both cap alphabetic;
+}
+
+.tag {
+  display: inline-block;
+  padding: calc(0.25rem + 0.38em) 0.75rem;
+  text-box: trim-both cap alphabetic;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tag-coral    { background: var(--coral);    color: #fff; }
+.tag-mint     { background: var(--mint);     color: #fff; }
+.tag-sky      { background: var(--sky);      color: #fff; }
+.tag-sun      { background: var(--sun);      color: var(--text); }
+.tag-lavender { background: var(--lavender); color: #fff; }
+.tag-sage     { background: var(--sage);     color: var(--text); }
+
+.chrome-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.card {
+  background: var(--bg-off);
+  border: 2px solid var(--border);
+  border-radius: 1rem;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0.3em 0.45em;
+  text-box: trim-both cap alphabetic;
+  border: 2px solid var(--border);
+  border-bottom-width: 3px;
+  border-radius: 0.4rem;
+  background: var(--bg);
+  font-family: var(--font-code);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
