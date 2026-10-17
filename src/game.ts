@@ -23,9 +23,14 @@
  *
  * Cheats (the C menu) can jump levels, turn on god mode and hand out items.
  * A run that used any of them never counts toward the best score.
+ *
+ * Every run is reproducible: all chance comes from one seeded generator, all
+ * timing that matters is counted in steps, and each input is logged against
+ * the step it landed before. Seed, grid size and inputs are a replay; feeding
+ * them back through the same engine plays the game again exactly.
  */
 import { reactive } from 'vue'
-import { conductor, now, queue, sound, stepSeconds } from './audio'
+import { conductor, now, queue, sound as rawSound, stepSeconds } from './audio'
 
 export interface Vec { x: number; y: number }
 export type DirName = 'up' | 'down' | 'left' | 'right'
@@ -150,8 +155,9 @@ const POP_GAP_MS = 45
 const POPUP_MS = 1000
 const BOLT_MS = 320
 const BARS_PER_LEVEL = 8
-const SNIPPER_RESPAWN_MS = 9000
-const SNIPPER_REST_MS = 2600
+/** Counted in steps (16th notes), not ms, so replays match. */
+const SNIPPER_RESPAWN_STEPS = 64
+const SNIPPER_REST_STEPS = 20
 const DASH_CELLS = 4
 /** Chance per bar that a totem drops, from level 2 on. */
 const TOTEM_CHANCE = 0.012
@@ -177,12 +183,74 @@ function saveBest(value: number) {
 }
 
 const same = (a: Vec, b: Vec) => a.x === b.x && a.y === b.y
-const rand = (n: number) => Math.floor(Math.random() * n)
+/* ─── Chance and replays ─────────────────────────────────────────────── */
+
+/** mulberry32: small, fast, and the same everywhere for the same seed. */
+function seeded(seed: number) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+let random = seeded(1)
+
+/** Inputs, as [steps done before it, code]: u d l r for turns, i for using a power-up. */
+export type ReplayEvent = [number, 'u' | 'd' | 'l' | 'r' | 'i']
+export interface Replay {
+  v: 1
+  seed: number
+  cols: number
+  rows: number
+  /** Steps played until the end. */
+  steps: number
+  events: ReplayEvent[]
+}
+const DIR_CODE: Record<DirName, ReplayEvent[1]> = { up: 'u', down: 'd', left: 'l', right: 'r' }
+const CODE_DIR = { u: 'up', d: 'down', l: 'left', r: 'right' } as const
+
+/** The run being played: its seed, grid and inputs so far. */
+let recording: Replay = { v: 1, seed: 1, cols: 30, rows: 20, steps: 0, events: [] }
+/** Steps processed this run; inputs are filed against it. */
+let stepsDone = 0
+
+/** Playback of a recorded run. While active, input and sound are off. */
+export const replay = reactive({
+  active: false,
+  ended: false,
+  /** Steps played so far, and the total. */
+  at: 0,
+  total: 0,
+})
+let replayEvents: ReplayEvent[] = []
+let replayCursor = 0
+let savedCheats = { god: false, noLasers: false }
+
+/** Sounds go quiet during a replay; everything else calls through. */
+const sound = new Proxy(rawSound, {
+  get: (target, key: keyof typeof rawSound) => (replay.active ? () => {} : target[key]),
+})
+
+/** A copy of the last run, ready to send with a score. */
+export const lastReplay = (): Replay => ({ ...recording, steps: stepsDone, events: [...recording.events] })
+
+const rand = (n: number) => Math.floor(random() * n)
 const pick = <T>(list: readonly T[]) => list[rand(list.length)]!
 const inBeam = (cell: Vec, beam: Beam) =>
   Math.abs((beam.axis === 'row' ? cell.y : cell.x) - beam.index) <= (beam.width - 1) / 2
 const onLine = (cell: Vec, laser: Laser) => laser.beams.some((beam) => inBeam(cell, beam))
-const tempoFor = (level: number) => Math.min(172, 108 + level * 8)
+/**
+ * How hard a level (0-based) plays. Levels 1–10 stretch what used to be
+ * levels 1–6 or so (×0.65 a level), then it climbs faster and faster: a
+ * steady 0.4 a level plus a growing square term. Tempo, laser counts and
+ * warning time all read from this.
+ */
+export const intensity = (level: number) =>
+  level < 10 ? level * 0.65 : 6.5 + (level - 10) * 0.4 + (level - 10) ** 2 * 0.012
+const tempoFor = (level: number) => Math.round(Math.min(172, 108 + intensity(level) * 8))
 
 let uid = 0
 
@@ -309,9 +377,18 @@ function addItem(kind: ItemKind, lifeSteps: number | null) {
   state.items.push({ id: ++uid, kind, ...cell, until: lifeSteps === null ? null : state.step + lifeSteps })
 }
 
-export function reset() {
+export function reset(from?: { seed: number; cols: number; rows: number }) {
   conductor.stop()
-  fitGrid()
+  if (from) {
+    state.cols = from.cols
+    state.rows = from.rows
+  } else {
+    fitGrid()
+  }
+  const seed = from?.seed ?? (Math.floor(Math.random() * 2 ** 32) >>> 0)
+  random = seeded(seed)
+  recording = { v: 1, seed, cols: state.cols, rows: state.rows, steps: 0, events: [] }
+  stepsDone = 0
   const cx = Math.floor(state.cols / 2) - 3
   const cy = Math.floor(state.rows / 2)
   Object.assign(state, {
@@ -374,9 +451,13 @@ function notice(kind: PowerKind | 'totem', title: string, sub: string) {
 
 function die(reason: string) {
   if (state.totem) return revive(reason)
-  state.status = 'over'
   state.reason = reason
   state.shake++
+  if (replay.active) {
+    replay.ended = true
+    return
+  }
+  state.status = 'over'
   conductor.stop()
   sound.die()
   state.newBest = !state.cheated && state.score > state.best
@@ -423,8 +504,10 @@ function cut(index: number) {
 
 /* ─── Lasers ─────────────────────────────────────────────────────────── */
 
+/** Warning before a laser strikes, in 16th notes: long at first, then shorter. */
 function warnSteps() {
-  return state.level < 2 ? 16 : state.level < 4 ? 12 : 8
+  const i = intensity(state.level)
+  return i < 1.3 ? 16 : i < 2.6 ? 12 : i < 14 ? 8 : 6
 }
 
 /** Which tricks a new laser gets: more of them, and more often, the higher the level. */
@@ -433,14 +516,14 @@ function rollTraits(): LaserTrait[] {
   const open = (Object.keys(LASER_TRAITS) as LaserTrait[]).filter((t) => LASER_TRAITS[t].unlock <= level)
   if (!open.length) return []
   const newest = open[open.length - 1]!
-  const roll = Math.random()
+  const roll = random()
   let count = 0
   if (level >= PRISM_LEVEL && roll < 0.35) count = 3
   else if (level >= COMBO_LEVEL && roll < 0.45) count = 2
   else if (roll < Math.min(0.8, 0.4 + (level - 10) * 0.01)) count = 1
   const traits: LaserTrait[] = []
   // A freshly unlocked trick turns up often, so the player meets it.
-  if (count && Math.random() < 0.5) traits.push(newest)
+  if (count && random() < 0.5) traits.push(newest)
   while (traits.length < Math.min(count, open.length)) {
     const t = pick(open)
     if (!traits.includes(t)) traits.push(t)
@@ -469,7 +552,7 @@ function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
     let axis: Beam['axis']
     let index: number
     let target: Vec = head
-    const roll = Math.random()
+    const roll = random()
     if (forced && attempt === 0) {
       axis = forced.axis
       index = forced.index
@@ -478,10 +561,10 @@ function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
       index = axis === 'row' ? head.y : head.x
     } else if (roll < 0.85 && body.length) {
       target = pick(body)
-      axis = Math.random() < 0.5 ? 'row' : 'col'
+      axis = random() < 0.5 ? 'row' : 'col'
       index = axis === 'row' ? target.y : target.x
     } else {
-      axis = Math.random() < 0.5 ? 'row' : 'col'
+      axis = random() < 0.5 ? 'row' : 'col'
       index = rand(axis === 'row' ? state.rows : state.cols)
       target = { x: rand(state.cols), y: rand(state.rows) }
     }
@@ -505,7 +588,7 @@ function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
       strikeStep: state.step + steps,
       warnMs: warnSec * 1000,
       struck: false,
-      from: Math.random() < 0.5 ? 'start' : 'end',
+      from: random() < 0.5 ? 'start' : 'end',
       echo: false,
     })
     sound.riser(warnSec)
@@ -530,7 +613,7 @@ function boltPoints(beam: Beam): string {
   const length = beam.axis === 'row' ? state.cols : state.rows
   const points: string[] = []
   for (let i = 0; i <= length; i += 0.5) {
-    const jitter = i === 0 || i >= length ? 0 : (Math.random() - 0.5) * 0.7 * beam.width
+    const jitter = i === 0 || i >= length ? 0 : (random() - 0.5) * 0.7 * beam.width
     const across = beam.index + 0.5 + jitter
     points.push(beam.axis === 'row' ? `${i},${across}` : `${across},${i}`)
   }
@@ -560,7 +643,7 @@ function strike(laser: Laser) {
   const s = state.snipper
   if (s.active && onLine(s, laser)) {
     s.active = false
-    s.until = clock() + SNIPPER_RESPAWN_MS
+    s.until = state.step + SNIPPER_RESPAWN_STEPS
     state.grow += 2
     popup(s, '+2 × zapped', 'lavender')
   }
@@ -613,7 +696,7 @@ function moveSnipper() {
   if (dx) options.push({ x: Math.sign(dx), y: 0 })
   if (dy) options.push({ x: 0, y: Math.sign(dy) })
   if (Math.abs(dy) > Math.abs(dx)) options.reverse()
-  if (Math.random() < 0.2) options.reverse()
+  if (random() < 0.2) options.reverse()
   const step = options.find((d) => {
     const nx = s.x + d.x
     const ny = s.y + d.y
@@ -630,14 +713,14 @@ function moveSnipper() {
     cut(index)
     sound.snip()
     s.resting = true
-    s.until = clock() + SNIPPER_REST_MS
+    s.until = state.step + SNIPPER_REST_STEPS
   }
 }
 
 function eatSnipper() {
   const s = state.snipper
   s.active = false
-  s.until = clock() + SNIPPER_RESPAWN_MS
+  s.until = state.step + SNIPPER_RESPAWN_STEPS
   state.grow += 3
   state.stats.snippers++
   sound.bonus()
@@ -693,9 +776,11 @@ function activate(kind: PowerKind, at: Vec) {
 
 /** Use the oldest held power-up. */
 export function useItem() {
-  if (state.status !== 'running') return
+  if (state.status !== 'running' || replay.active) return
   const kind = state.held.shift()
-  if (kind) activate(kind, state.snake[0]!)
+  if (!kind) return
+  recording.events.push([stepsDone, 'i'])
+  activate(kind, state.snake[0]!)
 }
 
 /* ─── The beat ───────────────────────────────────────────────────────── */
@@ -712,15 +797,15 @@ function onBar(bar: number) {
   // Bonus fruit and pills, at most two extras at a time.
   const extras = state.items.filter((i) => i.kind !== 'apple').length
   if (extras < 2 && bar > 0) {
-    const roll = Math.random()
+    const roll = random()
     if (roll < 0.3) addItem('cherry', 48)
     else if (roll < 0.4 && level >= 1) addItem('star', 32)
     else if (roll < 0.62 && level >= 1) addItem(pick(POWER_KINDS), 48)
   }
   const totemOut = state.items.some((i) => i.kind === 'totem')
-  if (level >= 1 && !state.totem && !totemOut && Math.random() < TOTEM_CHANCE) addItem('totem', 32)
+  if (level >= 1 && !state.totem && !totemOut && random() < TOTEM_CHANCE) addItem('totem', 32)
   const heartOut = state.items.some((i) => i.kind === 'heart')
-  if (bar > 0 && !heartOut && state.hearts < MAX_HEARTS && Math.random() < HEART_CHANCE) addItem('heart', 40)
+  if (bar > 0 && !heartOut && state.hearts < MAX_HEARTS && random() < HEART_CHANCE) addItem('heart', 40)
 }
 
 /**
@@ -743,19 +828,18 @@ function onBeat(step: number) {
 
   trackLasers()
 
-  // More lasers per bar as the level climbs: 1, 2, 3, ... 6 by level 6, then
-  // one more every 15 levels, up to 10. More may be armed at once, too.
-  const level = state.level
-  const perBar = level < 10 ? Math.min(6, 1 + level) : Math.min(10, 6 + Math.floor((level - 10) / 15))
-  const armedCap = level < 5 ? 2 + level : Math.min(14, 7 + Math.floor((level - 5) / 8))
+  // More lasers per bar, and more armed at once, as the intensity climbs.
+  const i = intensity(state.level)
+  const perBar = Math.min(10, 1 + i)
+  const armedCap = Math.min(14, Math.floor(2 + i))
   const armed = state.lasers.filter((l) => !l.struck).length
   if (armed >= armedCap) return
   const chance = perBar / 4
-  let count = Math.floor(chance) + (Math.random() < chance % 1 ? 1 : 0)
+  let count = Math.floor(chance) + (random() < chance % 1 ? 1 : 0)
   while (count-- > 0) {
     const placed = spawnLaser()
-    // From level 3 a laser sometimes brings a crossing partner.
-    if (placed && state.level >= 3 && Math.random() < 0.25) {
+    // Past the first few levels a laser sometimes brings a crossing partner.
+    if (placed && i >= 3 && random() < 0.25) {
       const head = state.snake[0]!
       spawnLaser(placed.axis === 'row' ? { axis: 'col', index: head.x } : { axis: 'row', index: head.y })
     }
@@ -835,20 +919,21 @@ function pullFruit() {
 
 function onStep(step: number) {
   state.step = step
+  stepsDone = step + 1
   if (step % 16 === 0) onBar(step / 16)
   if (step % 4 === 0) onBeat(step)
 
   // Slow-mo: the snake moves on 8ths instead of 16ths.
   if (!isActive('slow') || step % 2 === 0) tick()
-  if (state.status !== 'running') return
+  if (state.status !== 'running' || replay.ended) return
   if (isActive('magnet') && step % 2 === 0) pullFruit()
 
   for (const laser of state.lasers) if (!laser.struck && laser.strikeStep <= step) strike(laser)
 
   const s = state.snipper
   if (s.active && step % 2 === 0) moveSnipper()
-  if (!s.active && (state.level >= 1 || state.snake.length >= 8) && clock() >= s.until) spawnSnipper()
-  if (s.active && s.resting && clock() >= s.until) s.resting = false
+  if (!s.active && (state.level >= 1 || state.snake.length >= 8) && state.step >= s.until) spawnSnipper()
+  if (s.active && s.resting && state.step >= s.until) s.resting = false
 
   state.items = state.items.filter((i) => i.until === null || i.until > step)
 }
@@ -861,9 +946,9 @@ conductor.onSchedule(({ step, time }) => {
 /* ─── Loop and controls ──────────────────────────────────────────────── */
 
 function frame() {
-  if (state.status === 'running') {
+  if (state.status === 'running' || replay.active) {
     const t = now()
-    while (queue.length && queue[0]!.time <= t && state.status === 'running') onStep(queue.shift()!.step)
+    while (!replay.active && queue.length && queue[0]!.time <= t && state.status === 'running') onStep(queue.shift()!.step)
     const ms = clock()
     for (let i = timers.length - 1; i >= 0; i--) {
       if (ms >= timers[i]!.at) timers.splice(i, 1)[0]!.run()
@@ -906,7 +991,7 @@ export function cheatGive(kind: PowerKind | 'totem' | 'heart' | 'grow') {
 }
 
 export function play() {
-  if (state.status === 'running') return
+  if (state.status === 'running' || replay.active) return
   if (state.status === 'over') reset()
   if (state.status === 'paused') conductor.resume()
   else conductor.start()
@@ -914,7 +999,7 @@ export function play() {
 }
 
 export function pause() {
-  if (state.status !== 'running') return
+  if (state.status !== 'running' || replay.active) return
   state.status = 'paused'
   conductor.pause()
 }
@@ -925,13 +1010,85 @@ export function toggle() {
 }
 
 export function turn(name: DirName) {
-  if (state.status === 'over') return
-  const wanted = DIRS[name]
-  const lastQueued = state.queue[state.queue.length - 1] ?? state.direction
-  if (same(wanted, lastQueued) || state.queue.length >= 3) return
-  state.queue.push({ ...wanted })
+  if (state.status === 'over' || replay.active) return
+  if (!queueTurn(name)) return
+  recording.events.push([stepsDone, DIR_CODE[name]])
   sound.turn()
   if (state.status === 'ready' || state.status === 'paused') play()
+}
+
+function queueTurn(name: DirName): boolean {
+  const wanted = DIRS[name]
+  const lastQueued = state.queue[state.queue.length - 1] ?? state.direction
+  if (same(wanted, lastQueued) || state.queue.length >= 3) return false
+  state.queue.push({ ...wanted })
+  return true
+}
+
+/* ─── Replays ────────────────────────────────────────────────────────── */
+
+/** Set up a recorded run at its first step. Cheats are put aside until it ends. */
+export function startReplay(run: Replay) {
+  if (!replay.active) savedCheats = { ...cheats }
+  cheats.god = false
+  cheats.noLasers = false
+  replay.active = true
+  replay.ended = false
+  replay.total = run.steps
+  replayEvents = run.events
+  replayCursor = 0
+  reset(run)
+  replay.at = 0
+  // 'running' so the board and HUD show as in play; the conductor stays off.
+  state.status = 'running'
+}
+
+/** Play forward to `target` steps, feeding in the recorded inputs on time. */
+export function replayTo(target: number) {
+  while (replay.at < target && !replay.ended) {
+    while (replayCursor < replayEvents.length && replayEvents[replayCursor]![0] <= replay.at) {
+      const code = replayEvents[replayCursor++]![1]
+      if (code === 'i') {
+        const kind = state.held.shift()
+        if (kind) activate(kind, state.snake[0]!)
+      } else {
+        queueTurn(CODE_DIR[code])
+      }
+    }
+    onStep(replay.at)
+    replay.at++
+  }
+}
+
+/** Jump anywhere: back means playing again from the start, quickly. Leftover effects are cleared. */
+export function replaySeek(target: number, run: Replay) {
+  if (target < replay.at) startReplay(run)
+  replayTo(target)
+  timers.length = 0
+  state.popups = []
+  state.debris = []
+  state.banner = null
+  state.notice = null
+  state.lasers = state.lasers.filter((l) => !l.struck)
+}
+
+/** How long `steps` of a run last in seconds, with the tempo rising level by level. */
+export function runSeconds(steps: number) {
+  const perLevel = 16 * BARS_PER_LEVEL
+  let seconds = 0
+  for (let level = 0, left = steps; left > 0; level++, left -= perLevel) {
+    seconds += (Math.min(left, perLevel) * 60) / (tempoFor(level) * 4)
+  }
+  return seconds
+}
+
+/** Leave the replay and set up a fresh live game. */
+export function stopReplay() {
+  if (!replay.active) return
+  replay.active = false
+  replay.ended = false
+  Object.assign(cheats, savedCheats)
+  reset()
 }
 
 /** Share of an effect still left, 0 to 1, for the HUD. */

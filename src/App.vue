@@ -2,11 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { musicOn, muted } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, layout, multiplier, pause, play, POWER_KINDS, POWERS, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, lastReplay, layout, multiplier, pause, play, POWER_KINDS, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName } from './game'
+import { canFullscreen, enterFullscreen, fullscreenOn, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumble, startGamepad, stopGamepad } from './gamepad'
-import { saveScore } from './scores'
+import { fetchScore, placesOnBoard, submitScore as sendScore } from './api'
+import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
 import CheatMenu from './components/CheatMenu.vue'
 import HeldPills from './components/HeldPills.vue'
+import Leaderboard from './components/Leaderboard.vue'
+import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
 import PowerIcon from './components/PowerIcon.vue'
 import TouchPad from './components/TouchPad.vue'
@@ -50,21 +54,66 @@ function restart() {
   reset()
 }
 
+/* ─── Pages: the game, the high scores, and watching a run ─── */
+type Route = { name: 'game' } | { name: 'scores'; highlight?: number } | { name: 'watch'; id: number }
+function parseRoute(): Route {
+  const hash = location.hash
+  const watching = hash.match(/^#\/watch\/(\d+)/)
+  if (watching) return { name: 'watch', id: Number(watching[1]) }
+  const scores = hash.match(/^#\/scores(?:\/(\d+))?/)
+  if (scores) return { name: 'scores', highlight: scores[1] ? Number(scores[1]) : undefined }
+  return { name: 'game' }
+}
+const route = ref<Route>(parseRoute())
+const go = (hash: string) => {
+  location.hash = hash
+}
+const watchError = ref('')
+async function onRoute() {
+  const next = parseRoute()
+  const was = route.value
+  route.value = next
+  if (was.name === 'watch' && next.name !== 'watch') stopWatching()
+  if (next.name !== 'game') {
+    menuOpen.value = false
+    cheatOpen.value = false
+    pause()
+  }
+  if (next.name === 'watch') {
+    watchError.value = ''
+    try {
+      const entry = await fetchScore(next.id)
+      if (route.value.name === 'watch' && route.value.id === next.id) watchRun(entry.replay, entry)
+    } catch (err) {
+      watchError.value = err instanceof Error ? err.message : String(err)
+    }
+  }
+}
+
 /* ─── High-score entry ─── */
 const entryName = ref('')
 const entryEmail = ref('')
-const entrySaved = ref<'no' | 'yes' | 'blocked'>('no')
+/** Whether this run makes the board, then how sending it went. */
+const entry = ref<{ phase: 'checking' | 'open' | 'none' | 'sending' | 'saved' | 'failed'; rank?: number; id?: number; error?: string }>({ phase: 'none' })
 watch(
   () => state.status,
-  (status) => {
-    if (status === 'over') entrySaved.value = 'no'
+  async (status) => {
+    if (status !== 'over' || replay.active) return
+    entry.value = { phase: 'checking' }
+    const places = !state.cheated && (await placesOnBoard(state.score))
+    if (state.status === 'over') entry.value = { phase: places ? 'open' : 'none' }
   },
 )
-function submitScore() {
+async function submitScore() {
   const name = entryName.value.trim()
   if (!name) return
-  const ok = saveScore({ name, email: entryEmail.value.trim(), score: state.score, level: state.level + 1, at: new Date().toISOString() })
-  entrySaved.value = ok ? 'yes' : 'blocked'
+  entry.value = { phase: 'sending' }
+  try {
+    const saved = await sendScore({ name, email: entryEmail.value.trim(), score: state.score, level: state.level + 1, replay: lastReplay() })
+    entry.value = { phase: 'saved', rank: saved.rank, id: saved.id }
+  } catch (err) {
+    entry.value = { phase: 'failed', error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 /** The cheat menu: C opens it and pauses; C or Escape closes it, still paused. */
@@ -80,7 +129,21 @@ function toggleCheats() {
 function onKey(event: KeyboardEvent) {
   if (event.metaKey || event.ctrlKey || event.altKey) return
   // Typing a name is not steering.
-  if (event.target instanceof HTMLInputElement) return
+  if (event.target instanceof HTMLInputElement && event.target.type !== 'range') return
+  if (route.value.name === 'watch') {
+    // Watching: Space plays and pauses, arrows jump, Esc goes back to the board.
+    if (event.key === ' ' || event.key === 'k') togglePlay()
+    else if (event.key === 'ArrowLeft' || event.key === 'j') seekBy(-36)
+    else if (event.key === 'ArrowRight' || event.key === 'l') seekBy(36)
+    else if (event.key === 'Escape') go('#/scores')
+    else return
+    event.preventDefault()
+    return
+  }
+  if (route.value.name === 'scores') {
+    if (event.key === 'Escape') go('#/')
+    return
+  }
   if (event.key === 'c' || event.key === 'C') return toggleCheats()
   if (cheatOpen.value) {
     if (event.key === 'Escape') cheatOpen.value = false
@@ -98,6 +161,9 @@ function onKey(event: KeyboardEvent) {
   } else if (event.key === 'Enter') {
     event.preventDefault()
     toggle()
+  } else if (event.key === 'Escape' && state.status !== 'running' && !menuOpen.value) {
+    // Mid-game Esc pauses; on the pause screen it leaves full screen.
+    leaveFullscreen()
   } else if (event.key === 'Escape' || event.key === 'p' || event.key === 'P') {
     menuOpen.value = false
     pause()
@@ -144,9 +210,12 @@ function onVisibility() {
 const typing = () => document.activeElement instanceof HTMLInputElement
 const padHandlers = {
   turn: (dir: DirName) => {
-    if (!cheatOpen.value) turn(dir)
+    if (route.value.name === 'watch' && (dir === 'left' || dir === 'right')) seekBy(dir === 'left' ? -36 : 36)
+    else if (route.value.name === 'game' && !cheatOpen.value) turn(dir)
   },
   primary: () => {
+    if (route.value.name === 'watch') return togglePlay()
+    if (route.value.name === 'scores') return go('#/')
     if (cheatOpen.value || typing()) return
     if (state.status === 'running') useItem()
     else play()
@@ -155,8 +224,12 @@ const padHandlers = {
     if (cheatOpen.value) cheatOpen.value = false
     else toggle()
   },
-  back: () => toggleCheats(),
+  back: () => {
+    if (route.value.name === 'game') toggleCheats()
+  },
   cancel: () => {
+    if (route.value.name === 'watch') return go('#/scores')
+    if (route.value.name === 'scores') return go('#/')
     cheatOpen.value = false
     menuOpen.value = false
   },
@@ -165,9 +238,26 @@ const padHandlers = {
 watch(
   () => state.shake,
   () => {
-    if (pad.connected) rumble(state.status === 'over' ? 260 : 120)
+    if (pad.connected && !replay.active) rumble(state.status === 'over' ? 260 : 120)
   },
 )
+/* ─── Full screen ─── */
+// Playing goes full screen and stays there; the pause screen is the way out.
+watch(
+  () => state.status,
+  (status) => {
+    if (status === 'running' && !replay.active) enterFullscreen()
+  },
+)
+function toggleFullscreen() {
+  if (isFullscreen.value) leaveFullscreen()
+  else enterFullscreen(true)
+}
+/** How to get out, for a few seconds after going in. */
+const fsHint = ref(false)
+let fsHintTimer = 0
+let stopFullscreenWatch = () => {}
+
 /** "Controller connected" shows briefly each time one joins. */
 const padToast = ref(false)
 let padToastTimer = 0
@@ -181,7 +271,21 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener('hashchange', onRoute)
+  if (route.value.name !== 'game') void onRoute()
   startGamepad(padHandlers)
+  stopFullscreenWatch = watchFullscreen(
+    () => {
+      fsHint.value = true
+      clearTimeout(fsHintTimer)
+      fsHintTimer = window.setTimeout(() => (fsHint.value = false), 3500)
+    },
+    () => {
+      fsHint.value = false
+      // Esc in the browser drops full screen without telling the game: pause with it.
+      pause()
+    },
+  )
   window.addEventListener('keydown', onKey)
   window.addEventListener('pointerdown', onPointerDown)
   window.addEventListener('resize', onResize)
@@ -189,7 +293,9 @@ onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('hashchange', onRoute)
   stopGamepad()
+  stopFullscreenWatch()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('pointerdown', onPointerDown)
   window.removeEventListener('resize', onResize)
@@ -204,9 +310,9 @@ onBeforeUnmount(() => {
       class="arena"
       :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
     ><Board /></div>
-    <TouchPad v-if="layout.pad !== 'none'" :placement="layout.pad" />
+    <TouchPad v-if="layout.pad !== 'none' && route.name !== 'watch'" :placement="layout.pad" />
     <!-- On touch screens the pill slots sit by the pad, like an arcade action button. -->
-    <HeldPills v-if="layout.pad !== 'none'" class="by-pad" :class="layout.pad" />
+    <HeldPills v-if="layout.pad !== 'none' && route.name !== 'watch'" class="by-pad" :class="layout.pad" />
 
     <!-- HUD: stats on the left, held power-ups in the middle, level and buttons on the right.
          Every number sits in a fixed-width box, so nothing shifts as it counts. -->
@@ -261,6 +367,10 @@ onBeforeUnmount(() => {
               </svg>
               <span>Music</span><span class="state" :class="{ on: musicOn }">{{ musicOn ? 'on' : 'off' }}</span><kbd class="hide-touch">B</kbd>
             </button>
+            <button class="menu-item" role="menuitemcheckbox" :aria-checked="fullscreenOn" @click="fullscreenOn = !fullscreenOn">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6" /></svg>
+              <span>Full screen</span><span class="state" :class="{ on: fullscreenOn }">{{ fullscreenOn ? 'on' : 'off' }}</span><span></span>
+            </button>
             <button class="menu-item" role="menuitemcheckbox" :aria-checked="!muted" @click="toggleMute">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M11 5 6 9H2v6h4l5 4V5z" />
@@ -272,6 +382,10 @@ onBeforeUnmount(() => {
             <button class="menu-item" role="menuitem" @click="restart">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
               <span>Restart</span><span></span><kbd class="hide-touch">R</kbd>
+            </button>
+            <button class="menu-item" role="menuitem" @click="menuOpen = false; go('#/scores')">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" /></svg>
+              <span>High scores</span><span></span><span></span>
             </button>
             <button class="menu-item" role="menuitem" @click="toggleCheats">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 14 10M14 4v3M14 13v3M10 7H7M21 7h-3M17 4l-1.5 1.5M17 10l-1.5-1.5" /></svg>
@@ -297,8 +411,26 @@ onBeforeUnmount(() => {
       <span class="banner-sub">{{ state.banner.sub }}</span>
     </div>
 
+    <!-- High scores -->
+    <div v-if="route.name === 'scores'" class="overlay" :style="overlayStyle">
+      <Leaderboard :highlight="route.highlight" @close="go('#/')" @watch="(id) => go(`#/watch/${id}`)" />
+    </div>
+
+    <!-- Watching a run -->
+    <template v-else-if="route.name === 'watch'">
+      <ReplayViewer v-if="player.run" @exit="go('#/scores')" />
+      <div v-else class="overlay" :style="overlayStyle">
+        <div class="card card-small">
+          <p class="chrome-label">replay</p>
+          <h2>{{ watchError ? 'Not found' : 'Loading…' }}</h2>
+          <p v-if="watchError" class="best-line">{{ watchError }}</p>
+          <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">Back to scores</span></button>
+        </div>
+      </div>
+    </template>
+
     <!-- Cheats -->
-    <div v-if="cheatOpen" class="overlay" :style="overlayStyle">
+    <div v-else-if="cheatOpen" class="overlay" :style="overlayStyle">
       <CheatMenu @close="cheatOpen = false" />
     </div>
 
@@ -337,6 +469,7 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <button class="btn" @click="play()"><span class="text-trim blink">Press start</span></button>
+        <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
         <div v-if="pad.connected" class="keys">
           <span class="keygroup"><PadGlyph button="dpad" /><PadGlyph button="stick" /> move</span>
           <span class="keygroup"><PadGlyph button="a" /><PadGlyph button="rt" /> power-up</span>
@@ -370,6 +503,10 @@ onBeforeUnmount(() => {
         <h2>Take a breath</h2>
         <button class="btn" @click="play()"><span class="text-trim">Resume</span></button>
         <button class="btn btn-line" @click="reset()"><span class="text-trim">Restart</span></button>
+        <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
+          <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
+        </button>
+        <p v-if="isFullscreen && !pad.connected" class="keys"><span class="keygroup"><kbd>Esc</kbd> exit full screen</span></p>
       </div>
     </div>
 
@@ -382,13 +519,20 @@ onBeforeUnmount(() => {
         <p v-if="state.newBest" class="new-best blink">New best!</p>
         <p v-else class="best-line">best {{ state.best }}<template v-if="state.cheated"> · cheats on, not counted</template></p>
 
-        <form v-if="state.newBest && entrySaved === 'no'" class="entry" @submit.prevent="submitScore">
-          <input v-model="entryName" class="field" maxlength="12" placeholder="Name" aria-label="Name" autocomplete="nickname" required autofocus />
-          <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
-          <button class="btn btn-submit" type="submit"><span class="text-trim">Submit</span></button>
-        </form>
-        <p v-else-if="entrySaved === 'yes'" class="entry-done">Saved, {{ entryName.trim() }}. On this device for now.</p>
-        <p v-else-if="entrySaved === 'blocked'" class="entry-done">Could not save: this browser blocks storage.</p>
+        <!-- A run that makes the board can be signed and sent, replay and all -->
+        <template v-if="entry.phase === 'open' || entry.phase === 'sending' || entry.phase === 'failed'">
+          <p class="entry-label">You made the high scores</p>
+          <form class="entry" @submit.prevent="submitScore">
+            <input v-model="entryName" class="field" maxlength="12" placeholder="Name" aria-label="Name" autocomplete="nickname" required autofocus />
+            <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
+            <button class="btn btn-submit" type="submit" :disabled="entry.phase === 'sending'"><span class="text-trim">{{ entry.phase === 'sending' ? '…' : 'Submit' }}</span></button>
+          </form>
+          <p v-if="entry.phase === 'failed'" class="entry-error">Could not send: {{ entry.error }}</p>
+        </template>
+        <p v-else-if="entry.phase === 'saved'" class="entry-done">
+          Saved, {{ entryName.trim() }}: #{{ entry.rank }} on the board.
+          <a :href="`#/scores/${entry.id}`">See the board</a> · <a :href="`#/watch/${entry.id}`">Watch your run</a>
+        </p>
 
         <dl class="tally">
           <div><dt>longest</dt><dd>{{ state.longest }}</dd></div>
@@ -401,7 +545,14 @@ onBeforeUnmount(() => {
           <div><dt>snippers</dt><dd>{{ state.stats.snippers }}</dd></div>
         </dl>
         <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
+        <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
       </div>
+    </div>
+
+    <!-- Just went full screen: how to get out -->
+    <div v-if="fsHint && state.status === 'running'" class="fs-hint">
+      <template v-if="pad.connected"><PadGlyph button="start" /> pause · leave full screen from the pause screen</template>
+      <template v-else><kbd>Esc</kbd> pause · <kbd>Esc</kbd> again to leave full screen</template>
     </div>
 
     <!-- Controller connected -->
@@ -498,6 +649,26 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   color: var(--mint);
   opacity: 0.85;
+}
+.fs-hint {
+  position: absolute;
+  /* Above the snake's starting spot, which is the middle. */
+  top: 30%;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 3px solid var(--sky);
+  background: var(--bg);
+  box-shadow: 4px 4px 0 var(--border);
+  font-size: 19px;
+  text-transform: uppercase;
+  color: var(--text);
+  translate: -50% -50%;
+  pointer-events: none;
+  animation: notice 3.5s steps(16) both;
 }
 .pad-toast {
   position: absolute;
@@ -789,6 +960,14 @@ onBeforeUnmount(() => {
   font-size: 0.6rem;
 }
 .btn.btn-submit:hover { background: #6BBEFF; }
+.entry-label {
+  margin: 1.1rem 0 0;
+  font-size: 17px;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+.entry-error { margin: 0.6rem 0 0; font-size: 17px; color: var(--coral); }
+.entry-done a { color: var(--sky); }
 .entry-done {
   margin: 1.1rem 0 0;
   font-size: 18px;
