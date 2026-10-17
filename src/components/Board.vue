@@ -2,7 +2,7 @@
 /**
  * The whole screen is the board. One SVG unit is one cell, so game positions
  * are drawing positions. The snake is drawn as one tube (a dark polyline under
- * a lighter one), which keeps the deck's flat look with an outline all round.
+ * a lighter one), with square caps for a blocky, 8-bit look.
  */
 import { computed, ref, watch } from 'vue'
 import { isActive, state, type Tone } from '../game'
@@ -97,7 +97,7 @@ watch(
   >
     <defs>
       <pattern id="dots" width="1" height="1" patternUnits="userSpaceOnUse">
-        <circle cx="0.5" cy="0.5" r="0.045" fill="var(--text-muted)" opacity="0.55" />
+        <path d="M 1 0 L 0 0 0 1" fill="none" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke" />
       </pattern>
       <pattern id="hatch" width="0.5" height="0.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <rect width="0.22" height="0.5" fill="var(--coral)" />
@@ -108,12 +108,12 @@ watch(
     <!-- Beat pulse: the frame flashes on every beat, stronger on the one -->
     <rect
       ref="pulse"
-      :width="state.cols" :height="state.rows" rx="0.3" fill="none" opacity="0"
+      :width="state.cols" :height="state.rows" fill="none" opacity="0"
       stroke="var(--mint)" stroke-width="8" vector-effect="non-scaling-stroke"
     />
     <rect
-      :width="state.cols" :height="state.rows" rx="0.3" fill="none"
-      stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke"
+      :width="state.cols" :height="state.rows" fill="none"
+      stroke="var(--sky)" stroke-width="3" vector-effect="non-scaling-stroke"
     />
 
     <!-- Laser warnings: emitters at both ends, stripes, and a fuse that runs to the beat -->
@@ -146,7 +146,6 @@ watch(
           :y="laser.axis === 'row' ? laser.index + 0.15 : end ? state.rows - 0.35 : -0.35"
           width="0.7"
           height="0.7"
-          rx="0.15"
         />
       </template>
     </g>
@@ -159,24 +158,24 @@ watch(
     >
       <g class="pop" :class="{ fading: fading(item.until) }">
         <template v-if="item.kind === 'apple'">
-          <circle cy="0.06" r="0.34" fill="var(--coral)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke" />
-          <path d="M 0.02 -0.26 q 0.12 -0.18 0.3 -0.14 q -0.06 0.2 -0.3 0.14 z" fill="var(--sage)" stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+          <circle cy="0.06" r="0.34" fill="var(--coral)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+          <path d="M 0.02 -0.26 q 0.12 -0.18 0.3 -0.14 q -0.06 0.2 -0.3 0.14 z" fill="var(--sage)" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
         </template>
         <template v-else-if="item.kind === 'cherry'">
-          <path d="M -0.18 0.1 Q -0.05 -0.3 0.12 -0.38 M 0.18 0.14 Q 0.12 -0.2 0.12 -0.38" fill="none" stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-          <circle cx="-0.18" cy="0.16" r="0.2" fill="var(--rose)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke" />
-          <circle cx="0.2" cy="0.2" r="0.2" fill="var(--rose)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke" />
+          <path d="M -0.18 0.1 Q -0.05 -0.3 0.12 -0.38 M 0.18 0.14 Q 0.12 -0.2 0.12 -0.38" fill="none" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+          <circle cx="-0.18" cy="0.16" r="0.2" fill="var(--rose)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+          <circle cx="0.2" cy="0.2" r="0.2" fill="var(--rose)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
         </template>
         <template v-else-if="item.kind === 'star'">
           <g class="spin">
-            <polygon :points="STAR" fill="var(--sun)" stroke="var(--text)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+            <polygon :points="STAR" fill="var(--sun)" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
           </g>
         </template>
         <template v-else>
           <!-- Pills: a capsule, half colour, half white -->
           <g transform="rotate(-35)">
-            <rect x="-0.4" y="-0.18" width="0.8" height="0.36" rx="0.18" fill="var(--bg)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke" />
-            <path d="M 0 -0.18 L -0.22 -0.18 A 0.18 0.18 0 0 0 -0.22 0.18 L 0 0.18 Z" :fill="PILL_COLOR[item.kind]" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke" />
+            <rect x="-0.4" y="-0.18" width="0.8" height="0.36" rx="0.18" fill="#FFFFFF" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+            <path d="M 0 -0.18 L -0.22 -0.18 A 0.18 0.18 0 0 0 -0.22 0.18 L 0 0.18 Z" :fill="PILL_COLOR[item.kind]" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
           </g>
         </template>
       </g>
@@ -192,8 +191,8 @@ watch(
         <rect
           class="dead"
           :style="{ '--pop': popDelay(piece.holdMs, piece.gapMs, i) }"
-          x="-0.38" y="-0.38" width="0.76" height="0.76" rx="0.24"
-          fill="var(--peach)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke"
+          x="-0.38" y="-0.38" width="0.76" height="0.76"
+          fill="var(--peach)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke"
         />
         <circle
           class="ring"
@@ -217,17 +216,17 @@ watch(
 
     <!-- The snake: outline tube, body tube, belly dots, head -->
     <polyline
-      :points="points" fill="none" stroke="var(--text)" stroke-width="0.84"
-      stroke-linecap="round" stroke-linejoin="round"
+      :points="points" fill="none" stroke="var(--ink)" stroke-width="0.84"
+      stroke-linecap="square" stroke-linejoin="miter"
     />
     <polyline
       :points="points" fill="none" :stroke="doubled ? 'var(--sun)' : 'var(--sage)'" stroke-width="0.7"
-      stroke-linecap="round" stroke-linejoin="round"
+      stroke-linecap="square" stroke-linejoin="miter"
     />
-    <circle
+    <rect
       v-for="(cell, i) in state.snake.slice(1)" :key="`d${i}`"
       v-show="i % 2 === 0"
-      :cx="cell.x + 0.5" :cy="cell.y + 0.5" r="0.12" fill="var(--mint)" opacity="0.7"
+      :x="cell.x + 0.38" :y="cell.y + 0.38" width="0.24" height="0.24" fill="var(--ink)" opacity="0.45"
     />
     <circle
       v-if="shielded"
@@ -235,11 +234,11 @@ watch(
       :cx="head.x + 0.5" :cy="head.y + 0.5" r="0.72"
       fill="none" stroke="var(--sky)" stroke-width="3" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
     />
-    <circle
-      :cx="head.x + 0.5" :cy="head.y + 0.5" r="0.44"
-      fill="var(--mint)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke"
+    <rect
+      :x="head.x + 0.06" :y="head.y + 0.06" width="0.88" height="0.88"
+      fill="var(--mint)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke"
     />
-    <circle v-for="(eye, i) in eyes" :key="`e${i}`" :cx="eye.x" :cy="eye.y" r="0.08" fill="var(--text)" />
+    <circle v-for="(eye, i) in eyes" :key="`e${i}`" :cx="eye.x" :cy="eye.y" r="0.08" fill="var(--ink)" />
 
     <!-- The snipper: a beetle with scissor pincers -->
     <g
@@ -251,25 +250,25 @@ watch(
       <g class="pop">
         <path
           d="M -0.1 -0.32 L -0.2 -0.46 M 0.05 -0.32 L 0 -0.47 M -0.1 0.32 L -0.2 0.46 M 0.05 0.32 L 0 0.47"
-          stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"
+          stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"
         />
         <ellipse
           cx="-0.08" cy="0" rx="0.3" ry="0.32"
-          fill="var(--lavender)" stroke="var(--text)" stroke-width="2" vector-effect="non-scaling-stroke"
+          fill="var(--lavender)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke"
         />
-        <path d="M -0.08 -0.3 L -0.08 0.3" stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <path d="M -0.08 -0.3 L -0.08 0.3" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
         <path
           class="pincer"
           d="M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.22 -0.02 Z"
-          fill="var(--coral)" stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke"
+          fill="var(--coral)" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke"
         />
         <path
           class="pincer bottom"
           d="M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z"
-          fill="var(--coral)" stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke"
+          fill="var(--coral)" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke"
         />
-        <circle cx="0.12" cy="-0.1" r="0.05" fill="var(--text)" />
-        <circle cx="0.12" cy="0.1" r="0.05" fill="var(--text)" />
+        <circle cx="0.12" cy="-0.1" r="0.05" fill="var(--ink)" />
+        <circle cx="0.12" cy="0.1" r="0.05" fill="var(--ink)" />
       </g>
     </g>
 
@@ -309,6 +308,8 @@ watch(
 <style scoped>
 .board {
   display: block;
+  shape-rendering: crispEdges;
+  filter: drop-shadow(0 0 3px rgba(63, 169, 255, 0.35));
   width: 100%;
   height: 100%;
 }
@@ -439,14 +440,13 @@ watch(
 
 /* ─── Popups ─── */
 .popup {
-  font-family: var(--font-code);
-  font-size: 0.85px;
-  font-weight: 800;
+  font-family: var(--font-pixel);
+  font-size: 0.6px;
   paint-order: stroke;
-  stroke: var(--bg);
-  stroke-width: 0.18px;
+  stroke: var(--ink);
+  stroke-width: 0.16px;
   stroke-linejoin: round;
-  animation: rise 1s var(--ease-out) both;
+  animation: rise 1s steps(8) both;
 }
 @keyframes rise {
   from { transform: translateY(0.2px); opacity: 0; }

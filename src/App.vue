@@ -151,11 +151,11 @@ onBeforeUnmount(() => {
     <!-- Start -->
     <div v-if="state.status === 'ready'" class="overlay" :style="overlayStyle">
       <div class="card">
-        <p class="chrome-label">snake, set to the beat · sound on</p>
+        <p class="chrome-label">1 player · snake, set to the beat · sound on</p>
         <h1>Laserwyrm<span class="brand-dot">.</span></h1>
         <ul class="rules">
           <li>
-            <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><circle cy="0.06" r="0.34" fill="var(--coral)" stroke="var(--text)" stroke-width="0.06" /><path d="M 0.02 -0.26 q 0.12 -0.18 0.3 -0.14 q -0.06 0.2 -0.3 0.14 z" fill="var(--sage)" stroke="var(--text)" stroke-width="0.045" /></svg>
+            <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><circle cy="0.06" r="0.34" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.06" /><path d="M 0.02 -0.26 q 0.12 -0.18 0.3 -0.14 q -0.06 0.2 -0.3 0.14 z" fill="var(--sage)" stroke="var(--ink)" stroke-width="0.045" /></svg>
             <span><b>Eat fruit</b> to grow. Apple +1, cherries +3, the spinning star +5. Bonus fruit does not wait long.</span>
           </li>
           <li>
@@ -163,16 +163,16 @@ onBeforeUnmount(() => {
             <span><b>Lasers</b> fire on the beat. Red stripes mark the line; when the fuse fills, it slices the snake. The head side lives on, the rest pops away and takes its points with it.</span>
           </li>
           <li>
-            <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><g transform="rotate(-35)"><rect x="-0.4" y="-0.18" width="0.8" height="0.36" rx="0.18" fill="var(--bg)" stroke="var(--text)" stroke-width="0.05" /><path d="M 0 -0.18 L -0.22 -0.18 A 0.18 0.18 0 0 0 -0.22 0.18 L 0 0.18 Z" fill="var(--sky)" stroke="var(--text)" stroke-width="0.05" /></g></svg>
+            <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><g transform="rotate(-35)"><rect x="-0.4" y="-0.18" width="0.8" height="0.36" rx="0.18" fill="#FFFFFF" stroke="var(--ink)" stroke-width="0.05" /><path d="M 0 -0.18 L -0.22 -0.18 A 0.18 0.18 0 0 0 -0.22 0.18 L 0 0.18 Z" fill="var(--sky)" stroke="var(--ink)" stroke-width="0.05" /></g></svg>
             <span><b>Pills</b>: <span class="ink-sky">blue</span> shields the next laser, <span class="ink-sun">yellow</span> doubles points, <span class="ink-lav">purple</span> is slow-mo.</span>
           </li>
           <li>
-            <svg viewBox="-0.6 -0.6 1.2 1.2" width="28" height="28"><ellipse cx="-0.08" cy="0" rx="0.3" ry="0.32" fill="var(--lavender)" stroke="var(--text)" stroke-width="0.07" /><path d="M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.22 -0.02 Z M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z" fill="var(--coral)" stroke="var(--text)" stroke-width="0.05" /></svg>
+            <svg viewBox="-0.6 -0.6 1.2 1.2" width="28" height="28"><ellipse cx="-0.08" cy="0" rx="0.3" ry="0.32" fill="var(--lavender)" stroke="var(--ink)" stroke-width="0.07" /><path d="M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.22 -0.02 Z M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.05" /></svg>
             <span><b>The snipper</b> hunts your middle. Bite it for +3, or lure it under a laser.</span>
           </li>
         </ul>
         <p class="note">Every 8 bars the beat speeds up and more lasers come. Only walls and your own tail end the game.</p>
-        <button class="btn" @click="play()"><span class="text-trim">Play</span></button>
+        <button class="btn" @click="play()"><span class="text-trim blink">Press start</span></button>
         <p class="keys hide-touch">
           <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> or <kbd>WASD</kbd> to move · <kbd>Space</kbd> pause · <kbd>B</kbd> music · <kbd>M</kbd> sound
         </p>
@@ -196,7 +196,7 @@ onBeforeUnmount(() => {
         <span class="badge">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
         </span>
-        <h2>Game over</h2>
+        <h2 class="over">Game over</h2>
         <p class="dim">The snake {{ state.reason }}.</p>
         <div class="tally">
           <div><span class="chrome-label">score</span><b>{{ state.score }}</b></div>
@@ -212,6 +212,9 @@ onBeforeUnmount(() => {
         <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
       </div>
     </div>
+
+    <!-- CRT glass: scanlines and a dark vignette over the whole screen -->
+    <div class="crt" aria-hidden="true"></div>
   </div>
 </template>
 
@@ -227,6 +230,23 @@ onBeforeUnmount(() => {
 /* The board keeps clear of the HUD, so nothing hides under it. */
 .arena {
   position: absolute;
+}
+
+/* ─── CRT ─── */
+.crt {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, 0.22) 2px 3px),
+    radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.55) 100%);
+  animation: flicker 6s steps(1) infinite;
+}
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  48% { opacity: 0.88; }
+  49% { opacity: 1; }
 }
 
 /* ─── HUD ─── */
@@ -245,31 +265,35 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 8px 18px;
+  padding: 8px 16px;
   background: var(--bg);
-  border: 2px solid var(--text);
-  border-radius: 999px;
+  border: 3px solid var(--sky);
+  box-shadow: 4px 4px 0 var(--border);
 }
 .brand {
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: -0.03em;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  color: var(--sun);
+  text-shadow: 2px 2px 0 var(--coral);
+  text-transform: uppercase;
 }
-.brand-dot { color: var(--mint); }
+.brand-dot { color: var(--mint); text-shadow: none; }
 .divider {
-  width: 2px;
+  width: 3px;
   height: 22px;
   background: var(--border);
 }
 .stat {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
 }
-.stat .chrome-label { font-size: 9px; }
+.stat .chrome-label { font-size: 16px; }
 .stat b {
-  font-size: 18px;
-  font-weight: 900;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 .round {
@@ -277,11 +301,13 @@ onBeforeUnmount(() => {
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 999px;
-  border: 2px solid var(--text);
+  border: 3px solid var(--sky);
   background: var(--bg);
+  color: var(--sky);
+  box-shadow: 4px 4px 0 var(--border);
 }
-.round:hover { background: var(--bg-off); }
+.round:hover { background: var(--sky); color: var(--ink); }
+.round:active { transform: translate(4px, 4px); box-shadow: none; }
 
 /* ─── Overlays ─── */
 .overlay {
@@ -290,74 +316,86 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(245, 245, 240, 0.6);
+  background: rgba(0, 0, 0, 0.7);
 }
 .card {
-  width: min(30rem, 100%);
+  width: min(32rem, 100%);
   max-height: 100%;
   overflow: auto;
   padding: 2rem;
   background: var(--bg);
-  border: 2px solid var(--text);
-  border-radius: 1.5rem;
-  animation: pop-in 0.4s var(--ease-out) both;
+  border: 3px solid var(--mint);
+  box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--lavender), 10px 10px 0 6px var(--ink);
+  animation: pop-in 0.3s steps(3) both;
 }
 .card-small { width: min(24rem, 100%); }
 .card h1 {
-  margin: 0.4rem 0 1.25rem;
-  font-size: clamp(2.6rem, 8vw, 3.75rem);
-  font-weight: 900;
-  letter-spacing: -0.045em;
-  line-height: 1;
+  margin: 0.8rem 0 1.5rem;
+  font-family: var(--font-pixel);
+  font-size: clamp(1.4rem, 6vw, 2.4rem);
+  font-weight: 400;
+  line-height: 1.1;
+  text-transform: uppercase;
+  color: var(--sun);
+  text-shadow: 3px 3px 0 var(--coral), 6px 6px 0 var(--lavender);
 }
 .card h2 {
-  margin: 0.6rem 0 0.4rem;
-  font-size: 1.75rem;
-  font-weight: 900;
-  letter-spacing: -0.02em;
+  margin: 0.8rem 0 0.6rem;
+  font-family: var(--font-pixel);
+  font-size: 1.15rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--mint);
+  text-shadow: 3px 3px 0 var(--ink);
 }
+.card h2.over { color: var(--coral); }
 .rules {
   margin: 0 0 1.5rem;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 0.9rem;
+  gap: 0.8rem;
 }
 .rules li {
   display: grid;
   grid-template-columns: 28px 1fr;
   gap: 0.9rem;
   align-items: start;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 19px;
+  line-height: 1.15;
   color: var(--text-dim);
 }
-.rules b { color: var(--text); }
+.rules b { color: var(--sun); font-weight: 400; }
 .btn {
   display: grid;
   place-items: center;
   width: 100%;
-  padding: calc(0.6rem + 0.38em) 1.25rem;
-  border-radius: 999px;
-  border: 2px solid var(--text);
-  background: var(--text);
-  color: #fff;
-  font-size: 0.9rem;
-  font-weight: 800;
+  padding: calc(0.7rem + 0.38em) 1.25rem;
+  border: 3px solid var(--ink);
+  background: var(--coral);
+  color: var(--text);
+  box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.3), inset 4px 4px 0 rgba(255, 255, 255, 0.25), 4px 4px 0 var(--ink);
+  font-family: var(--font-pixel);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 var(--ink);
 }
-.btn:hover { background: #333; }
-.btn + .btn { margin-top: 0.5rem; }
-.btn-line { background: var(--bg); color: var(--text); }
-.btn-line:hover { background: var(--bg-off); }
+.btn:hover { background: #FF5571; }
+.btn:active { transform: translate(4px, 4px); box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.3); }
+.btn + .btn { margin-top: 0.75rem; }
+.btn-line { background: var(--bg-warm); color: var(--text-dim); }
+.btn-line:hover { background: var(--border); }
 .btn:focus-visible,
 .round:focus-visible {
-  outline: 3px solid var(--sky);
-  outline-offset: 2px;
+  outline: 3px solid var(--sun);
+  outline-offset: 3px;
 }
+.blink { animation: blink-text 1.1s steps(1) infinite; }
 .card-small .btn:first-of-type { margin-top: 1.25rem; }
 .keys {
   margin: 1rem 0 0;
-  font-size: 11px;
+  font-size: 17px;
   line-height: 2.2;
   color: var(--text-muted);
   text-align: center;
@@ -365,7 +403,7 @@ onBeforeUnmount(() => {
 .keys kbd { margin-right: 2px; }
 .dim {
   margin: 0;
-  font-size: 13px;
+  font-size: 19px;
   color: var(--text-dim);
 }
 .badge {
@@ -373,9 +411,9 @@ onBeforeUnmount(() => {
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 999px;
+  border: 3px solid var(--ink);
   background: var(--coral);
-  color: #fff;
+  color: var(--ink);
 }
 .tally {
   display: grid;
@@ -385,29 +423,32 @@ onBeforeUnmount(() => {
 }
 .tally div {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.4rem;
   padding: 0.6rem 0.7rem;
   background: var(--bg-off);
   border: 2px solid var(--border);
-  border-radius: 0.75rem;
 }
-.tally .chrome-label { font-size: 9px; }
-.tally b { font-size: 1.25rem; font-weight: 900; }
+.tally .chrome-label { font-size: 15px; }
+.tally b {
+  font-family: var(--font-pixel);
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--sun);
+}
 
 /* ─── HUD extras ─── */
 .bpm {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 17px;
   color: var(--text-dim);
+  text-transform: uppercase;
   font-variant-numeric: tabular-nums;
 }
 .bpm-dot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
   background: var(--border);
 }
 .bpm-dot.live {
@@ -424,14 +465,14 @@ onBeforeUnmount(() => {
   place-items: center;
   padding: calc(0.45rem + 0.38em) 0.9rem;
   overflow: hidden;
-  border: 2px solid var(--text);
-  border-radius: 999px;
+  border: 3px solid var(--fx);
   background: var(--bg);
-  font-size: 11px;
-  font-weight: 800;
+  color: var(--fx);
+  font-family: var(--font-pixel);
+  font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  animation: pop-in 0.3s var(--ease-out) both;
+  box-shadow: 4px 4px 0 var(--border);
+  animation: pop-in 0.3s steps(3) both;
 }
 .effect-bar {
   position: absolute;
@@ -439,7 +480,7 @@ onBeforeUnmount(() => {
   height: 4px;
   background: var(--fx);
   transform-origin: left;
-  transition: transform 0.15s linear;
+  transition: transform 0.15s steps(2);
 }
 .round.off { color: var(--text-muted); border-color: var(--border); }
 
@@ -449,26 +490,28 @@ onBeforeUnmount(() => {
   left: 50%;
   display: grid;
   justify-items: center;
-  gap: 0.5rem;
+  gap: 0.8rem;
   pointer-events: none;
   translate: -50% -50%;
-  animation: banner 1.8s var(--ease-out) both;
+  animation: banner 1.8s steps(12) both;
 }
 .banner-title {
-  padding: 0.6rem 1.6rem;
-  border: 2px solid var(--text);
-  border-radius: 999px;
+  padding: 0.8rem 1.4rem;
+  border: 3px solid var(--ink);
   background: var(--sun);
-  font-size: clamp(1.8rem, 5vw, 3rem);
-  font-weight: 900;
-  letter-spacing: -0.03em;
+  box-shadow: 6px 6px 0 var(--coral);
+  font-family: var(--font-pixel);
+  font-size: clamp(1rem, 4vw, 2rem);
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink);
 }
 .banner-sub {
-  font-size: 12px;
-  font-weight: 800;
+  font-family: var(--font-pixel);
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
   color: var(--text);
+  text-shadow: 2px 2px 0 var(--ink);
 }
 @keyframes banner {
   0% { opacity: 0; transform: scale(0.7); }
@@ -479,13 +522,13 @@ onBeforeUnmount(() => {
 }
 .note {
   margin: -0.5rem 0 1.25rem;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 17px;
+  line-height: 1.2;
   color: var(--text-muted);
 }
-.ink-sky { color: #3D8FE0; font-weight: 700; }
-.ink-sun { color: #C99700; font-weight: 700; }
-.ink-lav { color: #7A70F0; font-weight: 700; }
+.ink-sky { color: var(--sky); }
+.ink-sun { color: var(--sun); }
+.ink-lav { color: var(--lavender); }
 
 .show-touch { display: none; }
 @media (pointer: coarse) {
@@ -493,28 +536,28 @@ onBeforeUnmount(() => {
   /* The pad has its own play/pause in the middle. */
   .hide-touch-grid { display: none; }
   .round { width: 40px; height: 40px; }
-  .rules li { font-size: 12px; line-height: 1.5; }
+  .rules li { font-size: 17px; line-height: 1.1; }
   .rules { gap: 0.6rem; margin-bottom: 1rem; }
-  .note { font-size: 11px; }
-  .card h1 { margin-bottom: 0.9rem; }
+  .note { font-size: 15px; }
+  .card h1 { margin-bottom: 1rem; }
   .show-touch { display: block; }
 }
 @media (max-width: 420px) {
   .hide-xs { display: none; }
-  .brand { font-size: 16px; }
+  .brand { font-size: 11px; }
 }
 @media (max-height: 500px) {
   .card { padding: 1.1rem 1.4rem; }
-  .card h1 { font-size: 2rem; margin-bottom: 0.6rem; }
-  .card h2 { font-size: 1.3rem; margin-top: 0.3rem; }
+  .card h1 { font-size: 1.3rem; margin-bottom: 0.8rem; }
+  .card h2 { font-size: 0.9rem; margin-top: 0.4rem; }
   .badge { width: 34px; height: 34px; }
   .tally { margin-top: 0.75rem; }
   .tally div { padding: 0.35rem 0.6rem; }
-  .tally b { font-size: 1rem; }
+  .tally b { font-size: 0.7rem; }
 }
 @media (max-width: 520px) {
   .hide-sm { display: none; }
-  .chip { gap: 10px; padding: 6px 14px; }
+  .chip { gap: 10px; padding: 6px 12px; }
   .card { padding: 1.4rem; }
 }
 </style>

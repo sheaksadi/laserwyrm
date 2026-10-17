@@ -1,33 +1,36 @@
-/* ─── Design System: Minimal Pastel ─────────────────────────────────────
+/* ─── Design System: Arcade Cabinet ─────────────────────────────────────
  *
- * Taken from the sem3 course deck: white backgrounds, JetBrains Mono, bold
- * pastel blocks, flat graphics, no shadows, 2px borders.
+ * Late-80s coin-op: black glass, neon phosphor colours, pixel type, square
+ * corners, hard drop shadows and a light CRT scanline over everything.
  *
  * ─────────────────────────────────────────────────────────────────────── */
 
 :root {
   /* ── surfaces ── */
-  --bg:          #FFFFFF;
-  --bg-off:      #F5F5F0;
-  --bg-warm:     #FFF8F3;
+  --bg:          #0B0B1A;
+  --bg-off:      #000000;
+  --bg-warm:     #160F24;
 
   /* ── ink ── */
-  --text:        #1A1A1A;
-  --text-dim:    #6B6B6B;
-  --text-muted:  #B0B0B0;
-  --border:      #E5E5E5;
+  --text:        #F4F4F4;
+  --text-dim:    #B4B4CC;
+  --text-muted:  #6A6A90;
+  --border:      #26264A;
+  /* Outlines on sprites: pure black, like a sprite sheet. */
+  --ink:         #000000;
 
-  /* ── pastels ── */
-  --coral:       #FF6B6B;
-  --mint:        #4ECDC4;
-  --sky:         #74B9FF;
-  --rose:        #F78DA7;
-  --sun:         #FFEAA7;
-  --lavender:    #A29BFE;
-  --peach:       #FAB1A0;
-  --sage:        #B8E994;
+  /* ── phosphor ── */
+  --coral:       #FF3355;
+  --mint:        #00F0C8;
+  --sky:         #3FA9FF;
+  --rose:        #FF5FB0;
+  --sun:         #FFE14D;
+  --lavender:    #B26BFF;
+  --peach:       #FF9966;
+  --sage:        #5CFF5C;
 
-  --font-code:   'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-pixel:  'Press Start 2P', ui-monospace, monospace;
+  --font-code:   'VT323', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
   --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -37,11 +40,10 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  background: var(--bg-off);
   color: var(--text);
   font-family: var(--font-code);
-  -webkit-font-smoothing: antialiased;
-  /* `!=` and `==` stay two characters: beginners read the code as typed. */
+  font-size: 18px;
   font-variant-ligatures: none;
 }
 
@@ -51,9 +53,9 @@ button {
   cursor: pointer;
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border); }
 
 @keyframes rise-in {
   from { opacity: 0; transform: translateY(10px); }
@@ -62,6 +64,9 @@ button {
 @keyframes pop-in {
   from { opacity: 0; transform: scale(0.9); }
   to   { opacity: 1; transform: scale(1); }
+}
+@keyframes blink-text {
+  50% { opacity: 0; }
 }
 
 /* Labels in pills sit in the true middle, not riding high. */
@@ -74,46 +79,45 @@ button {
   display: inline-block;
   padding: calc(0.25rem + 0.38em) 0.75rem;
   text-box: trim-both cap alphabetic;
-  border-radius: 9999px;
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-family: var(--font-pixel);
+  font-size: 0.5rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
+  color: var(--ink);
 }
-.tag-coral    { background: var(--coral);    color: #fff; }
-.tag-mint     { background: var(--mint);     color: #fff; }
-.tag-sky      { background: var(--sky);      color: #fff; }
-.tag-sun      { background: var(--sun);      color: var(--text); }
-.tag-lavender { background: var(--lavender); color: #fff; }
-.tag-sage     { background: var(--sage);     color: var(--text); }
+.tag-coral    { background: var(--coral); }
+.tag-mint     { background: var(--mint); }
+.tag-sky      { background: var(--sky); }
+.tag-sun      { background: var(--sun); }
+.tag-lavender { background: var(--lavender); }
+.tag-sage     { background: var(--sage); }
 
 .chrome-label {
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-code);
+  font-size: 16px;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   color: var(--text-muted);
 }
 
 .card {
-  background: var(--bg-off);
-  border: 2px solid var(--border);
-  border-radius: 1rem;
+  background: var(--bg);
+  border: 3px solid var(--border);
 }
 
 kbd {
   display: inline-block;
-  min-width: 1.6em;
-  padding: 0.3em 0.45em;
+  min-width: 1.8em;
+  padding: 0.35em 0.45em;
   text-box: trim-both cap alphabetic;
-  border: 2px solid var(--border);
-  border-bottom-width: 3px;
-  border-radius: 0.4rem;
-  background: var(--bg);
+  border: 2px solid var(--text-dim);
+  border-bottom-width: 4px;
+  background: var(--bg-warm);
+  /* VT323, not the pixel face: Press Start 2P has no ← → glyphs. */
   font-family: var(--font-code);
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: 16px;
   text-align: center;
   color: var(--text);
 }

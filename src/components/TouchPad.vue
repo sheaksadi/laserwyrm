@@ -101,28 +101,37 @@ const ARROWS: { dir: DirName; path: string }[] = [
 .key {
   display: grid;
   place-items: center;
-  border: 2px solid var(--text);
-  border-radius: 16px;
+  border: 3px solid var(--sky);
   background: var(--bg);
-  color: var(--text);
+  color: var(--sky);
+  box-shadow: 4px 4px 0 var(--border);
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.08s ease, transform 0.08s ease;
+  transition: background 0.05s steps(1), transform 0.05s steps(1);
 }
 .key.held {
-  background: var(--mint);
-  transform: scale(0.94);
+  background: var(--sky);
+  color: var(--ink);
+  box-shadow: none;
+  transform: translate(4px, 4px);
 }
 .key.up { grid-area: 1 / 2; }
 .key.left { grid-area: 2 / 1; }
 .key.right { grid-area: 2 / 3; }
 .key.down { grid-area: 3 / 2; }
+/* The big round arcade button. */
 .key.center {
   grid-area: 2 / 2;
   border-radius: 999px;
-  background: var(--text);
-  color: #fff;
-  margin: 8px;
+  border-color: var(--ink);
+  background: var(--coral);
+  color: var(--ink);
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.35), 0 0 0 3px var(--border);
+  margin: 6px;
 }
-.key.center.held { background: #333; }
+.key.center.held {
+  background: #C21F3D;
+  box-shadow: 0 0 0 3px var(--border);
+  transform: translateY(2px);
+}
 </style>
