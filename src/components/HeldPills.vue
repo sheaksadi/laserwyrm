@@ -60,21 +60,25 @@ const tooltip = computed(
 }
 .slot svg { width: 24px; height: 24px; }
 .slot.next { outline: 2px solid var(--text-dim); }
-/* Small print under the box; it takes no room in the bar. */
+/* Small print under the box, clear of its drop shadow; it takes no room in the bar. */
 .hint {
   position: absolute;
-  top: calc(100% + 5px);
+  top: calc(100% + 12px);
   left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 16px;
   translate: -50% 0;
   font-size: 14px;
-  line-height: 1;
+  line-height: 16px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   white-space: nowrap;
   color: var(--text-muted);
 }
 .held:disabled .hint { opacity: 0.6; }
-.hint.pad { display: flex; align-items: center; gap: 4px; top: calc(100% + 3px); }
 .hint.pad :deep(svg) { width: 16px; height: 16px; }
 
 @media (pointer: coarse) {

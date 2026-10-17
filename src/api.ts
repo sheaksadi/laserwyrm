@@ -1,12 +1,15 @@
 /**
- * The high-score server (server/server.mjs). Emails go up with a score but
- * never come back down; the board shows names, scores and replays.
+ * The Laserwyrm server (server/server.mjs): saved games, players and the
+ * high-score board. Signed-in calls carry the player's login code.
  */
 import type { Replay } from './game'
+import { account, signIn } from './account'
 
 export interface ScoreRow {
   id: number
   name: string
+  /** The saved game behind the entry, e.g. BORK#4821. */
+  code: string | null
   score: number
   level: number
   steps: number
@@ -15,24 +18,83 @@ export interface ScoreRow {
 export interface ScoreEntry extends ScoreRow {
   replay: Replay
 }
+export interface GameRow {
+  code: string
+  /** The player, when the game was played signed in. */
+  name: string | null
+  score: number
+  level: number
+  steps: number
+  cheated: boolean
+  created_at: string
+}
+export interface GameEntry extends GameRow {
+  replay: Replay
+}
 
 /** The board only keeps this many; below the last one a run does not place. */
 export const BOARD_SIZE = 100
 
+/** An error from the server, with anything else it said (name suggestions). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public extra: Record<string, unknown> = {},
+  ) {
+    super(message)
+  }
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...init?.headers } })
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (account.code) headers.authorization = `Bearer ${account.code}`
+  const res = await fetch(path, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error ?? `server said ${res.status}`)
+  // No error of ours in the body: the request never reached the score server
+  // (in development, `npm run server` is not running).
+  if (!res.ok) throw new ApiError(body.error ?? `the score server is not reachable (${res.status})`, res.status, body)
   return body as T
 }
+const post = <T>(path: string, body: unknown) => call<T>(path, { method: 'POST', body: JSON.stringify(body) })
+
+/** Codes go in URLs with a dash: BORK#4821 → BORK-4821. */
+export const codeForUrl = (code: string) => code.replace('#', '-')
+
+/* ─── Games ─── */
+
+export const saveGame = (game: { score: number; level: number; cheated: boolean; replay: Replay }) =>
+  post<{ code: string }>('/api/games', game)
+export const fetchGame = (code: string) => call<GameEntry>(`/api/games/${encodeURIComponent(codeForUrl(code))}`)
+export const searchGames = (q: string) => call<{ games: GameRow[] }>(`/api/games?q=${encodeURIComponent(q)}`).then((r) => r.games)
+export const myGames = () => call<{ games: GameRow[] }>('/api/me/games').then((r) => r.games)
+
+/* ─── Players ─── */
+
+export const createUser = (name: string) => post<{ name: string; code: string }>('/api/users', { name })
+
+/** Claim a name and sign in as it; a taken name throws an ApiError with `extra.suggestions`. */
+export async function claimName(name: string) {
+  const made = await createUser(name)
+  signIn(made.name, made.code)
+  return made
+}
+
+/** Sign in on this device with a login code. */
+export async function signInWithCode(code: string) {
+  const clean = code.trim().toUpperCase()
+  const { name } = await post<{ name: string }>('/api/login', { code: clean })
+  signIn(name, clean)
+  return name
+}
+
+/* ─── High scores ─── */
 
 export const fetchScores = (limit = BOARD_SIZE) =>
   call<{ scores: ScoreRow[] }>(`/api/scores?limit=${limit}`).then((r) => r.scores)
-
 export const fetchScore = (id: number) => call<ScoreEntry>(`/api/scores/${id}`)
-
-export const submitScore = (entry: { name: string; email: string; score: number; level: number; replay: Replay }) =>
-  call<{ id: number; rank: number }>('/api/scores', { method: 'POST', body: JSON.stringify(entry) })
+export const submitScore = (entry: { game: string; email: string }) =>
+  post<{ id: number; rank: number }>('/api/scores', entry)
 
 /** Would this score make the board? True when the board cannot be reached, so nobody loses a run. */
 export async function placesOnBoard(score: number): Promise<boolean> {

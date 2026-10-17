@@ -9,12 +9,17 @@ rises and more lasers come.
   the menu (or press B and M)
 - Score: every beat you survive scores your multiplier, which grows faster
   than your length and rises with each level
-- Three hearts: a laser through the head costs one, walls and biting yourself cost all of
+- Three hearts, refilled one per level up to three (heart drops go past it, to
+  five): a laser through the head costs one, walls and biting yourself cost all of
   them; rare heart drops give one back (up to five)
 - Fruit grows the snake: apple +1, cherries +3, star +5
 - Power-ups: shield, double points, slow-mo, dash, magnet, ghost. Hold up to two
   and press Space (or tap the slots) to use the oldest
 - Totem of Undying: very rare, cheats death once
+- Phones play sideways: a stick on the left steers, one button on the right uses
+  power-ups (and starts the game)
+- ☰ → Settings: music and effects volume, controller vibration (on/off,
+  strength; it rumbles harder for bigger cuts, hits and game over), full screen
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
   power-ups, Start to pause, View / Share for cheats; prompts switch to match
 - 100 levels. New lasers arrive as you climb: blue (11, three wide), purple
@@ -24,40 +29,61 @@ rises and more lasers come.
 - Playing goes full screen and stays there. Esc pauses; Esc again, or the
   pause screen's button, leaves full screen. Turn it off in the ☰ menu
 - C opens the cheat menu (also in the ☰ menu): pick any of the 100 levels, god mode, no
-  lasers, give yourself items. Runs with cheats never set a best
+  lasers, give yourself items, reset your best score. Runs with cheats never set a best
 - New best scores can be signed with a name and optional email (saved in the
   browser for now)
 - The snipper hunts your middle: bite it to grow +3
 
-## High scores and replays
+## Games, players, high scores and replays
 
-Runs that make the board can be signed with a name (and an optional email,
-never shown). Each entry keeps a replay: the run's random seed, grid size and
-every input, filed by game step. The engine is deterministic, so feeding a
-replay back through it plays the run again exactly. A replay is a few KB.
-The board's Watch button opens a player with play/pause, 0.5×–16× speed, a
-seek bar, and ±5 s jumps (← →, Space, Esc to go back).
+Every finished game is saved with a code like `BORK#4821`: a silly four-letter
+word and four digits. The code shows on the game-over screen and on the board;
+click it to copy, or copy a link (`#/game/BORK-4821`) that opens the replay.
+
+☰ → Replays finds any game by code or a player's name, and lists your games:
+every game played on this device, plus (signed in) every game on your account.
+Any game can be saved offline, replay and all, in the browser.
+
+☰ → Account: claim a name (a taken one gets free suggestions) and the server
+hands back a login code like `PDKM-DC3B-LN9P-Z4WB`. That code is the account:
+it signs you in on any device. Making the high scores and typing a name there
+claims it too. Board entries carry the player's name and their game's code.
+
+A replay is the run's seed, grid size and every input, filed by game step.
+The engine is deterministic, so a replay plays the run again exactly; it is a
+few KB. The player has play/pause, 0.5×–16× speed, a seek bar and ±5 s jumps
+(← →, Space, Esc to go back); up to 2× it plays with music and sound. The seek
+bar marks power-ups, cuts, hearts lost and gained, level ups and the totem,
+with filters.
 
 The server (`server/server.mjs`, plain Node plus `pg`) serves the built game
 and the API:
 
 | Method | Path | |
 |---|---|---|
+| POST | `/api/games` | save a finished game → `{ code }` |
+| GET | `/api/games/:code` | one game with its replay (`BORK-4821`) |
+| GET | `/api/games?q=` | search by game code or player name |
+| GET | `/api/me/games` | the signed-in player's games |
+| POST | `/api/users` | claim a name → `{ name, code }`, or 409 with suggestions |
+| POST | `/api/login` | `{ code }` → `{ name }` |
+| GET | `/api/me` | the signed-in player |
 | GET | `/api/scores?limit=50` | the board, best first (no emails) |
-| GET | `/api/scores/:id` | one entry with its replay |
-| POST | `/api/scores` | `{ name, email?, score, level, replay }` |
+| GET | `/api/scores/:id` | one board entry with its replay |
+| POST | `/api/scores` | put one of your games on the board: `{ game, email? }` |
 | GET | `/api/health` | `{ ok, store }` |
 
-Scores live in Postgres, from `DATABASE_URL`; the table is created on start.
-Without `DATABASE_URL` the server keeps scores in memory (fine for local work).
-Submissions are checked for shape and rate-limited per address; scores are
-not yet re-simulated on the server, so a determined cheater could post one.
+Signed-in requests send `Authorization: Bearer <login code>`; the server keeps
+only a hash of it. Data lives in Postgres from `DATABASE_URL`, with tables
+made on start. Without it the server runs PGlite (Postgres in-process, in
+memory) for local work. Input is checked and rate-limited per address; scores
+are not yet re-simulated on the server, so a determined cheater could post one.
 
 ## Develop
 
 ```bash
 npm install
-npm run server  # score API on :8787 (add DATABASE_URL=postgres://... to use Postgres)
+npm run server  # API on :8787 (PGlite in memory; set DATABASE_URL for Postgres)
 npm run dev     # the game on :5173, with /api proxied to :8787
 npm run build   # type check and production build into dist/
 npm start       # production: game and API on $PORT (8080)

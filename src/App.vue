@@ -2,18 +2,24 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { musicOn, muted } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, lastReplay, layout, multiplier, pause, play, POWER_KINDS, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName } from './game'
-import { canFullscreen, enterFullscreen, fullscreenOn, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
-import { pad, rumble, startGamepad, stopGamepad } from './gamepad'
-import { fetchScore, placesOnBoard, submitScore as sendScore } from './api'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, lastReplay, layout, multiplier, onFeel, pause, play, POWER_KINDS, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName } from './game'
+import { canFullscreen, enterFullscreen, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
+import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
+import { account, localGames, rememberGame } from './account'
+import { ApiError, claimName, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
 import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
 import CheatMenu from './components/CheatMenu.vue'
+import AccountPanel from './components/AccountPanel.vue'
+import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
+import ReplaysPanel from './components/ReplaysPanel.vue'
 import Leaderboard from './components/Leaderboard.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
 import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
 import PowerIcon from './components/PowerIcon.vue'
-import TouchPad from './components/TouchPad.vue'
+import ActionButton from './components/ActionButton.vue'
+import Joystick from './components/Joystick.vue'
 
 /** Power-ups that last a while get a countdown tag in the HUD; Dash is instant. */
 const EFFECTS = (['shield', 'double', 'slow', 'magnet', 'ghost'] as const).map((key) => ({
@@ -30,11 +36,6 @@ const KEYMAP: Record<string, DirName> = {
 
 /** Three slots, more once a heart drop takes you past three; empty ones show what is lost. */
 const heartSlots = computed(() => Array.from({ length: Math.max(START_HEARTS, state.hearts) }, (_, i) => i < state.hearts))
-
-/** On touch screens the cards stop short of the pad, so the pad stays usable. */
-const overlayStyle = computed(() =>
-  layout.pad === 'bottom' ? { bottom: `${layout.bottom}px` } : layout.pad === 'side' ? { right: `${layout.right}px` } : {},
-)
 
 function toggleMute() {
   muted.value = !muted.value
@@ -54,14 +55,22 @@ function restart() {
   reset()
 }
 
-/* ─── Pages: the game, the high scores, and watching a run ─── */
-type Route = { name: 'game' } | { name: 'scores'; highlight?: number } | { name: 'watch'; id: number }
+/* ─── Pages: the game, the high scores, replays, and watching a run ─── */
+type Route =
+  | { name: 'game' }
+  | { name: 'scores'; highlight?: number }
+  | { name: 'replays' }
+  | { name: 'watch'; id: number }
+  | { name: 'watch'; code: string }
 function parseRoute(): Route {
   const hash = location.hash
   const watching = hash.match(/^#\/watch\/(\d+)/)
   if (watching) return { name: 'watch', id: Number(watching[1]) }
+  const game = hash.match(/^#\/game\/([A-Za-z]{4}-\d{4})/)
+  if (game) return { name: 'watch', code: game[1]!.toUpperCase().replace('-', '#') }
   const scores = hash.match(/^#\/scores(?:\/(\d+))?/)
   if (scores) return { name: 'scores', highlight: scores[1] ? Number(scores[1]) : undefined }
+  if (hash.startsWith('#/replays')) return { name: 'replays' }
   return { name: 'game' }
 }
 const route = ref<Route>(parseRoute())
@@ -69,51 +78,118 @@ const go = (hash: string) => {
   location.hash = hash
 }
 const watchError = ref('')
+/** Bumped on every page change, so a slow load cannot open after the player has moved on. */
+let navigation = 0
 async function onRoute() {
+  const here = ++navigation
   const next = parseRoute()
   const was = route.value
   route.value = next
-  if (was.name === 'watch' && next.name !== 'watch') stopWatching()
+  if (was.name === 'watch') stopWatching()
   if (next.name !== 'game') {
     menuOpen.value = false
     cheatOpen.value = false
+    accountOpen.value = false
     pause()
   }
   if (next.name === 'watch') {
     watchError.value = ''
+    const still = () => navigation === here
     try {
-      const entry = await fetchScore(next.id)
-      if (route.value.name === 'watch' && route.value.id === next.id) watchRun(entry.replay, entry)
+      if ('id' in next) {
+        const entry = await fetchScore(next.id)
+        if (still()) watchRun(entry.replay, entry)
+      } else {
+        const game = await fetchGame(next.code).catch((err) => {
+          // Saved offline: watchable without the server.
+          const kept = localGames.offline[next.code]
+          if (!kept) throw err
+          return { replay: kept, name: account.name, score: localGames.list.find((g) => g.code === next.code)?.score ?? 0, level: 0, code: next.code }
+        })
+        if (still()) watchRun(game.replay, { name: game.name, score: game.score, level: game.level, code: game.code })
+      }
     } catch (err) {
       watchError.value = err instanceof Error ? err.message : String(err)
     }
   }
 }
 
-/* ─── High-score entry ─── */
+/* ─── Saving every game, and putting good ones on the board ─── */
+/** The finished game's code once the server has it; null while saving or if it could not. */
+const gameCode = ref<string | null>(null)
+const gameSave = ref<'saving' | 'saved' | 'failed'>('saved')
+let saving: Promise<string | null> = Promise.resolve(null)
+
 const entryName = ref('')
 const entryEmail = ref('')
+const nameSuggestions = ref<string[]>([])
+/** Just signed up from this form: show the login code once, with a nudge to keep it. */
+const newLoginCode = ref<string | null>(null)
 /** Whether this run makes the board, then how sending it went. */
 const entry = ref<{ phase: 'checking' | 'open' | 'none' | 'sending' | 'saved' | 'failed'; rank?: number; id?: number; error?: string }>({ phase: 'none' })
 watch(
   () => state.status,
   async (status) => {
     if (status !== 'over' || replay.active) return
+    // Every game is saved, signed in or not, so it can be found and shared.
+    const run = lastReplay()
+    const summary = { score: state.score, level: state.level + 1, steps: run.steps }
+    gameCode.value = null
+    gameSave.value = 'saving'
+    newLoginCode.value = null
+    nameSuggestions.value = []
+    entryName.value = account.name ?? entryName.value
+    saving = saveGame({ ...summary, cheated: state.cheated, replay: run })
+      .then(({ code }) => {
+        gameCode.value = code
+        gameSave.value = 'saved'
+        rememberGame({ code, ...summary, created_at: new Date().toISOString() })
+        return code
+      })
+      .catch(() => {
+        gameSave.value = 'failed'
+        return null
+      })
     entry.value = { phase: 'checking' }
     const places = !state.cheated && (await placesOnBoard(state.score))
     if (state.status === 'over') entry.value = { phase: places ? 'open' : 'none' }
   },
 )
-async function submitScore() {
-  const name = entryName.value.trim()
-  if (!name) return
+async function submitScore(name = entryName.value.trim()) {
+  if (!account.name && !name) return
   entry.value = { phase: 'sending' }
+  nameSuggestions.value = []
   try {
-    const saved = await sendScore({ name, email: entryEmail.value.trim(), score: state.score, level: state.level + 1, replay: lastReplay() })
+    const code = await saving
+    if (!code) throw new Error('this game could not be saved, so it cannot go on the board')
+    // Not signed in: the name typed here becomes the player's account.
+    if (!account.name) {
+      const made = await claimName(name)
+      newLoginCode.value = made.code
+      entryName.value = made.name
+    }
+    const saved = await sendScore({ game: code, email: entryEmail.value.trim() })
     entry.value = { phase: 'saved', rank: saved.rank, id: saved.id }
   } catch (err) {
+    if (err instanceof ApiError && Array.isArray(err.extra.suggestions)) nameSuggestions.value = err.extra.suggestions as string[]
     entry.value = { phase: 'failed', error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/** Account, from the menu; the game pauses while it is open. */
+const accountOpen = ref(false)
+function openAccount() {
+  menuOpen.value = false
+  accountOpen.value = true
+  pause()
+}
+
+/** Settings, from the menu; the game pauses while it is open. */
+const settingsOpen = ref(false)
+function openSettings() {
+  menuOpen.value = false
+  settingsOpen.value = true
+  pause()
 }
 
 /** The cheat menu: C opens it and pauses; C or Escape closes it, still paused. */
@@ -140,8 +216,16 @@ function onKey(event: KeyboardEvent) {
     event.preventDefault()
     return
   }
-  if (route.value.name === 'scores') {
+  if (route.value.name === 'scores' || route.value.name === 'replays') {
     if (event.key === 'Escape') go('#/')
+    return
+  }
+  if (accountOpen.value) {
+    if (event.key === 'Escape') accountOpen.value = false
+    return
+  }
+  if (settingsOpen.value) {
+    if (event.key === 'Escape') settingsOpen.value = false
     return
   }
   if (event.key === 'c' || event.key === 'C') return toggleCheats()
@@ -215,7 +299,7 @@ const padHandlers = {
   },
   primary: () => {
     if (route.value.name === 'watch') return togglePlay()
-    if (route.value.name === 'scores') return go('#/')
+    if (route.value.name === 'scores' || route.value.name === 'replays') return go('#/')
     if (cheatOpen.value || typing()) return
     if (state.status === 'running') useItem()
     else play()
@@ -229,18 +313,25 @@ const padHandlers = {
   },
   cancel: () => {
     if (route.value.name === 'watch') return go('#/scores')
-    if (route.value.name === 'scores') return go('#/')
+    if (route.value.name === 'scores' || route.value.name === 'replays') return go('#/')
+    accountOpen.value = false
+    settingsOpen.value = false
     cheatOpen.value = false
     menuOpen.value = false
   },
 }
-// Every hit and every death buzzes the controller.
+// Cuts, hits, game over and the rest rumble the controller, as hard as they land.
+onFeel((kind, amount) => {
+  if (pad.connected) rumbleFor(kind, amount)
+})
+// A phone turned upright mid-game pauses until it is turned back.
 watch(
-  () => state.shake,
-  () => {
-    if (pad.connected && !replay.active) rumble(state.status === 'over' ? 260 : 120)
+  () => layout.portrait,
+  (portrait) => {
+    if (portrait) pause()
   },
 )
+
 /* ─── Full screen ─── */
 // Playing goes full screen and stays there; the pause screen is the way out.
 watch(
@@ -310,9 +401,11 @@ onBeforeUnmount(() => {
       class="arena"
       :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
     ><Board /></div>
-    <TouchPad v-if="layout.pad !== 'none' && route.name !== 'watch'" :placement="layout.pad" />
-    <!-- On touch screens the pill slots sit by the pad, like an arcade action button. -->
-    <HeldPills v-if="layout.pad !== 'none' && route.name !== 'watch'" class="by-pad" :class="layout.pad" />
+    <!-- Phones: a stick on the left, one arcade button on the right -->
+    <template v-if="layout.pad === 'sticks' && !layout.portrait && route.name !== 'watch'">
+      <Joystick />
+      <ActionButton />
+    </template>
 
     <!-- HUD: stats on the left, held power-ups in the middle, level and buttons on the right.
          Every number sits in a fixed-width box, so nothing shifts as it counts. -->
@@ -351,7 +444,7 @@ onBeforeUnmount(() => {
             <span class="bpm-dot" :class="{ live: state.status === 'running' }"></span>{{ state.bpm }} bpm
           </span>
         </div>
-        <button class="round hide-touch-grid" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
+        <button class="round" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
           <svg v-if="state.status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
           <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </button>
@@ -367,9 +460,9 @@ onBeforeUnmount(() => {
               </svg>
               <span>Music</span><span class="state" :class="{ on: musicOn }">{{ musicOn ? 'on' : 'off' }}</span><kbd class="hide-touch">B</kbd>
             </button>
-            <button class="menu-item" role="menuitemcheckbox" :aria-checked="fullscreenOn" @click="fullscreenOn = !fullscreenOn">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6" /></svg>
-              <span>Full screen</span><span class="state" :class="{ on: fullscreenOn }">{{ fullscreenOn ? 'on' : 'off' }}</span><span></span>
+            <button class="menu-item" role="menuitem" @click="openSettings">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0" /><path d="M16 4v4M8 10v4M18 16v4" /></svg>
+              <span>Settings</span><span></span><span></span>
             </button>
             <button class="menu-item" role="menuitemcheckbox" :aria-checked="!muted" @click="toggleMute">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -386,6 +479,14 @@ onBeforeUnmount(() => {
             <button class="menu-item" role="menuitem" @click="menuOpen = false; go('#/scores')">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" /></svg>
               <span>High scores</span><span></span><span></span>
+            </button>
+            <button class="menu-item" role="menuitem" @click="menuOpen = false; go('#/replays')">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M4 5h16v14H4zM10 9v6l5-3z" /></svg>
+              <span>Replays</span><span></span><span></span>
+            </button>
+            <button class="menu-item" role="menuitem" @click="openAccount">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" /></svg>
+              <span>Account</span><span class="state" :class="{ on: account.name }">{{ account.name ?? 'sign in' }}</span><span></span>
             </button>
             <button class="menu-item" role="menuitem" @click="toggleCheats">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 14 10M14 4v3M14 13v3M10 7H7M21 7h-3M17 4l-1.5 1.5M17 10l-1.5-1.5" /></svg>
@@ -412,30 +513,45 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- High scores -->
-    <div v-if="route.name === 'scores'" class="overlay" :style="overlayStyle">
+    <div v-if="route.name === 'scores'" class="overlay">
       <Leaderboard :highlight="route.highlight" @close="go('#/')" @watch="(id) => go(`#/watch/${id}`)" />
+    </div>
+
+    <!-- Replays: search and my games -->
+    <div v-else-if="route.name === 'replays'" class="overlay">
+      <ReplaysPanel @close="go('#/')" />
     </div>
 
     <!-- Watching a run -->
     <template v-else-if="route.name === 'watch'">
-      <ReplayViewer v-if="player.run" @exit="go('#/scores')" />
-      <div v-else class="overlay" :style="overlayStyle">
+      <ReplayViewer v-if="player.run" @exit="go('code' in route ? '#/replays' : '#/scores')" />
+      <div v-else class="overlay">
         <div class="card card-small">
           <p class="chrome-label">replay</p>
           <h2>{{ watchError ? 'Not found' : 'Loading…' }}</h2>
           <p v-if="watchError" class="best-line">{{ watchError }}</p>
-          <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">Back to scores</span></button>
+          <button class="btn btn-line" @click="go('code' in route ? '#/replays' : '#/scores')"><span class="text-trim">Back</span></button>
         </div>
       </div>
     </template>
 
+    <!-- Account -->
+    <div v-else-if="accountOpen" class="overlay">
+      <AccountPanel @close="accountOpen = false" />
+    </div>
+
+    <!-- Settings -->
+    <div v-else-if="settingsOpen" class="overlay">
+      <SettingsPanel @close="settingsOpen = false" />
+    </div>
+
     <!-- Cheats -->
-    <div v-else-if="cheatOpen" class="overlay" :style="overlayStyle">
+    <div v-else-if="cheatOpen" class="overlay">
       <CheatMenu @close="cheatOpen = false" />
     </div>
 
     <!-- Start -->
-    <div v-else-if="state.status === 'ready'" class="overlay" :style="overlayStyle">
+    <div v-else-if="state.status === 'ready'" class="overlay">
       <div class="card">
         <p class="chrome-label">1 player · snake, set to the beat · sound on</p>
         <h1>Laserwyrm<span class="brand-dot">.</span></h1>
@@ -450,14 +566,14 @@ onBeforeUnmount(() => {
           </li>
           <li>
             <svg viewBox="-0.5 -0.5 8 7" width="28" height="28"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg>
-            <span><b>3 hearts.</b> Walls and biting yourself end it at once.</span>
+            <span><b>3 hearts.</b> Each level refills one, up to 3. Walls and biting yourself end it at once.</span>
           </li>
           <li>
             <svg viewBox="-0.6 -0.6 1.2 1.2" width="28" height="28"><ellipse cx="-0.08" cy="0" rx="0.3" ry="0.32" fill="var(--lavender)" stroke="var(--ink)" stroke-width="0.07" /><path d="M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.22 -0.02 Z M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.05" /></svg>
             <span><b>The snipper</b> cuts your middle. Bite it first.</span>
           </li>
         </ul>
-        <p class="powers-title"><b>Power-ups</b> · hold two, <span class="hide-touch">Space</span><span class="show-touch-inline">tap</span> to use</p>
+        <p class="powers-title"><b>Power-ups</b> · hold two, <span class="hide-touch">Space</span><span class="show-touch-inline">the button</span> to use</p>
         <ul class="powers">
           <li v-for="kind in POWER_KINDS" :key="kind" :title="POWERS[kind].blurb">
             <svg viewBox="-0.5 -0.5 1 1" width="24" height="24"><PowerIcon :kind="kind" /></svg>
@@ -488,7 +604,7 @@ onBeforeUnmount(() => {
           <span class="keygroup"><kbd>M</kbd> sound</span>
           <span class="keygroup"><kbd>C</kbd> cheats</span>
         </div>
-        <p v-if="!pad.connected" class="keys show-touch">Steer with the pad below, or swipe anywhere.</p>
+        <p v-if="!pad.connected" class="keys show-touch">Steer with the stick on the left; the button on the right uses power-ups.</p>
         <p v-if="!pad.connected" class="pad-note">
           <svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true"><path d="M5 1h14a4 4 0 0 1 4 4l1 7a3 3 0 0 1-5 2l-3-3H8l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-4Z" fill="currentColor" /><path d="M6 5v4M4 7h4" stroke="var(--bg)" stroke-width="1.6" /><circle cx="17" cy="5.5" r="1.1" fill="var(--bg)" /><circle cx="19" cy="8" r="1.1" fill="var(--bg)" /></svg>
           Controller supported · press any button to connect
@@ -497,7 +613,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Paused -->
-    <div v-else-if="state.status === 'paused'" class="overlay" :style="overlayStyle">
+    <div v-else-if="state.status === 'paused'" class="overlay">
       <div class="card card-small">
         <p class="chrome-label">paused</p>
         <h2>Take a breath</h2>
@@ -511,9 +627,15 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Game over: the score big, everything else quiet -->
-    <div v-else-if="state.status === 'over'" class="overlay" :style="overlayStyle">
+    <div v-else-if="state.status === 'over'" class="overlay">
       <div class="card card-small card-over">
         <p class="over-label">Game over · the snake {{ state.reason }}</p>
+        <!-- Every game gets a code to share: between who and what scored -->
+        <p class="game-line">
+          <template v-if="gameCode">game <GameCode :code="gameCode" link /></template>
+          <template v-else-if="gameSave === 'saving'">saving game…</template>
+          <template v-else>could not save this game (offline?)</template>
+        </p>
         <p class="final-label">score</p>
         <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
         <p v-if="state.newBest" class="new-best blink">New best!</p>
@@ -522,16 +644,26 @@ onBeforeUnmount(() => {
         <!-- A run that makes the board can be signed and sent, replay and all -->
         <template v-if="entry.phase === 'open' || entry.phase === 'sending' || entry.phase === 'failed'">
           <p class="entry-label">You made the high scores</p>
-          <form class="entry" @submit.prevent="submitScore">
-            <input v-model="entryName" class="field" maxlength="12" placeholder="Name" aria-label="Name" autocomplete="nickname" required autofocus />
+          <form class="entry" :class="{ signed: account.name }" @submit.prevent="submitScore()">
+            <p v-if="account.name" class="as-player">as <b>{{ account.name }}</b></p>
+            <input v-else v-model="entryName" class="field" maxlength="12" placeholder="Pick a name" aria-label="Name" autocomplete="nickname" required autofocus />
             <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
             <button class="btn btn-submit" type="submit" :disabled="entry.phase === 'sending'"><span class="text-trim">{{ entry.phase === 'sending' ? '…' : 'Submit' }}</span></button>
           </form>
-          <p v-if="entry.phase === 'failed'" class="entry-error">Could not send: {{ entry.error }}</p>
+          <p v-if="!account.name" class="entry-note">The name becomes your account; you get a login code to keep.</p>
+          <p v-if="entry.phase === 'failed'" class="entry-error">{{ entry.error }}</p>
+          <p v-if="nameSuggestions.length" class="suggest">
+            Free:
+            <button v-for="n in nameSuggestions" :key="n" class="suggestion" @click="submitScore(n)">{{ n }}</button>
+          </p>
         </template>
         <p v-else-if="entry.phase === 'saved'" class="entry-done">
-          Saved, {{ entryName.trim() }}: #{{ entry.rank }} on the board.
+          {{ account.name }}: #{{ entry.rank }} on the board.
           <a :href="`#/scores/${entry.id}`">See the board</a> · <a :href="`#/watch/${entry.id}`">Watch your run</a>
+        </p>
+        <p v-if="newLoginCode" class="login-code">
+          Your login code: <b>{{ newLoginCode }}</b><br />
+          Keep it somewhere safe; it signs you in anywhere. It is also under ☰ → Account.
         </p>
 
         <dl class="tally">
@@ -558,6 +690,16 @@ onBeforeUnmount(() => {
     <!-- Controller connected -->
     <div v-if="padToast" class="pad-toast">
       <PadGlyph button="a" /> controller connected
+    </div>
+
+    <!-- Phones held upright: ask for sideways -->
+    <div v-if="layout.pad === 'sticks' && layout.portrait" class="rotate">
+      <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+        <rect x="20" y="8" width="24" height="44" rx="3" fill="none" stroke="var(--sky)" stroke-width="3" />
+        <rect x="8" y="22" width="44" height="24" rx="3" fill="none" stroke="var(--mint)" stroke-width="3" class="turned" />
+      </svg>
+      <p class="rotate-title">Turn your phone sideways</p>
+      <p class="rotate-sub">Laserwyrm plays in landscape: stick on the left, button on the right.</p>
     </div>
 
     <!-- CRT glass: scanlines and a dark vignette over the whole screen -->
@@ -670,6 +812,32 @@ onBeforeUnmount(() => {
   pointer-events: none;
   animation: notice 3.5s steps(16) both;
 }
+.rotate {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--bg-off);
+  text-align: center;
+}
+.rotate .turned { animation: turn 2.4s steps(1) infinite; }
+@keyframes turn {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+.rotate-title {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  line-height: 1.6;
+  text-transform: uppercase;
+  color: var(--sun);
+}
+.rotate-sub { margin: 0; max-width: 18rem; font-size: 18px; color: var(--text-dim); }
 .pad-toast {
   position: absolute;
   bottom: 24px;
@@ -700,7 +868,8 @@ onBeforeUnmount(() => {
 /* ─── Notice ─── */
 .notice {
   position: absolute;
-  top: 84px;
+  /* Below the power-up slots and their hint. */
+  top: 98px;
   left: 50%;
   z-index: 6;
   display: flex;
@@ -788,7 +957,8 @@ onBeforeUnmount(() => {
   inset: 0;
   display: grid;
   place-items: center;
-  /* Clear of the HUD, which stays readable on top. */
+  /* Clear of the HUD, which stays on top and usable (z 6); over the phone stick and button (z 5, earlier in the page). */
+  z-index: 5;
   padding: 72px 16px 16px;
   background: rgba(0, 0, 0, 0.7);
 }
@@ -960,6 +1130,32 @@ onBeforeUnmount(() => {
   font-size: 0.6rem;
 }
 .btn.btn-submit:hover { background: #6BBEFF; }
+.game-line {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: 0.6rem 0 0;
+  font-size: 16px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.entry.signed { grid-template-columns: 1fr auto; }
+.as-player { grid-column: 1; margin: 0; align-self: center; font-size: 19px; color: var(--text-muted); }
+.as-player b { font-weight: 400; color: var(--sun); text-transform: uppercase; }
+.entry-note { margin: 0.4rem 0 0; font-size: 15px; color: var(--text-muted); }
+.suggest { display: flex; justify-content: center; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0.5rem 0 0; font-size: 16px; color: var(--text-muted); }
+.suggestion { padding: 2px 8px; border: 2px solid var(--sage); background: var(--bg-off); color: var(--sage); font-size: 16px; }
+.suggestion:hover { background: var(--sage); color: var(--ink); }
+.login-code {
+  margin: 0.9rem 0 0;
+  padding: 8px 10px;
+  border: 2px dashed var(--sun);
+  font-size: 16px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+.login-code b { font-weight: 400; font-size: 19px; letter-spacing: 0.06em; color: var(--sun); user-select: all; }
 .entry-label {
   margin: 1.1rem 0 0;
   font-size: 17px;
@@ -1067,9 +1263,7 @@ onBeforeUnmount(() => {
 }
 .round.open { background: var(--sky); color: var(--ink); }
 .mult { color: var(--sage); }
-.by-pad { position: absolute; z-index: 5; }
-.by-pad.bottom { left: 16px; bottom: calc(24px + env(safe-area-inset-bottom)); }
-.by-pad.side { right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); }
+
 .show-touch-inline { display: none; }
 .hearts {
   display: flex;
@@ -1179,7 +1373,6 @@ onBeforeUnmount(() => {
 @media (pointer: coarse) {
   .hide-touch { display: none; }
   /* The pad has its own play/pause in the middle. */
-  .hide-touch-grid { display: none; }
   .round { width: 40px; height: 40px; }
   .rules li { font-size: 17px; line-height: 1.1; }
   .rules { gap: 0.6rem; margin-bottom: 1rem; }

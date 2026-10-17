@@ -30,21 +30,52 @@ function saveFlag(key: string, value: boolean) {
   }
 }
 
+function readLevel(key: string, fallback: number): number {
+  try {
+    const value = Number(localStorage.getItem(key))
+    return localStorage.getItem(key) !== null && value >= 0 && value <= 1 ? value : fallback
+  } catch {
+    return fallback
+  }
+}
+function saveLevel(key: string, value: number) {
+  try {
+    localStorage.setItem(key, String(value))
+  } catch {
+    /* storage blocked: the slider still works for this visit */
+  }
+}
+
 export const muted = ref(readFlag('snake-muted', false))
 export const musicOn = ref(readFlag('snake-music', true))
+/** Volume sliders in the settings, 0 to 1 on top of the mix below. */
+export const musicVolume = ref(readLevel('snake-music-volume', 1))
+export const sfxVolume = ref(readLevel('snake-sfx-volume', 1))
 
 const MASTER = 0.8
 const MUSIC = 0.55
 const SFX = 0.7
+const musicGain = () => (musicOn.value ? MUSIC * musicVolume.value : 0)
+const sfxGain = () => SFX * sfxVolume.value
 
 watch(muted, (value) => {
   saveFlag('snake-muted', value)
   if (ctx) master.gain.setTargetAtTime(value ? 0 : MASTER, ctx.currentTime, 0.02)
 })
-watch(musicOn, (value) => {
-  saveFlag('snake-music', value)
-  if (ctx) musicBus.gain.setTargetAtTime(value ? MUSIC : 0, ctx.currentTime, 0.05)
+watch([musicOn, musicVolume], () => {
+  saveFlag('snake-music', musicOn.value)
+  saveLevel('snake-music-volume', musicVolume.value)
+  if (ctx) musicBus.gain.setTargetAtTime(musicGain(), ctx.currentTime, 0.05)
 })
+watch(sfxVolume, (value) => {
+  saveLevel('snake-sfx-volume', value)
+  if (ctx) sfxBus.gain.setTargetAtTime(sfxGain(), ctx.currentTime, 0.02)
+})
+
+/** Play one effect now, so a volume change can be heard. */
+export function previewSfx() {
+  sound.eat(0)
+}
 
 /* ─── Graph ──────────────────────────────────────────────────────────── */
 
@@ -67,9 +98,9 @@ function ensure(): AudioContext | null {
   master = ctx.createGain()
   master.gain.value = muted.value ? 0 : MASTER
   musicBus = ctx.createGain()
-  musicBus.gain.value = musicOn.value ? MUSIC : 0
+  musicBus.gain.value = musicGain()
   sfxBus = ctx.createGain()
-  sfxBus.gain.value = SFX
+  sfxBus.gain.value = sfxGain()
   musicBus.connect(master)
   sfxBus.connect(master)
   master.connect(comp).connect(ctx.destination)
@@ -249,6 +280,8 @@ export interface StepEvent { step: number; time: number }
 
 const LOOKAHEAD = 0.12
 let bpm = 110
+/** Playback rate, for watching replays at 0.5× to 2×; 1 in play. */
+let rate = 1
 let level = 0
 let nextStep = 0
 let nextTime = 0
@@ -258,7 +291,7 @@ let fallbackStart = 0
 let fallbackPausedAt = 0
 let running = false
 
-export const stepSeconds = () => 60 / bpm / 4
+export const stepSeconds = () => 60 / (bpm * rate) / 4
 
 /** Steps the game has not handled yet, in time order. */
 export const queue: StepEvent[] = []
@@ -293,13 +326,17 @@ export const conductor = {
   onSchedule(callback: (event: StepEvent) => void) {
     onSchedule = callback
   },
-  start() {
+  setRate(value: number) {
+    rate = value
+  },
+  /** Start the track; a replay starts mid-run, so bars stay in step with the game. */
+  start(fromStep = 0) {
     ensure()
     if (ctx?.state === 'suspended') void ctx.resume()
     fallbackStart = performance.now()
     running = true
     queue.length = 0
-    nextStep = 0
+    nextStep = fromStep
     nextTime = now() + 0.08
     timer ??= setInterval(schedule, 25)
     schedule()

@@ -5,6 +5,7 @@
 import { onMounted, ref } from 'vue'
 import { fetchScores, type ScoreRow } from '../api'
 import { runSeconds } from '../game'
+import GameCode from './GameCode.vue'
 
 const props = defineProps<{ highlight?: number }>()
 const emit = defineEmits<{ close: []; watch: [id: number] }>()
@@ -50,12 +51,13 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
 
     <table v-else>
       <thead>
-        <tr><th>#</th><th>Name</th><th class="num">Score</th><th class="num">Lvl</th><th class="num hide-narrow">Time</th><th></th></tr>
+        <tr><th>#</th><th>Name</th><th class="hide-narrow">Game</th><th class="num">Score</th><th class="num">Lvl</th><th class="num hide-narrow">Time</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="(row, i) in rows" :key="row.id" :class="{ mine: row.id === props.highlight, top: i < 3 }">
           <td class="rank">{{ i + 1 }}</td>
           <td class="name" :title="`${row.name} · ${when(row.created_at)}`">{{ row.name }}</td>
+          <td class="hide-narrow"><GameCode v-if="row.code" :code="row.code" /></td>
           <td class="num score">{{ row.score.toLocaleString() }}</td>
           <td class="num">{{ row.level }}</td>
           <td class="num hide-narrow">{{ time(row.steps) }}</td>
@@ -73,7 +75,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
 
 <style scoped>
 .board-card {
-  width: min(36rem, 100%);
+  width: min(42rem, 100%);
   max-height: 100%;
   overflow: auto;
   padding: 1.4rem 1.6rem;

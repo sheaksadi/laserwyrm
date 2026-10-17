@@ -46,7 +46,14 @@ export function enterFullscreen(force = false) {
   if ((!fullscreenOn.value && !force) || !canFullscreen() || document.fullscreenElement) return
   document.documentElement
     .requestFullscreen({ navigationUI: 'hide' })
-    .then(() => keyboard()?.lock?.(['Escape']))
+    .then(() => {
+      void keyboard()?.lock?.(['Escape'])
+      // Phones play sideways; where the browser allows, hold it there.
+      if (window.matchMedia('(pointer: coarse)').matches) {
+        const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }
+        orientation.lock?.('landscape').catch(() => {})
+      }
+    })
     .catch(() => {})
 }
 

@@ -14,8 +14,8 @@
  * A laser slices the body where it crosses: the head side lives on, and the
  * rest lies there for a moment, then pops cell by cell. Points already scored
  * stay, but the multiplier drops. Only a laser through the head costs a heart;
- * the third ends the game. Walls and biting yourself end it at once. A rare
- * heart drop gives one back.
+ * the third ends the game. Walls and biting yourself end it at once. Each new
+ * level refills a heart up to three; a rare heart drop can take you to five.
  *
  * Power-ups are held, not swallowed: the snake carries up to two and uses
  * the oldest on Space. One picked up with both slots full works at once. The
@@ -220,6 +220,8 @@ let stepsDone = 0
 /** Playback of a recorded run. While active, input and sound are off. */
 export const replay = reactive({
   active: false,
+  /** Sounds on while watching at an ear-friendly speed; off when skimming or seeking. */
+  sound: false,
   ended: false,
   /** Steps played so far, and the total. */
   at: 0,
@@ -231,8 +233,33 @@ let savedCheats = { god: false, noLasers: false }
 
 /** Sounds go quiet during a replay; everything else calls through. */
 const sound = new Proxy(rawSound, {
-  get: (target, key: keyof typeof rawSound) => (replay.active ? () => {} : target[key]),
+  get: (target, key: keyof typeof rawSound) => (replay.active && !replay.sound ? () => {} : target[key]),
 })
+
+/**
+ * What the player should feel through a controller: the moment and how big
+ * it was (cells cut, say). The view turns these into rumble.
+ */
+export type Feel = 'cut' | 'hurt' | 'die' | 'block' | 'revive' | 'level' | 'eat'
+const feelers: ((kind: Feel, amount: number) => void)[] = []
+export const onFeel = (fn: (kind: Feel, amount: number) => void) => feelers.push(fn)
+function feel(kind: Feel, amount = 1) {
+  if (!replay.active) for (const fn of feelers) fn(kind, amount)
+}
+
+/**
+ * Moments worth finding again on a replay's timeline. These fire in replays
+ * too (unlike feel), so the viewer can scan a run once and mark its bar.
+ */
+export type Mark = 'power' | 'use' | 'cut' | 'hurt' | 'heal' | 'level' | 'totem' | 'die'
+const markers = new Set<(kind: Mark, step: number) => void>()
+export function onMark(fn: (kind: Mark, step: number) => void) {
+  markers.add(fn)
+  return () => markers.delete(fn)
+}
+function mark(kind: Mark) {
+  for (const fn of markers) fn(kind, state.step)
+}
 
 /** A copy of the last run, ready to send with a score. */
 export const lastReplay = (): Replay => ({ ...recording, steps: stepsDone, events: [...recording.events] })
@@ -332,16 +359,16 @@ export const isTouch = () =>
   (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window)
 
 /**
- * Where the board sits, in px from each window edge. The HUD band is on top;
- * on touch screens the control pad takes the bottom (portrait) or the right
- * side (landscape). App.vue places the board and the pad from these numbers.
+ * Where the board sits, in px from each window edge. The HUD band is on top
+ * (with room under it for the power-up hint on desktop). Phones play
+ * sideways: the stick takes the left, the action button the right. Held
+ * upright, the view asks to be turned. App.vue places everything from these.
  */
 export function arenaInsets() {
   const w = window.innerWidth
   const h = window.innerHeight
-  if (!isTouch()) return { top: 72, right: 12, bottom: 12, left: 12, pad: 'none' as const }
-  if (w > h) return { top: 64, right: 200, bottom: 8, left: 8, pad: 'side' as const }
-  return { top: 64, right: 8, bottom: 196, left: 8, pad: 'bottom' as const }
+  if (!isTouch()) return { top: 90, right: 12, bottom: 12, left: 12, pad: 'none' as 'none' | 'sticks', portrait: false }
+  return { top: 64, right: 168, bottom: 8, left: 190, pad: 'sticks' as 'none' | 'sticks', portrait: h > w }
 }
 
 export const layout = reactive(arenaInsets())
@@ -455,11 +482,14 @@ function die(reason: string) {
   state.shake++
   if (replay.active) {
     replay.ended = true
+    mark('die')
     return
   }
   state.status = 'over'
   conductor.stop()
   sound.die()
+  feel('die', state.snake.length)
+  mark('die')
   state.newBest = !state.cheated && state.score > state.best
   if (state.newBest) {
     state.best = state.score
@@ -482,6 +512,8 @@ function revive(reason: string) {
   state.effects.ghost = Math.max(state.effects.ghost, cover)
   state.shake++
   sound.level()
+  feel('revive')
+  mark('totem')
   banner('Undying!', 'the totem crumbles')
   popup(state.snake[0]!, 'saved', 'sun')
 }
@@ -500,6 +532,8 @@ function cut(index: number) {
   popup(lost[0]!, `−${lost.length}`, 'coral')
   sound.cut()
   sound.pops(lost.length, HOLD_MS / 1000, POP_GAP_MS / 1000)
+  feel('cut', lost.length)
+  mark('cut')
 }
 
 /* ─── Lasers ─────────────────────────────────────────────────────────── */
@@ -656,6 +690,7 @@ function strike(laser: Laser) {
     state.effects.shield = 0
     state.stats.blocked++
     sound.shield()
+    feel('block')
     popup(state.snake[0]!, 'blocked', 'sky')
     return
   }
@@ -663,6 +698,8 @@ function strike(laser: Laser) {
   // The body can be sliced freely; only the head costs a heart.
   if (headHit) {
     state.hearts--
+    feel('hurt', state.hearts)
+    mark('hurt')
     state.shake++
     popup(state.snake[0]!, '−1 life', 'coral')
     if (state.hearts <= 0) die('ran out of hearts')
@@ -735,6 +772,7 @@ function eat(item: Item) {
     state.hearts = Math.min(MAX_HEARTS, state.hearts + 1)
     sound.bonus()
     popup(item, '+1 life', 'coral')
+    mark('heal')
     return
   }
   if (item.kind === 'totem') {
@@ -742,12 +780,14 @@ function eat(item: Item) {
     sound.level()
     popup(item, 'totem!', 'sun')
     notice('totem', TOTEM.name, TOTEM.blurb)
+    mark('power')
     return
   }
   if (isPower(item.kind)) {
     const power = POWERS[item.kind]
     if (state.held.length < MAX_HELD) {
       state.held.push(item.kind)
+      mark('power')
       sound.pill()
       popup(item, power.name, power.tone)
       notice(item.kind, `${power.name} stored`, `${power.blurb}. Space to use.`)
@@ -760,6 +800,7 @@ function eat(item: Item) {
   state.grow += grow
   state.stats.eaten++
   sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' ? 1 : 2)
+  feel('eat', grow)
   popup(item, `+${grow} ×`, item.kind === 'star' ? 'sun' : 'mint')
   if (item.kind === 'apple') addItem('apple', null)
 }
@@ -772,6 +813,7 @@ function activate(kind: PowerKind, at: Vec) {
   sound.pill()
   popup(at, power.name, power.tone)
   notice(kind, power.name, power.blurb)
+  mark('use')
 }
 
 /** Use the oldest held power-up. */
@@ -790,8 +832,19 @@ function onBar(bar: number) {
   if (level !== state.level) {
     applyLevel(level)
     sound.level()
+    feel('level')
+    mark('level')
+    // Each new level refills one heart, up to the starting three; only heart
+    // drops take you past that.
+    const healed = state.hearts < START_HEARTS
+    if (healed) {
+      state.hearts++
+      popup(state.snake[0]!, '+1 life', 'coral')
+      mark('heal')
+    }
     const tier = LASER_TIERS.find((t) => t.level === level && level > 0)
-    banner(`Level ${level + 1}`, tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`)
+    const sub = tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`
+    banner(`Level ${level + 1}`, healed ? `${sub} · +1 heart` : sub)
   }
 
   // Bonus fruit and pills, at most two extras at a time.
@@ -981,6 +1034,12 @@ export function cheatToggle(name: keyof typeof cheats) {
   if (name === 'noLasers' && cheats.noLasers) state.lasers = state.lasers.filter((l) => l.struck)
 }
 
+/** Forget the best score on this device, to test new-best runs again. */
+export function resetBest() {
+  state.best = 0
+  saveBest(0)
+}
+
 export function cheatGive(kind: PowerKind | 'totem' | 'heart' | 'grow') {
   state.cheated = true
   if (kind === 'totem') state.totem = true
@@ -1030,6 +1089,7 @@ function queueTurn(name: DirName): boolean {
 /** Set up a recorded run at its first step. Cheats are put aside until it ends. */
 export function startReplay(run: Replay) {
   if (!replay.active) savedCheats = { ...cheats }
+  // reset() stops the track; a sounding replay restarts it after.
   cheats.god = false
   cheats.noLasers = false
   replay.active = true
@@ -1062,8 +1122,11 @@ export function replayTo(target: number) {
 
 /** Jump anywhere: back means playing again from the start, quickly. Leftover effects are cleared. */
 export function replaySeek(target: number, run: Replay) {
+  const sound = replay.sound
+  replay.sound = false
   if (target < replay.at) startReplay(run)
   replayTo(target)
+  replay.sound = sound
   timers.length = 0
   state.popups = []
   state.debris = []
@@ -1087,6 +1150,8 @@ export function stopReplay() {
   if (!replay.active) return
   replay.active = false
   replay.ended = false
+  replay.sound = false
+  conductor.setRate(1)
   Object.assign(cheats, savedCheats)
   reset()
 }

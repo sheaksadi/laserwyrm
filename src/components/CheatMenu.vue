@@ -4,7 +4,7 @@
  * Pick a level, flip god mode, hand yourself items, then play on.
  */
 import { ref } from 'vue'
-import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, LASER_TIERS, MAX_LEVEL, play, POWER_KINDS, POWERS, reset, state, TOTEM } from '../game'
+import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, LASER_TIERS, MAX_LEVEL, play, POWER_KINDS, POWERS, reset, resetBest, state, TOTEM } from '../game'
 import { pad } from '../gamepad'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
@@ -12,6 +12,11 @@ import PowerIcon from './PowerIcon.vue'
 const emit = defineEmits<{ close: [] }>()
 
 const level = ref(state.level)
+const bestCleared = ref(false)
+function clearBest() {
+  resetBest()
+  bestCleared.value = true
+}
 const TIER_COLOR = { red: 'var(--coral)', blue: 'var(--sky)', purple: 'var(--lavender)', white: '#FFFFFF', green: 'var(--sage)', gold: 'var(--sun)', prism: 'linear-gradient(90deg, #FF3355, #FFE14D, #5CFF5C, #3FA9FF, #B26BFF)' } as const
 function pickLevel(value: number) {
   level.value = value
@@ -93,6 +98,14 @@ function start() {
         <button class="give" @click="cheatGive('heart')"><svg viewBox="-0.5 -0.5 8 7" width="26" height="26"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg><span>Full hearts</span></button>
         <button class="give" @click="cheatGive('grow')"><span class="big">+10</span><span>Length</span></button>
       </div>
+    </section>
+
+    <section>
+      <h3>Testing</h3>
+      <button class="row" @click="clearBest">
+        <span><b>Reset best score</b> on this device, to test new bests again</span>
+        <span class="state" :class="{ on: bestCleared }">{{ bestCleared ? 'done' : state.best.toLocaleString() }}</span>
+      </button>
     </section>
 
     <footer>
