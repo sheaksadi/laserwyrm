@@ -5,15 +5,9 @@
  * a lighter one), with square caps for a blocky, 8-bit look.
  */
 import { computed, ref, watch } from 'vue'
-import { isActive, state, type Tone } from '../game'
+import { HEART_PATH, isActive, state, TONE_COLOR, type Beam, type LaserKind } from '../game'
+import PowerIcon from './PowerIcon.vue'
 
-const TONE: Record<Tone, string> = {
-  mint: '#2BB5AC',
-  coral: 'var(--coral)',
-  sun: '#E0A800',
-  lavender: 'var(--lavender)',
-  sky: 'var(--sky)',
-}
 
 const points = computed(() => state.snake.map((c) => `${c.x + 0.5},${c.y + 0.5}`).join(' '))
 const head = computed(() => state.snake[0]!)
@@ -32,6 +26,21 @@ const eyes = computed(() => {
 })
 
 const snipperAngle = computed(() => (Math.atan2(state.snipper.facing.y, state.snipper.facing.x) * 180) / Math.PI)
+
+/** Each laser colour; prism lasers are a rainbow gradient. */
+const LASER_COLOR: Record<LaserKind, string> = {
+  red: 'var(--coral)',
+  blue: 'var(--sky)',
+  purple: 'var(--lavender)',
+  white: '#FFFFFF',
+  green: 'var(--sage)',
+  gold: 'var(--sun)',
+  prism: 'url(#prism)',
+}
+const LASER_KINDS = Object.keys(LASER_COLOR) as LaserKind[]
+const half = (beam: Beam) => (beam.width - 1) / 2
+/** Emitters grow with the band they fire. */
+const emitterSize = (beam: Beam) => (beam.width === 3 ? 1.6 : 0.7)
 
 /** Items blink in their last two beats. */
 const fading = (until: number | null) => until !== null && until - state.step <= 8
@@ -56,7 +65,6 @@ const STAR = (() => {
   return pts.join(' ')
 })()
 
-const PILL_COLOR = { shield: 'var(--sky)', double: 'var(--sun)', slow: 'var(--lavender)' } as const
 
 /** One shake per hit, one pulse per beat. Web Animations, so nothing remounts. */
 const root = ref<SVGSVGElement | null>(null)
@@ -99,8 +107,15 @@ watch(
       <pattern id="dots" width="1" height="1" patternUnits="userSpaceOnUse">
         <path d="M 1 0 L 0 0 0 1" fill="none" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke" />
       </pattern>
-      <pattern id="hatch" width="0.5" height="0.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <rect width="0.22" height="0.5" fill="var(--coral)" />
+      <linearGradient id="prism" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#FF3355" />
+        <stop offset="0.25" stop-color="#FFE14D" />
+        <stop offset="0.5" stop-color="#5CFF5C" />
+        <stop offset="0.75" stop-color="#3FA9FF" />
+        <stop offset="1" stop-color="#B26BFF" />
+      </linearGradient>
+      <pattern v-for="kind in LASER_KINDS" :id="`hatch-${kind}`" :key="kind" width="0.5" height="0.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="0.22" height="0.5" :fill="LASER_COLOR[kind]" />
       </pattern>
     </defs>
 
@@ -116,37 +131,40 @@ watch(
       stroke="var(--sky)" stroke-width="3" vector-effect="non-scaling-stroke"
     />
 
-    <!-- Laser warnings: emitters at both ends, stripes, and a fuse that runs to the beat -->
-    <g v-for="laser in state.lasers" :key="laser.id">
+    <!-- Laser warnings: emitters at both ends, stripes, and a fuse that runs to the beat.
+         A laser is one or two beams (a cross), each 1 or 3 cells wide, coloured by kind. -->
+    <g v-for="laser in state.lasers" :key="laser.id" :style="{ '--laser': LASER_COLOR[laser.kind] }">
       <template v-if="!laser.struck">
-        <rect
-          class="warn"
-          :x="laser.axis === 'col' ? laser.index : 0"
-          :y="laser.axis === 'row' ? laser.index : 0"
-          :width="laser.axis === 'col' ? 1 : state.cols"
-          :height="laser.axis === 'row' ? 1 : state.rows"
-          fill="url(#hatch)"
-        />
-        <rect
-          class="fuse"
-          :class="[laser.axis, laser.from]"
-          :style="{ animationDuration: `${laser.warnMs}ms` }"
-          :x="laser.axis === 'col' ? laser.index + 0.4 : 0"
-          :y="laser.axis === 'row' ? laser.index + 0.4 : 0"
-          :width="laser.axis === 'col' ? 0.2 : state.cols"
-          :height="laser.axis === 'row' ? 0.2 : state.rows"
-          fill="var(--coral)"
-        />
-        <rect
-          v-for="end in [0, 1]"
-          :key="end"
-          class="emitter"
-          :style="{ animationDuration: `${laser.warnMs}ms` }"
-          :x="laser.axis === 'col' ? laser.index + 0.15 : end ? state.cols - 0.35 : -0.35"
-          :y="laser.axis === 'row' ? laser.index + 0.15 : end ? state.rows - 0.35 : -0.35"
-          width="0.7"
-          height="0.7"
-        />
+        <g v-for="(beam, b) in laser.beams" :key="b" :class="{ tracking: laser.traits.includes('track') }">
+          <rect
+            class="warn"
+            :x="beam.axis === 'col' ? beam.index - half(beam) : 0"
+            :y="beam.axis === 'row' ? beam.index - half(beam) : 0"
+            :width="beam.axis === 'col' ? beam.width : state.cols"
+            :height="beam.axis === 'row' ? beam.width : state.rows"
+            :fill="`url(#hatch-${laser.kind})`"
+          />
+          <rect
+            class="fuse"
+            :class="[beam.axis, laser.from]"
+            :style="{ animationDuration: `${laser.warnMs}ms` }"
+            :x="beam.axis === 'col' ? beam.index + 0.4 : 0"
+            :y="beam.axis === 'row' ? beam.index + 0.4 : 0"
+            :width="beam.axis === 'col' ? 0.2 : state.cols"
+            :height="beam.axis === 'row' ? 0.2 : state.rows"
+            :fill="LASER_COLOR[laser.kind]"
+          />
+          <rect
+            v-for="end in [0, 1]"
+            :key="end"
+            class="emitter"
+            :style="{ animationDuration: `${laser.warnMs}ms` }"
+            :x="beam.axis === 'col' ? beam.index + 0.5 - emitterSize(beam) / 2 : end ? state.cols - emitterSize(beam) / 2 : -emitterSize(beam) / 2"
+            :y="beam.axis === 'row' ? beam.index + 0.5 - emitterSize(beam) / 2 : end ? state.rows - emitterSize(beam) / 2 : -emitterSize(beam) / 2"
+            :width="emitterSize(beam)"
+            :height="emitterSize(beam)"
+          />
+        </g>
       </template>
     </g>
 
@@ -171,13 +189,13 @@ watch(
             <polygon :points="STAR" fill="var(--sun)" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
           </g>
         </template>
-        <template v-else>
-          <!-- Pills: a capsule, half colour, half white -->
-          <g transform="rotate(-35)">
-            <rect x="-0.4" y="-0.18" width="0.8" height="0.36" rx="0.18" fill="#FFFFFF" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
-            <path d="M 0 -0.18 L -0.22 -0.18 A 0.18 0.18 0 0 0 -0.22 0.18 L 0 0.18 Z" :fill="PILL_COLOR[item.kind]" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+        <template v-else-if="item.kind === 'heart'">
+          <g class="beat-throb">
+            <path :d="HEART_PATH" transform="scale(0.12) translate(-3.5 -3)" fill="var(--coral)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
           </g>
         </template>
+        <!-- Power-ups and the totem -->
+        <g v-else :class="{ 'beat-throb': item.kind === 'totem' }"><PowerIcon :kind="item.kind" /></g>
       </g>
     </g>
 
@@ -274,23 +292,25 @@ watch(
 
     <!-- Laser strikes: a straight beam and a jagged bolt, over everything -->
     <g v-for="laser in state.lasers" :key="`s${laser.id}`">
-      <g v-if="laser.struck" class="strike" :class="[laser.axis, laser.from]">
-        <rect
-          :x="laser.axis === 'col' ? laser.index + 0.22 : -0.25"
-          :y="laser.axis === 'row' ? laser.index + 0.22 : -0.25"
-          :width="laser.axis === 'col' ? 0.56 : state.cols + 0.5"
-          :height="laser.axis === 'row' ? 0.56 : state.rows + 0.5"
-          fill="var(--coral)"
-        />
-        <polyline :points="laser.bolt" fill="none" stroke="var(--sun)" stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
-        <rect
-          :x="laser.axis === 'col' ? laser.index + 0.44 : -0.25"
-          :y="laser.axis === 'row' ? laser.index + 0.44 : -0.25"
-          :width="laser.axis === 'col' ? 0.12 : state.cols + 0.5"
-          :height="laser.axis === 'row' ? 0.12 : state.rows + 0.5"
-          fill="#fff"
-        />
-      </g>
+      <template v-if="laser.struck">
+        <g v-for="(beam, b) in laser.beams" :key="b" class="strike" :class="[beam.axis, laser.from]">
+          <rect
+            :x="beam.axis === 'col' ? beam.index - half(beam) + 0.22 : -0.25"
+            :y="beam.axis === 'row' ? beam.index - half(beam) + 0.22 : -0.25"
+            :width="beam.axis === 'col' ? beam.width - 0.44 : state.cols + 0.5"
+            :height="beam.axis === 'row' ? beam.width - 0.44 : state.rows + 0.5"
+            :fill="LASER_COLOR[laser.kind]"
+          />
+          <polyline :points="beam.bolt" fill="none" :stroke="laser.kind === 'gold' || laser.kind === 'white' ? 'var(--coral)' : 'var(--sun)'" stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+          <rect
+            :x="beam.axis === 'col' ? beam.index + 0.44 : -0.25"
+            :y="beam.axis === 'row' ? beam.index + 0.44 : -0.25"
+            :width="beam.axis === 'col' ? 0.12 : state.cols + 0.5"
+            :height="beam.axis === 'row' ? 0.12 : state.rows + 0.5"
+            fill="#fff"
+          />
+        </g>
+      </template>
     </g>
 
     <!-- Floating numbers -->
@@ -300,7 +320,7 @@ watch(
       class="popup"
       :x="p.x + 0.5" :y="p.y"
       text-anchor="middle"
-      :fill="TONE[p.tone]"
+      :fill="TONE_COLOR[p.tone]"
     >{{ p.text }}</text>
   </svg>
 </template>
@@ -335,6 +355,14 @@ watch(
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+.beat-throb {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: throb 0.6s steps(2) infinite;
+}
+@keyframes throb {
+  50% { transform: scale(1.25); }
+}
 
 /* ─── Lasers ─── */
 .warn {
@@ -364,8 +392,10 @@ watch(
 }
 @keyframes charge {
   from { fill: var(--text); }
-  to { fill: var(--coral); }
+  to { fill: var(--laser); }
 }
+/* Green lasers slide a cell at a time as they hunt the head. */
+.tracking rect { transition: x 0.12s steps(2), y 0.12s steps(2); }
 
 .strike {
   transform-box: fill-box;

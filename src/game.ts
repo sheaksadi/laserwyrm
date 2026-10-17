@@ -7,16 +7,29 @@
  * up: the tempo rises, the track fills out, and more lasers come, with less
  * warning.
  *
- * A laser never kills. It slices the snake where it crosses: the head side
- * lives on, and the rest lies there for a moment, then pops cell by cell.
- * Those cells are points lost. Only walls and biting yourself end the game.
+ * Scoring: every beat the snake survives scores its multiplier, which grows
+ * faster than its length and climbs with the level, so a long snake late in
+ * the game is worth far more than a short one early. Fruit only grows it.
+ *
+ * A laser slices the body where it crosses: the head side lives on, and the
+ * rest lies there for a moment, then pops cell by cell. Points already scored
+ * stay, but the multiplier drops. Only a laser through the head costs a heart;
+ * the third ends the game. Walls and biting yourself end it at once. A rare
+ * heart drop gives one back.
+ *
+ * Power-ups are held, not swallowed: the snake carries up to two and uses
+ * the oldest on Space. One picked up with both slots full works at once. The
+ * Totem of Undying is rare and passive: it cheats one death of any kind.
+ *
+ * Cheats (the C menu) can jump levels, turn on god mode and hand out items.
+ * A run that used any of them never counts toward the best score.
  */
 import { reactive } from 'vue'
 import { conductor, now, queue, sound, stepSeconds } from './audio'
 
 export interface Vec { x: number; y: number }
 export type DirName = 'up' | 'down' | 'left' | 'right'
-export type Tone = 'mint' | 'coral' | 'sun' | 'lavender' | 'sky'
+export type Tone = 'mint' | 'coral' | 'sun' | 'lavender' | 'sky' | 'rose' | 'white'
 
 export const DIRS: Record<DirName, Vec> = {
   up: { x: 0, y: -1 },
@@ -25,31 +38,102 @@ export const DIRS: Record<DirName, Vec> = {
   right: { x: 1, y: 0 },
 }
 
+/** One straight band of a laser: a row or a column, 1 or 3 cells wide. */
+export interface Beam {
+  axis: 'row' | 'col'
+  /** The middle row or column of the band. */
+  index: number
+  width: 1 | 3
+  /** Jagged bolt drawn when it fires, as SVG points. */
+  bolt: string
+}
+
+/**
+ * What a laser can do beyond a plain line. Each unlocks at a level (0-based):
+ * wide 3-cell bands, a cross of row and column, a short fuse, a fuse that
+ * drifts toward the head, and a second strike a beat after the first.
+ */
+export type LaserTrait = 'wide' | 'cross' | 'fast' | 'track' | 'repeat'
+export type LaserKind = 'red' | 'blue' | 'purple' | 'white' | 'green' | 'gold' | 'prism'
+
+export const LASER_TRAITS: Record<LaserTrait, { unlock: number; kind: LaserKind }> = {
+  wide: { unlock: 10, kind: 'blue' },
+  cross: { unlock: 20, kind: 'purple' },
+  fast: { unlock: 30, kind: 'white' },
+  track: { unlock: 40, kind: 'green' },
+  repeat: { unlock: 50, kind: 'gold' },
+}
+/** Levels (0-based) where two, then three traits start to share one laser. */
+const COMBO_LEVEL = 60
+const PRISM_LEVEL = 80
+
+/** The levels where something new arrives, with what to tell the player. */
+export const LASER_TIERS: { level: number; kind: LaserKind; name: string; blurb: string }[] = [
+  { level: 0, kind: 'red', name: 'Red', blurb: 'one straight line' },
+  { level: 10, kind: 'blue', name: 'Blue lasers', blurb: 'three wide: they splash' },
+  { level: 20, kind: 'purple', name: 'Purple lasers', blurb: 'a row and a column at once' },
+  { level: 30, kind: 'white', name: 'White lasers', blurb: 'half the warning' },
+  { level: 40, kind: 'green', name: 'Green lasers', blurb: 'they follow your head' },
+  { level: 50, kind: 'gold', name: 'Gold lasers', blurb: 'they strike twice' },
+  { level: COMBO_LEVEL, kind: 'gold', name: 'Combos', blurb: 'lasers mix two tricks' },
+  { level: PRISM_LEVEL, kind: 'prism', name: 'Prism lasers', blurb: 'three tricks at once' },
+]
+
 export interface Laser {
   id: number
-  axis: 'row' | 'col'
-  index: number
+  kind: LaserKind
+  beams: Beam[]
+  traits: LaserTrait[]
   /** Step it fires on; the warning lasts from now until then. */
   strikeStep: number
   /** Warning length in ms, for the fuse animation. */
   warnMs: number
   struck: boolean
   from: 'start' | 'end'
-  /** Jagged bolt drawn when it fires, as SVG points. */
-  bolt: string
+  /** The second strike of a gold laser; it does not strike again. */
+  echo: boolean
 }
 
-export type ItemKind = 'apple' | 'cherry' | 'star' | 'shield' | 'double' | 'slow'
+export type PowerKind = 'shield' | 'double' | 'slow' | 'dash' | 'magnet' | 'ghost'
+export type FruitKind = 'apple' | 'cherry' | 'star'
+export type ItemKind = FruitKind | PowerKind | 'heart' | 'totem'
 export interface Item { id: number; kind: ItemKind; x: number; y: number; until: number | null }
 
-export const ITEM_INFO: Record<ItemKind, { points: number; grow: number; label: string }> = {
-  apple: { points: 1, grow: 1, label: '+1' },
-  cherry: { points: 3, grow: 2, label: '+3' },
-  star: { points: 5, grow: 3, label: '+5' },
-  shield: { points: 0, grow: 0, label: 'shield' },
-  double: { points: 0, grow: 0, label: '×2 points' },
-  slow: { points: 0, grow: 0, label: 'slow-mo' },
+export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star: 5 }
+
+/** Every power-up: what it is called, what it does, its colour, and how long it lasts (0: instant). */
+export const POWERS: Record<PowerKind, { name: string; blurb: string; tone: Tone; bars: number }> = {
+  shield: { name: 'Shield', blurb: 'Blocks the next laser hit', tone: 'sky', bars: 8 },
+  double: { name: 'Double', blurb: 'Every beat scores ×2', tone: 'sun', bars: 4 },
+  slow: { name: 'Slow-mo', blurb: 'You move at half speed', tone: 'lavender', bars: 2 },
+  dash: { name: 'Dash', blurb: 'Lunge 4 cells ahead, through your tail', tone: 'mint', bars: 0 },
+  magnet: { name: 'Magnet', blurb: 'Fruit drifts toward your head', tone: 'rose', bars: 4 },
+  ghost: { name: 'Ghost', blurb: 'Slide through your own body', tone: 'white', bars: 4 },
 }
+export const POWER_KINDS = Object.keys(POWERS) as PowerKind[]
+export const TOTEM = { name: 'Totem of Undying', blurb: 'Cheats death once, then crumbles' }
+
+/** Colours for each tone, shared by the board and the HUD. */
+export const TONE_COLOR: Record<Tone, string> = {
+  mint: 'var(--mint)',
+  coral: 'var(--coral)',
+  sun: 'var(--sun)',
+  lavender: 'var(--lavender)',
+  sky: 'var(--sky)',
+  rose: 'var(--rose)',
+  white: '#E8E8FF',
+}
+
+export const isPower = (kind: ItemKind): kind is PowerKind => kind in POWERS
+
+export const MAX_HELD = 2
+export const START_HEARTS = 3
+export const MAX_HEARTS = 5
+/** A pixel heart on a 7 × 6 grid, for the board, the HUD and the rules. */
+export const HEART_PATH =
+  'M1 0H3V1H4V0H6V1H7V3H6V4H5V5H4V6H3V5H2V4H1V3H0V1H1Z'
+/** Chance per bar that a heart drops, while the snake is missing some. */
+const HEART_CHANCE = 0.05
 
 export interface Debris {
   id: number
@@ -68,8 +152,13 @@ const BOLT_MS = 320
 const BARS_PER_LEVEL = 8
 const SNIPPER_RESPAWN_MS = 9000
 const SNIPPER_REST_MS = 2600
+const DASH_CELLS = 4
+/** Chance per bar that a totem drops, from level 2 on. */
+const TOTEM_CHANCE = 0.012
+const NOTICE_MS = 1800
 
-const BEST_KEY = 'snake-best'
+/** v2: scores are length × beats now, so old fruit-count bests do not compare. */
+const BEST_KEY = 'snake-best-v2'
 
 function readBest(): number {
   try {
@@ -90,11 +179,19 @@ function saveBest(value: number) {
 const same = (a: Vec, b: Vec) => a.x === b.x && a.y === b.y
 const rand = (n: number) => Math.floor(Math.random() * n)
 const pick = <T>(list: readonly T[]) => list[rand(list.length)]!
-const onLine = (cell: Vec, laser: Pick<Laser, 'axis' | 'index'>) =>
-  laser.axis === 'row' ? cell.y === laser.index : cell.x === laser.index
+const inBeam = (cell: Vec, beam: Beam) =>
+  Math.abs((beam.axis === 'row' ? cell.y : cell.x) - beam.index) <= (beam.width - 1) / 2
+const onLine = (cell: Vec, laser: Laser) => laser.beams.some((beam) => inBeam(cell, beam))
 const tempoFor = (level: number) => Math.min(172, 108 + level * 8)
 
 let uid = 0
+
+/** Cheat switches. They outlive a restart, so you can set them up and replay. */
+export const cheats = reactive({
+  /** Walls wrap, the body is not solid, lasers do nothing. */
+  god: false,
+  noLasers: false,
+})
 
 export const state = reactive({
   cols: 30,
@@ -104,6 +201,7 @@ export const state = reactive({
   queue: [] as Vec[],
   grow: 0,
   score: 0,
+  hearts: START_HEARTS,
   best: readBest(),
   longest: 3,
   status: 'ready' as 'ready' | 'running' | 'paused' | 'over',
@@ -117,7 +215,19 @@ export const state = reactive({
 
   items: [] as Item[],
   /** Each effect lasts until this step; 0 means off. */
-  effects: { shield: 0, double: 0, slow: 0 },
+  effects: { shield: 0, double: 0, slow: 0, magnet: 0, ghost: 0 },
+  /** Power-ups carried for later, oldest first. */
+  held: [] as PowerKind[],
+  /** Holding a Totem of Undying. */
+  totem: false,
+  /** A short note under the HUD: what was picked up or used, and what it does. */
+  notice: null as { id: number; kind: PowerKind | 'totem'; title: string; sub: string } | null,
+  /** The last game beat the stored best. */
+  newBest: false,
+  /** Levels skipped by the cheat menu: the level is this plus the bars played. */
+  levelOffset: 0,
+  /** Cheats were used this run, so it cannot set a best. */
+  cheated: false,
   lasers: [] as Laser[],
   debris: [] as Debris[],
   popups: [] as Popup[],
@@ -210,6 +320,7 @@ export function reset() {
     queue: [],
     grow: 0,
     score: 0,
+    hearts: START_HEARTS,
     longest: 3,
     status: 'ready',
     reason: '',
@@ -217,7 +328,13 @@ export function reset() {
     bpm: tempoFor(0),
     step: 0,
     items: [],
-    effects: { shield: 0, double: 0, slow: 0 },
+    effects: { shield: 0, double: 0, slow: 0, magnet: 0, ghost: 0 },
+    held: [],
+    totem: false,
+    notice: null,
+    newBest: false,
+    levelOffset: 0,
+    cheated: cheats.god || cheats.noLasers,
     lasers: [],
     debris: [],
     popups: [],
@@ -247,16 +364,45 @@ function banner(title: string, sub: string) {
   })
 }
 
+function notice(kind: PowerKind | 'totem', title: string, sub: string) {
+  const id = ++uid
+  state.notice = { id, kind, title, sub }
+  later(NOTICE_MS, () => {
+    if (state.notice?.id === id) state.notice = null
+  })
+}
+
 function die(reason: string) {
+  if (state.totem) return revive(reason)
   state.status = 'over'
   state.reason = reason
   state.shake++
   conductor.stop()
   sound.die()
-  if (state.score > state.best) {
+  state.newBest = !state.cheated && state.score > state.best
+  if (state.newBest) {
     state.best = state.score
     saveBest(state.best)
   }
+}
+
+/** The totem crumbles and the snake lives: one heart, a turn away from the wall, two bars of cover. */
+function revive(reason: string) {
+  state.totem = false
+  state.hearts = Math.max(1, state.hearts)
+  state.queue = []
+  if (reason === 'hit the wall') {
+    state.snake.reverse()
+    const [head, neck] = state.snake
+    state.direction = neck ? { x: head!.x - neck.x, y: head!.y - neck.y } : { x: -state.direction.x, y: -state.direction.y }
+  }
+  const cover = state.step + 32
+  state.effects.shield = Math.max(state.effects.shield, cover)
+  state.effects.ghost = Math.max(state.effects.ghost, cover)
+  state.shake++
+  sound.level()
+  banner('Undying!', 'the totem crumbles')
+  popup(state.snake[0]!, 'saved', 'sun')
 }
 
 /** Slice the snake at `index`: the head side lives, the rest lies there, then pops. */
@@ -267,7 +413,6 @@ function cut(index: number) {
   const id = ++uid
   state.debris.push({ id, cells: lost, holdMs: HOLD_MS, gapMs: POP_GAP_MS })
   later(HOLD_MS + lost.length * POP_GAP_MS + 700, () => (state.debris = state.debris.filter((d) => d.id !== id)))
-  state.score = Math.max(0, state.score - lost.length)
   state.stats.lost += lost.length
   state.stats.cuts++
   state.shake++
@@ -282,18 +427,48 @@ function warnSteps() {
   return state.level < 2 ? 16 : state.level < 4 ? 12 : 8
 }
 
-function spawnLaser(forced?: Pick<Laser, 'axis' | 'index'>) {
+/** Which tricks a new laser gets: more of them, and more often, the higher the level. */
+function rollTraits(): LaserTrait[] {
+  const level = state.level
+  const open = (Object.keys(LASER_TRAITS) as LaserTrait[]).filter((t) => LASER_TRAITS[t].unlock <= level)
+  if (!open.length) return []
+  const newest = open[open.length - 1]!
+  const roll = Math.random()
+  let count = 0
+  if (level >= PRISM_LEVEL && roll < 0.35) count = 3
+  else if (level >= COMBO_LEVEL && roll < 0.45) count = 2
+  else if (roll < Math.min(0.8, 0.4 + (level - 10) * 0.01)) count = 1
+  const traits: LaserTrait[] = []
+  // A freshly unlocked trick turns up often, so the player meets it.
+  if (count && Math.random() < 0.5) traits.push(newest)
+  while (traits.length < Math.min(count, open.length)) {
+    const t = pick(open)
+    if (!traits.includes(t)) traits.push(t)
+  }
+  return traits
+}
+
+function kindOf(traits: LaserTrait[]): LaserKind {
+  if (traits.length >= 3) return 'prism'
+  if (!traits.length) return 'red'
+  // Two tricks wear the colour of the later one.
+  const latest = traits.reduce((a, b) => (LASER_TRAITS[b].unlock > LASER_TRAITS[a].unlock ? b : a))
+  return LASER_TRAITS[latest].kind
+}
+
+function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
   const head = state.snake[0]!
   const body = state.snake.slice(2)
-  const busy = (axis: Laser['axis'], index: number) =>
-    state.lasers.some((l) => !l.struck && l.axis === axis && l.index === index)
+  const busy = (axis: Beam['axis'], index: number) =>
+    state.lasers.some((l) => !l.struck && l.beams.some((b) => b.axis === axis && b.index === index))
 
   // Half the time the laser runs along the line the snake travels on: turn
   // off it in time and only the tail still on it gets sliced. Otherwise it
   // crosses the body somewhere, or lands anywhere.
   for (let attempt = 0; attempt < 12; attempt++) {
-    let axis: Laser['axis']
+    let axis: Beam['axis']
     let index: number
+    let target: Vec = head
     const roll = Math.random()
     if (forced && attempt === 0) {
       axis = forced.axis
@@ -302,25 +477,36 @@ function spawnLaser(forced?: Pick<Laser, 'axis' | 'index'>) {
       axis = state.direction.x ? 'row' : 'col'
       index = axis === 'row' ? head.y : head.x
     } else if (roll < 0.85 && body.length) {
-      const target = pick(body)
+      target = pick(body)
       axis = Math.random() < 0.5 ? 'row' : 'col'
       index = axis === 'row' ? target.y : target.x
     } else {
       axis = Math.random() < 0.5 ? 'row' : 'col'
       index = rand(axis === 'row' ? state.rows : state.cols)
+      target = { x: rand(state.cols), y: rand(state.rows) }
     }
     if (busy(axis, index)) continue
-    const steps = warnSteps()
+
+    const traits = rollTraits()
+    const width = traits.includes('wide') ? 3 : 1
+    const beams: Beam[] = [{ axis, index, width, bolt: '' }]
+    // A cross adds the other direction through the same target.
+    if (traits.includes('cross')) {
+      const other = axis === 'row' ? 'col' : 'row'
+      beams.push({ axis: other, index: other === 'row' ? target.y : target.x, width, bolt: '' })
+    }
+    const steps = traits.includes('fast') ? Math.max(4, warnSteps() / 2) : warnSteps()
     const warnSec = steps * stepSeconds()
     state.lasers.push({
       id: ++uid,
-      axis,
-      index,
+      kind: kindOf(traits),
+      beams,
+      traits,
       strikeStep: state.step + steps,
       warnMs: warnSec * 1000,
       struck: false,
       from: Math.random() < 0.5 ? 'start' : 'end',
-      bolt: '',
+      echo: false,
     })
     sound.riser(warnSec)
     return { axis, index }
@@ -328,32 +514,61 @@ function spawnLaser(forced?: Pick<Laser, 'axis' | 'index'>) {
   return null
 }
 
-function boltPoints(laser: Laser): string {
-  const length = laser.axis === 'row' ? state.cols : state.rows
+/** Green lasers drift one cell toward the head each beat, until the last beat of their fuse. */
+function trackLasers() {
+  const head = state.snake[0]!
+  for (const laser of state.lasers) {
+    if (laser.struck || !laser.traits.includes('track') || laser.strikeStep - state.step <= 4) continue
+    for (const beam of laser.beams) {
+      const goal = beam.axis === 'row' ? head.y : head.x
+      beam.index += Math.sign(goal - beam.index)
+    }
+  }
+}
+
+function boltPoints(beam: Beam): string {
+  const length = beam.axis === 'row' ? state.cols : state.rows
   const points: string[] = []
   for (let i = 0; i <= length; i += 0.5) {
-    const jitter = i === 0 || i >= length ? 0 : (Math.random() - 0.5) * 0.7
-    const across = laser.index + 0.5 + jitter
-    points.push(laser.axis === 'row' ? `${i},${across}` : `${across},${i}`)
+    const jitter = i === 0 || i >= length ? 0 : (Math.random() - 0.5) * 0.7 * beam.width
+    const across = beam.index + 0.5 + jitter
+    points.push(beam.axis === 'row' ? `${i},${across}` : `${across},${i}`)
   }
   return points.join(' ')
 }
 
 function strike(laser: Laser) {
   laser.struck = true
-  laser.bolt = boltPoints(laser)
+  for (const beam of laser.beams) beam.bolt = boltPoints(beam)
   later(BOLT_MS, () => (state.lasers = state.lasers.filter((l) => l.id !== laser.id)))
+
+  // Gold lasers fire again on the same lines a beat later.
+  if (laser.traits.includes('repeat') && !laser.echo) {
+    const warnSec = 4 * stepSeconds()
+    state.lasers.push({
+      ...laser,
+      id: ++uid,
+      beams: laser.beams.map((b) => ({ ...b, bolt: '' })),
+      strikeStep: state.step + 4,
+      warnMs: warnSec * 1000,
+      struck: false,
+      echo: true,
+    })
+    sound.riser(warnSec)
+  }
 
   const s = state.snipper
   if (s.active && onLine(s, laser)) {
     s.active = false
     s.until = clock() + SNIPPER_RESPAWN_MS
-    state.score += 2
-    popup(s, '+2 zapped', 'lavender')
+    state.grow += 2
+    popup(s, '+2 × zapped', 'lavender')
   }
 
-  const index = state.snake.findIndex((cell) => onLine(cell, laser))
-  if (index < 0) return
+  if (cheats.god) return
+  const headHit = onLine(state.snake[0]!, laser)
+  const index = state.snake.findIndex((cell, i) => i > 0 && onLine(cell, laser))
+  if (!headHit && index < 0) return
   if (isActive('shield')) {
     state.effects.shield = 0
     state.stats.blocked++
@@ -361,8 +576,14 @@ function strike(laser: Laser) {
     popup(state.snake[0]!, 'blocked', 'sky')
     return
   }
-  // A hit on the head slices right behind it: the head always survives.
-  cut(Math.max(1, index))
+  if (index > 0) cut(index)
+  // The body can be sliced freely; only the head costs a heart.
+  if (headHit) {
+    state.hearts--
+    state.shake++
+    popup(state.snake[0]!, '−1 life', 'coral')
+    if (state.hearts <= 0) die('ran out of hearts')
+  }
 }
 
 /* ─── The snipper ────────────────────────────────────────────────────── */
@@ -417,44 +638,75 @@ function eatSnipper() {
   const s = state.snipper
   s.active = false
   s.until = clock() + SNIPPER_RESPAWN_MS
-  const points = 3 * (isActive('double') ? 2 : 1)
-  state.score += points
+  state.grow += 3
   state.stats.snippers++
   sound.bonus()
-  popup(s, `+${points} crunch`, 'sun')
+  popup(s, '+3 × crunch', 'sun')
 }
 
 /* ─── Eating ─────────────────────────────────────────────────────────── */
 
 function eat(item: Item) {
   state.items = state.items.filter((i) => i.id !== item.id)
-  const info = ITEM_INFO[item.kind]
-  if (item.kind === 'shield' || item.kind === 'double' || item.kind === 'slow') {
-    const bars = item.kind === 'shield' ? 8 : item.kind === 'double' ? 4 : 2
-    state.effects[item.kind] = state.step + bars * 16
-    sound.pill()
-    popup(item, info.label, item.kind === 'shield' ? 'sky' : item.kind === 'double' ? 'sun' : 'lavender')
+  if (item.kind === 'heart') {
+    state.hearts = Math.min(MAX_HEARTS, state.hearts + 1)
+    sound.bonus()
+    popup(item, '+1 life', 'coral')
     return
   }
-  const points = info.points * (isActive('double') ? 2 : 1)
-  state.score += points
-  state.grow += info.grow
+  if (item.kind === 'totem') {
+    state.totem = true
+    sound.level()
+    popup(item, 'totem!', 'sun')
+    notice('totem', TOTEM.name, TOTEM.blurb)
+    return
+  }
+  if (isPower(item.kind)) {
+    const power = POWERS[item.kind]
+    if (state.held.length < MAX_HELD) {
+      state.held.push(item.kind)
+      sound.pill()
+      popup(item, power.name, power.tone)
+      notice(item.kind, `${power.name} stored`, `${power.blurb}. Space to use.`)
+    } else {
+      activate(item.kind, item)
+    }
+    return
+  }
+  const grow = FRUIT_GROW[item.kind]
+  state.grow += grow
   state.stats.eaten++
   sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' ? 1 : 2)
-  popup(item, `+${points}`, item.kind === 'star' ? 'sun' : 'mint')
+  popup(item, `+${grow} ×`, item.kind === 'star' ? 'sun' : 'mint')
   if (item.kind === 'apple') addItem('apple', null)
+}
+
+/** Start a power-up, or stretch its effect if it is already running. */
+function activate(kind: PowerKind, at: Vec) {
+  const power = POWERS[kind]
+  if (kind === 'dash') dash()
+  else state.effects[kind] = Math.max(state.effects[kind], state.step) + power.bars * 16
+  sound.pill()
+  popup(at, power.name, power.tone)
+  notice(kind, power.name, power.blurb)
+}
+
+/** Use the oldest held power-up. */
+export function useItem() {
+  if (state.status !== 'running') return
+  const kind = state.held.shift()
+  if (kind) activate(kind, state.snake[0]!)
 }
 
 /* ─── The beat ───────────────────────────────────────────────────────── */
 
 function onBar(bar: number) {
-  const level = Math.floor(bar / BARS_PER_LEVEL)
+  const level = state.levelOffset + Math.floor(bar / BARS_PER_LEVEL)
   if (level !== state.level) {
-    state.level = level
-    state.bpm = tempoFor(level)
-    conductor.setLevel(level, state.bpm)
+    applyLevel(level)
     sound.level()
-    banner(`Level ${level + 1}`, `${state.bpm} bpm · more lasers`)
+    const tier = LASER_TIERS.find((t) => t.level === level && level > 0)
+    banner(`Level ${level + 1}`, tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`)
   }
 
   // Bonus fruit and pills, at most two extras at a time.
@@ -463,19 +715,41 @@ function onBar(bar: number) {
     const roll = Math.random()
     if (roll < 0.3) addItem('cherry', 48)
     else if (roll < 0.4 && level >= 1) addItem('star', 32)
-    else if (roll < 0.62 && level >= 1) addItem(pick(['shield', 'double', 'slow'] as const), 48)
+    else if (roll < 0.62 && level >= 1) addItem(pick(POWER_KINDS), 48)
   }
+  const totemOut = state.items.some((i) => i.kind === 'totem')
+  if (level >= 1 && !state.totem && !totemOut && Math.random() < TOTEM_CHANCE) addItem('totem', 32)
+  const heartOut = state.items.some((i) => i.kind === 'heart')
+  if (bar > 0 && !heartOut && state.hearts < MAX_HEARTS && Math.random() < HEART_CHANCE) addItem('heart', 40)
+}
+
+/**
+ * Points scored per beat. Each cell is worth more the longer the snake is
+ * (length × (1 + length / 20)), and every level adds another quarter on top,
+ * so growing pays off most late in the game. The yellow pill doubles it.
+ */
+export const multiplier = () => {
+  const length = state.snake.length
+  const perLength = length * (1 + length / 20)
+  const perLevel = 1 + state.level * 0.25
+  return Math.round(perLength * perLevel) * (isActive('double') ? 2 : 1)
 }
 
 function onBeat(step: number) {
   state.beat++
+  state.score += multiplier()
   const bar = Math.floor(step / 16)
-  if (bar < 1) return // one bar of intro
+  if (bar < 1 || cheats.noLasers) return // one bar of intro
 
-  // More lasers per bar as the level climbs: 1, 2, 3, ... up to 6.
-  const perBar = Math.min(6, 1 + state.level)
+  trackLasers()
+
+  // More lasers per bar as the level climbs: 1, 2, 3, ... 6 by level 6, then
+  // one more every 15 levels, up to 10. More may be armed at once, too.
+  const level = state.level
+  const perBar = level < 10 ? Math.min(6, 1 + level) : Math.min(10, 6 + Math.floor((level - 10) / 15))
+  const armedCap = level < 5 ? 2 + level : Math.min(14, 7 + Math.floor((level - 5) / 8))
   const armed = state.lasers.filter((l) => !l.struck).length
-  if (armed >= 2 + state.level) return
+  if (armed >= armedCap) return
   const chance = perBar / 4
   let count = Math.floor(chance) + (Math.random() < chance % 1 ? 1 : 0)
   while (count-- > 0) {
@@ -500,22 +774,63 @@ function tick() {
   const head = state.snake[0]!
   const next = { x: head.x + state.direction.x, y: head.y + state.direction.y }
   if (next.x < 0 || next.y < 0 || next.x >= state.cols || next.y >= state.rows) {
-    return die('hit the wall')
+    if (!cheats.god) return die('hit the wall')
+    next.x = (next.x + state.cols) % state.cols
+    next.y = (next.y + state.rows) % state.rows
   }
   // The tail moves out of the way this tick, unless the snake is growing.
   const body = state.grow > 0 ? state.snake : state.snake.slice(0, -1)
-  if (body.some((cell) => same(cell, next))) return die('bit itself')
+  if (!isActive('ghost') && !cheats.god && body.some((cell) => same(cell, next))) return die('bit itself')
 
   state.snake.unshift(next)
   if (state.grow > 0) state.grow--
   else state.snake.pop()
 
-  const item = state.items.find((i) => same(i, next))
+  arrive(next)
+}
+
+/** The head has moved onto `cell`: eat what is there. */
+function arrive(cell: Vec) {
+  const item = state.items.find((i) => same(i, cell))
   if (item) eat(item)
   state.longest = Math.max(state.longest, state.snake.length)
 
   const s = state.snipper
-  if (s.active && same(s, next)) eatSnipper()
+  if (s.active && same(s, cell)) eatSnipper()
+}
+
+/** Lunge ahead, stopping short of a wall, passing over the body. */
+function dash() {
+  for (let i = 0; i < DASH_CELLS; i++) {
+    const head = state.snake[0]!
+    const next = { x: head.x + state.direction.x, y: head.y + state.direction.y }
+    if (next.x < 0 || next.y < 0 || next.x >= state.cols || next.y >= state.rows) break
+    state.snake.unshift(next)
+    if (state.grow > 0) state.grow--
+    else state.snake.pop()
+    arrive(next)
+  }
+  // A beat of ghost, so landing on the body is not a bite.
+  state.effects.ghost = Math.max(state.effects.ghost, state.step + 4)
+}
+
+/** Fruit within reach slides one cell toward the head. */
+function pullFruit() {
+  const head = state.snake[0]!
+  for (const item of state.items) {
+    if (!(item.kind in FRUIT_GROW)) continue
+    const dx = head.x - item.x
+    const dy = head.y - item.y
+    if (Math.abs(dx) + Math.abs(dy) > 10) continue
+    const step = Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) }
+    const to = { x: item.x + step.x, y: item.y + step.y }
+    if (same(to, head)) {
+      eat(item)
+      continue
+    }
+    const blocked = state.snake.some((c) => same(c, to)) || state.items.some((i) => i !== item && same(i, to))
+    if (!blocked) Object.assign(item, to)
+  }
 }
 
 function onStep(step: number) {
@@ -526,12 +841,13 @@ function onStep(step: number) {
   // Slow-mo: the snake moves on 8ths instead of 16ths.
   if (!isActive('slow') || step % 2 === 0) tick()
   if (state.status !== 'running') return
+  if (isActive('magnet') && step % 2 === 0) pullFruit()
 
   for (const laser of state.lasers) if (!laser.struck && laser.strikeStep <= step) strike(laser)
 
   const s = state.snipper
   if (s.active && step % 2 === 0) moveSnipper()
-  if (!s.active && (state.level >= 1 || state.score >= 8) && clock() >= s.until) spawnSnipper()
+  if (!s.active && (state.level >= 1 || state.snake.length >= 8) && clock() >= s.until) spawnSnipper()
   if (s.active && s.resting && clock() >= s.until) s.resting = false
 
   state.items = state.items.filter((i) => i.until === null || i.until > step)
@@ -556,6 +872,38 @@ function frame() {
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
+
+function applyLevel(level: number) {
+  state.level = level
+  state.bpm = tempoFor(level)
+  conductor.setLevel(level, state.bpm)
+}
+
+/* ─── Cheats ─────────────────────────────────────────────────────────── */
+
+export const MAX_LEVEL = 100
+
+/** Jump to a level (0-based) now; later levels follow on from it. */
+export function cheatLevel(level: number) {
+  state.cheated = true
+  state.levelOffset = level - Math.floor(state.step / 16 / BARS_PER_LEVEL)
+  applyLevel(level)
+}
+
+export function cheatToggle(name: keyof typeof cheats) {
+  cheats[name] = !cheats[name]
+  if (cheats[name]) state.cheated = true
+  if (name === 'noLasers' && cheats.noLasers) state.lasers = state.lasers.filter((l) => l.struck)
+}
+
+export function cheatGive(kind: PowerKind | 'totem' | 'heart' | 'grow') {
+  state.cheated = true
+  if (kind === 'totem') state.totem = true
+  else if (kind === 'heart') state.hearts = MAX_HEARTS
+  else if (kind === 'grow') state.grow += 10
+  else if (state.held.length < MAX_HELD) state.held.push(kind)
+  else state.held = [...state.held.slice(1), kind]
+}
 
 export function play() {
   if (state.status === 'running') return
@@ -588,7 +936,7 @@ export function turn(name: DirName) {
 
 /** Share of an effect still left, 0 to 1, for the HUD. */
 export function effectLeft(effect: keyof typeof state.effects): number {
-  const total = effect === 'shield' ? 128 : effect === 'double' ? 64 : 32
+  const total = POWERS[effect].bars * 16
   return Math.max(0, Math.min(1, (state.effects[effect] - state.step) / total))
 }
 

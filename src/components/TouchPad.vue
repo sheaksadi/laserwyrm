@@ -95,7 +95,8 @@ const ARROWS: { dir: DirName; path: string }[] = [
 .pad.side {
   right: calc(13px + env(safe-area-inset-right));
   top: 50%;
-  translate: 0 -40%;
+  /* Sits a little high, leaving room for the pill slots underneath. */
+  translate: 0 -60%;
 }
 
 .key {

@@ -1,21 +1,31 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { musicOn, muted } from './audio'
-import { effectLeft, fitGrid, fitLayout, isActive, layout, pause, play, reset, state, toggle, turn, type DirName } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, layout, multiplier, pause, play, POWER_KINDS, POWERS, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName } from './game'
+import { pad, rumble, startGamepad, stopGamepad } from './gamepad'
+import { saveScore } from './scores'
+import CheatMenu from './components/CheatMenu.vue'
+import HeldPills from './components/HeldPills.vue'
+import PadGlyph from './components/PadGlyph.vue'
+import PowerIcon from './components/PowerIcon.vue'
 import TouchPad from './components/TouchPad.vue'
 
-const EFFECTS = [
-  { key: 'shield', label: 'shield', color: 'var(--sky)' },
-  { key: 'double', label: '×2', color: 'var(--sun)' },
-  { key: 'slow', label: 'slow-mo', color: 'var(--lavender)' },
-] as const
+/** Power-ups that last a while get a countdown tag in the HUD; Dash is instant. */
+const EFFECTS = (['shield', 'double', 'slow', 'magnet', 'ghost'] as const).map((key) => ({
+  key,
+  label: POWERS[key].name,
+  color: TONE_COLOR[POWERS[key].tone],
+}))
 
 const KEYMAP: Record<string, DirName> = {
   ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
   w: 'up', s: 'down', a: 'left', d: 'right',
   W: 'up', S: 'down', A: 'left', D: 'right',
 }
+
+/** Three slots, more once a heart drop takes you past three; empty ones show what is lost. */
+const heartSlots = computed(() => Array.from({ length: Math.max(START_HEARTS, state.hearts) }, (_, i) => i < state.hearts))
 
 /** On touch screens the cards stop short of the pad, so the pad stays usable. */
 const overlayStyle = computed(() =>
@@ -29,16 +39,67 @@ function toggleMusic() {
   musicOn.value = !musicOn.value
 }
 
+/** The hamburger menu on the right holds music, sound and restart. */
+const menuOpen = ref(false)
+const menu = ref<HTMLElement | null>(null)
+function onPointerDown(event: PointerEvent) {
+  if (menuOpen.value && !menu.value?.contains(event.target as Node)) menuOpen.value = false
+}
+function restart() {
+  menuOpen.value = false
+  reset()
+}
+
+/* ─── High-score entry ─── */
+const entryName = ref('')
+const entryEmail = ref('')
+const entrySaved = ref<'no' | 'yes' | 'blocked'>('no')
+watch(
+  () => state.status,
+  (status) => {
+    if (status === 'over') entrySaved.value = 'no'
+  },
+)
+function submitScore() {
+  const name = entryName.value.trim()
+  if (!name) return
+  const ok = saveScore({ name, email: entryEmail.value.trim(), score: state.score, level: state.level + 1, at: new Date().toISOString() })
+  entrySaved.value = ok ? 'yes' : 'blocked'
+}
+
+/** The cheat menu: C opens it and pauses; C or Escape closes it, still paused. */
+const cheatOpen = ref(false)
+function toggleCheats() {
+  cheatOpen.value = !cheatOpen.value
+  if (cheatOpen.value) {
+    menuOpen.value = false
+    pause()
+  }
+}
+
 function onKey(event: KeyboardEvent) {
   if (event.metaKey || event.ctrlKey || event.altKey) return
+  // Typing a name is not steering.
+  if (event.target instanceof HTMLInputElement) return
+  if (event.key === 'c' || event.key === 'C') return toggleCheats()
+  if (cheatOpen.value) {
+    if (event.key === 'Escape') cheatOpen.value = false
+    return
+  }
   const dir = KEYMAP[event.key]
   if (dir) {
     event.preventDefault()
     turn(dir)
-  } else if (event.key === ' ' || event.key === 'Enter') {
+  } else if (event.key === ' ') {
+    // Mid-game Space uses a held pill; otherwise it starts or resumes.
+    event.preventDefault()
+    if (state.status === 'running') useItem()
+    else toggle()
+  } else if (event.key === 'Enter') {
     event.preventDefault()
     toggle()
   } else if (event.key === 'Escape' || event.key === 'p' || event.key === 'P') {
+    menuOpen.value = false
     pause()
   } else if (event.key === 'r' || event.key === 'R') {
     reset()
@@ -79,14 +140,58 @@ function onVisibility() {
   if (document.hidden) pause()
 }
 
+/* ─── Controller ─── */
+const typing = () => document.activeElement instanceof HTMLInputElement
+const padHandlers = {
+  turn: (dir: DirName) => {
+    if (!cheatOpen.value) turn(dir)
+  },
+  primary: () => {
+    if (cheatOpen.value || typing()) return
+    if (state.status === 'running') useItem()
+    else play()
+  },
+  start: () => {
+    if (cheatOpen.value) cheatOpen.value = false
+    else toggle()
+  },
+  back: () => toggleCheats(),
+  cancel: () => {
+    cheatOpen.value = false
+    menuOpen.value = false
+  },
+}
+// Every hit and every death buzzes the controller.
+watch(
+  () => state.shake,
+  () => {
+    if (pad.connected) rumble(state.status === 'over' ? 260 : 120)
+  },
+)
+/** "Controller connected" shows briefly each time one joins. */
+const padToast = ref(false)
+let padToastTimer = 0
+watch(
+  () => pad.joined,
+  () => {
+    padToast.value = true
+    clearTimeout(padToastTimer)
+    padToastTimer = window.setTimeout(() => (padToast.value = false), 2200)
+  },
+)
+
 onMounted(() => {
+  startGamepad(padHandlers)
   window.addEventListener('keydown', onKey)
+  window.addEventListener('pointerdown', onPointerDown)
   window.addEventListener('resize', onResize)
   window.addEventListener('blur', onBlur)
   document.addEventListener('visibilitychange', onVisibility)
 })
 onBeforeUnmount(() => {
+  stopGamepad()
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('pointerdown', onPointerDown)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('blur', onBlur)
   document.removeEventListener('visibilitychange', onVisibility)
@@ -100,46 +205,90 @@ onBeforeUnmount(() => {
       :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
     ><Board /></div>
     <TouchPad v-if="layout.pad !== 'none'" :placement="layout.pad" />
+    <!-- On touch screens the pill slots sit by the pad, like an arcade action button. -->
+    <HeldPills v-if="layout.pad !== 'none'" class="by-pad" :class="layout.pad" />
 
-    <!-- HUD -->
-    <div class="hud hud-left">
-      <div class="chip">
-        <span class="brand">Laserwyrm<span class="brand-dot">.</span></span>
-        <span class="divider"></span>
-        <span class="stat"><span class="chrome-label">score</span><b>{{ state.score }}</b></span>
-        <span class="stat hide-xs"><span class="chrome-label">length</span><b>{{ state.snake.length }}</b></span>
-        <span class="stat hide-sm"><span class="chrome-label">best</span><b>{{ state.best }}</b></span>
-        <span class="divider hide-sm"></span>
-        <span class="stat hide-sm"><span class="chrome-label">level</span><b>{{ state.level + 1 }}</b></span>
-        <span class="bpm hide-sm" :style="{ '--beat': `${60 / state.bpm}s` }">
-          <span class="bpm-dot" :class="{ live: state.status === 'running' }"></span>{{ state.bpm }} bpm
-        </span>
-      </div>
-      <template v-for="effect in EFFECTS" :key="effect.key">
-        <div v-if="isActive(effect.key)" class="effect" :style="{ '--fx': effect.color }">
-          <span class="text-trim">{{ effect.label }}</span>
-          <span class="effect-bar" :style="{ transform: `scaleX(${effectLeft(effect.key)})` }"></span>
+    <!-- HUD: stats on the left, held power-ups in the middle, level and buttons on the right.
+         Every number sits in a fixed-width box, so nothing shifts as it counts. -->
+    <div class="hud" :class="layout.pad === 'none' ? 'hud-grid' : 'hud-flex'">
+      <div class="hud-left">
+        <div class="chip">
+          <span class="brand show-wide">Laserwyrm<span class="brand-dot">.</span></span>
+          <span class="divider show-wide"></span>
+          <span :key="state.hearts" class="hearts" :class="{ low: state.hearts === 1 }" :aria-label="`${state.hearts} hearts`" role="img">
+            <svg v-for="(full, i) in heartSlots" :key="i" viewBox="-0.5 -0.5 8 7" width="18" height="16">
+              <path :d="HEART_PATH" :fill="full ? 'var(--coral)' : 'none'" :stroke="full ? 'var(--ink)' : 'var(--text-muted)'" stroke-width="1" />
+            </svg>
+            <svg v-if="state.totem" class="totem-held" viewBox="-0.5 -0.5 1 1" width="18" height="18" :title="TOTEM.name"><PowerIcon kind="totem" /></svg>
+          </span>
+          <span class="divider"></span>
+          <span class="stat"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
+          <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') }">×{{ multiplier() }}</b></span>
+          <span v-if="state.cheated" class="cheat-tag" title="Cheats used: this run cannot set a best">cheats</span>
         </div>
-      </template>
+        <template v-for="effect in EFFECTS" :key="effect.key">
+          <div v-if="isActive(effect.key)" class="effect" :style="{ '--fx': effect.color }">
+            <span class="text-trim">{{ effect.label }}</span>
+            <span class="effect-bar" :style="{ transform: `scaleX(${effectLeft(effect.key)})` }"></span>
+          </div>
+        </template>
+      </div>
+      <div class="hud-center">
+        <HeldPills v-if="layout.pad === 'none'" />
+      </div>
+      <div class="hud-right">
+        <div class="chip hide-md">
+          <span class="stat"><span class="chrome-label">best</span><b class="num best-num">{{ state.best }}</b></span>
+          <span class="divider"></span>
+          <span class="stat"><span class="chrome-label">level</span><b class="num level-num">{{ state.level + 1 }}</b></span>
+          <span class="bpm" :style="{ '--beat': `${60 / state.bpm}s` }">
+            <span class="bpm-dot" :class="{ live: state.status === 'running' }"></span>{{ state.bpm }} bpm
+          </span>
+        </div>
+        <button class="round hide-touch-grid" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
+          <svg v-if="state.status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+          <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+        </button>
+        <div ref="menu" class="menu-wrap">
+          <button class="round" :class="{ open: menuOpen }" aria-label="Menu" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="3" y="5" width="18" height="3" /><rect x="3" y="11" width="18" height="3" /><rect x="3" y="17" width="18" height="3" /></svg>
+          </button>
+          <div v-if="menuOpen" class="menu" role="menu">
+            <button class="menu-item" role="menuitemcheckbox" :aria-checked="musicOn" @click="toggleMusic">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                <path v-if="!musicOn" d="M3 3l18 18" />
+              </svg>
+              <span>Music</span><span class="state" :class="{ on: musicOn }">{{ musicOn ? 'on' : 'off' }}</span><kbd class="hide-touch">B</kbd>
+            </button>
+            <button class="menu-item" role="menuitemcheckbox" :aria-checked="!muted" @click="toggleMute">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 5 6 9H2v6h4l5 4V5z" />
+                <path v-if="muted" d="m22 9-6 6M16 9l6 6" />
+                <path v-else d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
+              </svg>
+              <span>Sound</span><span class="state" :class="{ on: !muted }">{{ muted ? 'off' : 'on' }}</span><kbd class="hide-touch">M</kbd>
+            </button>
+            <button class="menu-item" role="menuitem" @click="restart">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+              <span>Restart</span><span></span><kbd class="hide-touch">R</kbd>
+            </button>
+            <button class="menu-item" role="menuitem" @click="toggleCheats">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 14 10M14 4v3M14 13v3M10 7H7M21 7h-3M17 4l-1.5 1.5M17 10l-1.5-1.5" /></svg>
+              <span>Cheats</span><span></span><kbd class="hide-touch">C</kbd>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="hud hud-right">
-      <button class="round hide-touch-grid" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
-        <svg v-if="state.status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
-        <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-      </button>
-      <button class="round" :class="{ off: !musicOn }" :aria-label="musicOn ? 'Music on' : 'Music off'" title="Music (B)" @click="toggleMusic">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
-          <path v-if="!musicOn" d="M3 3l18 18" />
-        </svg>
-      </button>
-      <button class="round" :aria-label="muted ? 'Sound off' : 'Sound on'" title="Sound (M)" @click="toggleMute">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M11 5 6 9H2v6h4l5 4V5z" />
-          <path v-if="muted" d="m22 9-6 6M16 9l6 6" />
-          <path v-else d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
-        </svg>
-      </button>
+
+    <!-- What was just picked up or used, and what it does -->
+    <div v-if="state.notice && state.status === 'running'" :key="state.notice.id" class="notice" :class="{ touch: layout.pad !== 'none' }">
+      <svg viewBox="-0.5 -0.5 1 1" width="30" height="30"><PowerIcon :kind="state.notice.kind" /></svg>
+      <span class="notice-text">
+        <b>{{ state.notice.title }}</b>
+        <span>{{ state.notice.sub }}</span>
+      </span>
     </div>
 
     <!-- Level up -->
@@ -148,35 +297,69 @@ onBeforeUnmount(() => {
       <span class="banner-sub">{{ state.banner.sub }}</span>
     </div>
 
+    <!-- Cheats -->
+    <div v-if="cheatOpen" class="overlay" :style="overlayStyle">
+      <CheatMenu @close="cheatOpen = false" />
+    </div>
+
     <!-- Start -->
-    <div v-if="state.status === 'ready'" class="overlay" :style="overlayStyle">
+    <div v-else-if="state.status === 'ready'" class="overlay" :style="overlayStyle">
       <div class="card">
         <p class="chrome-label">1 player · snake, set to the beat · sound on</p>
         <h1>Laserwyrm<span class="brand-dot">.</span></h1>
         <ul class="rules">
           <li>
             <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><circle cy="0.06" r="0.34" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.06" /><path d="M 0.02 -0.26 q 0.12 -0.18 0.3 -0.14 q -0.06 0.2 -0.3 0.14 z" fill="var(--sage)" stroke="var(--ink)" stroke-width="0.045" /></svg>
-            <span><b>Eat fruit</b> to grow. Apple +1, cherries +3, the spinning star +5. Bonus fruit does not wait long.</span>
+            <span><b>Grow long.</b> Every beat scores your length, and more per cell the longer you get.</span>
           </li>
           <li>
             <svg viewBox="0 0 24 24" width="28" height="28"><defs><pattern id="h" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.2" height="5" fill="var(--coral)" /></pattern></defs><rect x="1" y="7" width="22" height="10" rx="2" fill="url(#h)" stroke="var(--coral)" stroke-width="2" /></svg>
-            <span><b>Lasers</b> fire on the beat. Red stripes mark the line; when the fuse fills, it slices the snake. The head side lives on, the rest pops away and takes its points with it.</span>
+            <span><b>Lasers</b> slice your body. Through the head costs a heart.</span>
           </li>
           <li>
-            <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><g transform="rotate(-35)"><rect x="-0.4" y="-0.18" width="0.8" height="0.36" rx="0.18" fill="#FFFFFF" stroke="var(--ink)" stroke-width="0.05" /><path d="M 0 -0.18 L -0.22 -0.18 A 0.18 0.18 0 0 0 -0.22 0.18 L 0 0.18 Z" fill="var(--sky)" stroke="var(--ink)" stroke-width="0.05" /></g></svg>
-            <span><b>Pills</b>: <span class="ink-sky">blue</span> shields the next laser, <span class="ink-sun">yellow</span> doubles points, <span class="ink-lav">purple</span> is slow-mo.</span>
+            <svg viewBox="-0.5 -0.5 8 7" width="28" height="28"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg>
+            <span><b>3 hearts.</b> Walls and biting yourself end it at once.</span>
           </li>
           <li>
             <svg viewBox="-0.6 -0.6 1.2 1.2" width="28" height="28"><ellipse cx="-0.08" cy="0" rx="0.3" ry="0.32" fill="var(--lavender)" stroke="var(--ink)" stroke-width="0.07" /><path d="M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.22 -0.02 Z M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.05" /></svg>
-            <span><b>The snipper</b> hunts your middle. Bite it for +3, or lure it under a laser.</span>
+            <span><b>The snipper</b> cuts your middle. Bite it first.</span>
           </li>
         </ul>
-        <p class="note">Every 8 bars the beat speeds up and more lasers come. Only walls and your own tail end the game.</p>
+        <p class="powers-title"><b>Power-ups</b> · hold two, <span class="hide-touch">Space</span><span class="show-touch-inline">tap</span> to use</p>
+        <ul class="powers">
+          <li v-for="kind in POWER_KINDS" :key="kind" :title="POWERS[kind].blurb">
+            <svg viewBox="-0.5 -0.5 1 1" width="24" height="24"><PowerIcon :kind="kind" /></svg>
+            <span>{{ POWERS[kind].name }}</span>
+          </li>
+          <li :title="TOTEM.blurb">
+            <svg viewBox="-0.5 -0.5 1 1" width="24" height="24"><PowerIcon kind="totem" /></svg>
+            <span>Totem</span>
+          </li>
+        </ul>
         <button class="btn" @click="play()"><span class="text-trim blink">Press start</span></button>
-        <p class="keys hide-touch">
-          <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> or <kbd>WASD</kbd> to move · <kbd>Space</kbd> pause · <kbd>B</kbd> music · <kbd>M</kbd> sound
+        <div v-if="pad.connected" class="keys">
+          <span class="keygroup"><PadGlyph button="dpad" /><PadGlyph button="stick" /> move</span>
+          <span class="keygroup"><PadGlyph button="a" /><PadGlyph button="rt" /> power-up</span>
+          <span class="keygroup"><PadGlyph button="start" /> pause</span>
+          <span class="keygroup"><PadGlyph button="back" /> cheats</span>
+        </div>
+        <div v-else class="keys hide-touch">
+          <span class="keygroup">
+            <span class="arrows"><kbd class="up">↑</kbd><kbd class="left">←</kbd><kbd class="down">↓</kbd><kbd class="right">→</kbd></span>
+            move <span class="alt">or WASD</span>
+          </span>
+          <span class="keygroup"><kbd class="space">space</kbd> power-up</span>
+          <span class="keygroup"><kbd>P</kbd> pause</span>
+          <span class="keygroup"><kbd>R</kbd> restart</span>
+          <span class="keygroup"><kbd>B</kbd> music</span>
+          <span class="keygroup"><kbd>M</kbd> sound</span>
+          <span class="keygroup"><kbd>C</kbd> cheats</span>
+        </div>
+        <p v-if="!pad.connected" class="keys show-touch">Steer with the pad below, or swipe anywhere.</p>
+        <p v-if="!pad.connected" class="pad-note">
+          <svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true"><path d="M5 1h14a4 4 0 0 1 4 4l1 7a3 3 0 0 1-5 2l-3-3H8l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-4Z" fill="currentColor" /><path d="M6 5v4M4 7h4" stroke="var(--bg)" stroke-width="1.6" /><circle cx="17" cy="5.5" r="1.1" fill="var(--bg)" /><circle cx="19" cy="8" r="1.1" fill="var(--bg)" /></svg>
+          Controller supported · press any button to connect
         </p>
-        <p class="keys show-touch">Steer with the pad below, or swipe anywhere.</p>
       </div>
     </div>
 
@@ -190,27 +373,40 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Game over -->
+    <!-- Game over: the score big, everything else quiet -->
     <div v-else-if="state.status === 'over'" class="overlay" :style="overlayStyle">
-      <div class="card card-small">
-        <span class="badge">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </span>
-        <h2 class="over">Game over</h2>
-        <p class="dim">The snake {{ state.reason }}.</p>
-        <div class="tally">
-          <div><span class="chrome-label">score</span><b>{{ state.score }}</b></div>
-          <div><span class="chrome-label">best</span><b>{{ state.best }}</b></div>
-          <div><span class="chrome-label">longest</span><b>{{ state.longest }}</b></div>
-          <div><span class="chrome-label">fruit</span><b>{{ state.stats.eaten }}</b></div>
-          <div><span class="chrome-label">cuts</span><b>{{ state.stats.cuts }}</b></div>
-          <div><span class="chrome-label">cells lost</span><b>{{ state.stats.lost }}</b></div>
-          <div><span class="chrome-label">level</span><b>{{ state.level + 1 }}</b></div>
-          <div><span class="chrome-label">blocked</span><b>{{ state.stats.blocked }}</b></div>
-          <div><span class="chrome-label">snippers</span><b>{{ state.stats.snippers }}</b></div>
-        </div>
+      <div class="card card-small card-over">
+        <p class="over-label">Game over · the snake {{ state.reason }}</p>
+        <p class="final-label">score</p>
+        <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
+        <p v-if="state.newBest" class="new-best blink">New best!</p>
+        <p v-else class="best-line">best {{ state.best }}<template v-if="state.cheated"> · cheats on, not counted</template></p>
+
+        <form v-if="state.newBest && entrySaved === 'no'" class="entry" @submit.prevent="submitScore">
+          <input v-model="entryName" class="field" maxlength="12" placeholder="Name" aria-label="Name" autocomplete="nickname" required autofocus />
+          <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
+          <button class="btn btn-submit" type="submit"><span class="text-trim">Submit</span></button>
+        </form>
+        <p v-else-if="entrySaved === 'yes'" class="entry-done">Saved, {{ entryName.trim() }}. On this device for now.</p>
+        <p v-else-if="entrySaved === 'blocked'" class="entry-done">Could not save: this browser blocks storage.</p>
+
+        <dl class="tally">
+          <div><dt>longest</dt><dd>{{ state.longest }}</dd></div>
+          <div><dt>fruit</dt><dd>{{ state.stats.eaten }}</dd></div>
+          <div><dt>level</dt><dd>{{ state.level + 1 }}</dd></div>
+          <div><dt>beats</dt><dd>{{ state.beat }}</dd></div>
+          <div><dt>cuts</dt><dd>{{ state.stats.cuts }}</dd></div>
+          <div><dt>cells lost</dt><dd>{{ state.stats.lost }}</dd></div>
+          <div><dt>blocked</dt><dd>{{ state.stats.blocked }}</dd></div>
+          <div><dt>snippers</dt><dd>{{ state.stats.snippers }}</dd></div>
+        </dl>
         <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
       </div>
+    </div>
+
+    <!-- Controller connected -->
+    <div v-if="padToast" class="pad-toast">
+      <PadGlyph button="a" /> controller connected
     </div>
 
     <!-- CRT glass: scanlines and a dark vignette over the whole screen -->
@@ -253,14 +449,119 @@ onBeforeUnmount(() => {
 .hud {
   position: absolute;
   top: 14px;
+  left: 14px;
+  right: 14px;
+  z-index: 6;
+  gap: 12px;
+  pointer-events: none;
+}
+/* Desktop: three columns, so the held power-ups stay dead centre. */
+.hud-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+}
+/* Touch: the power-ups sit by the pad, so just left and right. */
+.hud-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.hud-left,
+.hud-right {
   display: flex;
   align-items: center;
   gap: 8px;
-  pointer-events: none;
+  min-width: 0;
 }
-.hud > * { pointer-events: auto; }
-.hud-left { left: 14px; }
-.hud-right { right: 14px; }
+/* Effect tags wrap under the score instead of running under the buttons. */
+.hud-left { flex-wrap: wrap; justify-self: start; }
+.hud-right { justify-self: end; }
+.hud-left > *,
+.hud-center > *,
+.hud-right > * { pointer-events: auto; }
+
+/* Fixed-width numbers: room for the digits they will reach, so counting never shifts the bar. */
+.num { display: inline-block; text-align: left; }
+.score-num { min-width: 6ch; }
+.mult-num { min-width: 5ch; }
+.best-num { min-width: 6ch; }
+.level-num { min-width: 2ch; }
+.totem-held { margin-left: 4px; }
+.pad-note {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: 1rem 0 0;
+  font-size: 16px;
+  text-transform: uppercase;
+  color: var(--mint);
+  opacity: 0.85;
+}
+.pad-toast {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 3px solid var(--mint);
+  background: var(--bg);
+  box-shadow: 4px 4px 0 var(--border);
+  font-size: 18px;
+  text-transform: uppercase;
+  color: var(--text);
+  translate: -50% 0;
+  pointer-events: none;
+  animation: notice 2.2s steps(12) both;
+}
+.cheat-tag {
+  padding: 2px 6px;
+  background: var(--sage);
+  color: var(--ink);
+  font-size: 15px;
+  text-transform: uppercase;
+}
+
+/* ─── Notice ─── */
+.notice {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  padding: 8px 14px;
+  border: 3px solid var(--text-dim);
+  background: var(--bg);
+  box-shadow: 4px 4px 0 var(--border);
+  pointer-events: none;
+  translate: -50% 0;
+  animation: notice 1.8s steps(12) both;
+}
+.notice.touch { top: 70px; }
+.notice svg { flex: none; }
+.notice-text { display: grid; gap: 2px; }
+.notice-text b {
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: var(--sun);
+}
+.notice-text span { font-size: 17px; line-height: 1.1; color: var(--text-dim); }
+@keyframes notice {
+  0% { opacity: 0; transform: translateY(-6px); }
+  10% { opacity: 1; transform: none; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
 .chip {
   display: flex;
   align-items: center;
@@ -290,6 +591,7 @@ onBeforeUnmount(() => {
 }
 .stat .chrome-label { font-size: 16px; }
 .stat b {
+  white-space: nowrap;
   font-family: var(--font-pixel);
   font-size: 13px;
   font-weight: 400;
@@ -315,7 +617,8 @@ onBeforeUnmount(() => {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 16px;
+  /* Clear of the HUD, which stays readable on top. */
+  padding: 72px 16px 16px;
   background: rgba(0, 0, 0, 0.7);
 }
 .card {
@@ -394,46 +697,147 @@ onBeforeUnmount(() => {
 .blink { animation: blink-text 1.1s steps(1) infinite; }
 .card-small .btn:first-of-type { margin-top: 1.25rem; }
 .keys {
-  margin: 1rem 0 0;
-  font-size: 17px;
-  line-height: 2.2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 10px 18px;
+  margin: 1.1rem 0 0;
+  font-size: 16px;
+  text-transform: uppercase;
   color: var(--text-muted);
-  text-align: center;
 }
-.keys kbd { margin-right: 2px; }
-.dim {
-  margin: 0;
-  font-size: 19px;
-  color: var(--text-dim);
-}
-.badge {
+.keygroup { display: flex; align-items: center; gap: 6px; }
+.keys .alt { opacity: 0.7; }
+/* Arrow keys as an inverted T, like on a keyboard. */
+.arrows {
   display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 3px solid var(--ink);
-  background: var(--coral);
-  color: var(--ink);
+  grid-template-columns: repeat(3, auto);
+  gap: 3px;
 }
+.arrows .up { grid-area: 1 / 2; }
+.arrows .left { grid-area: 2 / 1; }
+.arrows .down { grid-area: 2 / 2; }
+.arrows .right { grid-area: 2 / 3; }
+.keys kbd.space { min-width: 5.5em; }
+/* ─── Game over ─── */
+.card-over { text-align: center; }
+.over-label {
+  margin: 0;
+  font-size: 17px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--coral);
+  opacity: 0.85;
+}
+.final-label {
+  margin: 1.1rem 0 0.4rem;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+.final {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: clamp(2rem, 9vw, 3rem);
+  line-height: 1.1;
+  color: var(--text);
+  text-shadow: 4px 4px 0 var(--lavender);
+  overflow-wrap: anywhere;
+}
+.final.best { color: var(--sun); text-shadow: 4px 4px 0 var(--coral); }
+.new-best {
+  margin: 0.7rem 0 0;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--sun);
+}
+.best-line {
+  margin: 0.6rem 0 0;
+  font-size: 17px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Name and email stacked, submit on the side. */
+.entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 1.1rem;
+  text-align: left;
+}
+.field {
+  grid-column: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 2px solid var(--text-muted);
+  background: var(--bg-off);
+  color: var(--text);
+  font: inherit;
+  font-size: 20px;
+}
+.field::placeholder { color: var(--text-muted); text-transform: uppercase; }
+.field:focus { outline: none; border-color: var(--sun); }
+.btn.btn-submit {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  width: auto;
+  padding: 0 1rem;
+  background: var(--sky);
+  font-size: 0.6rem;
+}
+.btn.btn-submit:hover { background: #6BBEFF; }
+.entry-done {
+  margin: 1.1rem 0 0;
+  font-size: 18px;
+  color: var(--sage);
+}
+/* The small print: quiet, compact, there if you look. */
 .tally {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
-  margin-top: 1.25rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px 8px;
+  margin: 1.4rem 0 1.4rem;
+  padding: 10px 0 0;
+  border-top: 2px dashed var(--border);
+  opacity: 0.8;
 }
-.tally div {
+.tally div { display: grid; gap: 2px; }
+.tally dt {
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tally dd {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-dim);
+}
+
+/* ─── Power-up row on the start card ─── */
+.powers-title {
+  margin: 0 0 0.5rem;
+  font-size: 17px;
+  color: var(--text-dim);
+}
+.powers-title b { font-weight: 400; color: var(--sun); }
+.powers {
   display: grid;
-  gap: 0.4rem;
-  padding: 0.6rem 0.7rem;
-  background: var(--bg-off);
-  border: 2px solid var(--border);
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+  margin: 0 0 1.4rem;
+  padding: 0;
+  list-style: none;
 }
-.tally .chrome-label { font-size: 15px; }
-.tally b {
-  font-family: var(--font-pixel);
-  font-size: 0.85rem;
-  font-weight: 400;
-  color: var(--sun);
+.powers li {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* ─── HUD extras ─── */
@@ -482,7 +886,69 @@ onBeforeUnmount(() => {
   transform-origin: left;
   transition: transform 0.15s steps(2);
 }
-.round.off { color: var(--text-muted); border-color: var(--border); }
+.round.open { background: var(--sky); color: var(--ink); }
+.mult { color: var(--sage); }
+.by-pad { position: absolute; z-index: 5; }
+.by-pad.bottom { left: 16px; bottom: calc(24px + env(safe-area-inset-bottom)); }
+.by-pad.side { right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); }
+.show-touch-inline { display: none; }
+.hearts {
+  display: flex;
+  gap: 4px;
+  animation: hurt 0.4s steps(4) both;
+}
+.hearts svg { display: block; }
+.hearts.low svg { animation: blink-text 0.5s steps(1) infinite; }
+@keyframes hurt {
+  0% { transform: translateX(-4px); }
+  25% { transform: translateX(4px); }
+  50% { transform: translateX(-3px); }
+  100% { transform: none; }
+}
+.mult.doubled { color: var(--sun); }
+
+/* ─── Menu ─── */
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 14rem;
+  padding: 6px;
+  background: var(--bg);
+  border: 3px solid var(--sky);
+  box-shadow: 6px 6px 0 var(--border);
+  animation: pop-in 0.2s steps(2) both;
+}
+.menu-item {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 20px;
+  text-align: left;
+  text-transform: uppercase;
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  outline: none;
+  background: var(--sky);
+  color: var(--ink);
+}
+.menu-item .state {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+.menu-item .state.on { color: var(--sage); }
+.menu-item:hover .state,
+.menu-item:focus-visible .state { color: var(--ink); }
 
 .banner {
   position: absolute;
@@ -541,22 +1007,36 @@ onBeforeUnmount(() => {
   .note { font-size: 15px; }
   .card h1 { margin-bottom: 1rem; }
   .show-touch { display: block; }
+  .show-touch-inline { display: inline; }
 }
-@media (max-width: 420px) {
-  .hide-xs { display: none; }
-  .brand { font-size: 11px; }
+.show-wide { display: none; }
+@media (min-width: 1400px) {
+  .show-wide { display: inline; }
+}
+/* Narrower desktops: drop best and level first, then the labels, then put the slots on a row of their own. */
+@media (max-width: 1180px) {
+  .hide-md { display: none; }
+}
+@media (max-width: 900px) {
+  .chip .chrome-label { display: none; }
+}
+@media (max-width: 860px) {
+  .hud-grid { grid-template-columns: 1fr auto; }
+  .hud-grid .hud-center { grid-row: 2; grid-column: 1 / -1; justify-self: center; }
+}
+@media (max-width: 520px) {
+  .stat b { font-size: 11px; }
+  .tally { grid-template-columns: repeat(4, 1fr); }
+  .tally dt { font-size: 12px; }
+  .entry { grid-template-columns: 1fr; }
+  .btn.btn-submit { grid-column: 1; grid-row: auto; padding: 0.8rem; }
 }
 @media (max-height: 500px) {
   .card { padding: 1.1rem 1.4rem; }
   .card h1 { font-size: 1.3rem; margin-bottom: 0.8rem; }
   .card h2 { font-size: 0.9rem; margin-top: 0.4rem; }
-  .badge { width: 34px; height: 34px; }
-  .tally { margin-top: 0.75rem; }
-  .tally div { padding: 0.35rem 0.6rem; }
-  .tally b { font-size: 0.7rem; }
 }
 @media (max-width: 520px) {
-  .hide-sm { display: none; }
   .chip { gap: 10px; padding: 6px 12px; }
   .card { padding: 1.4rem; }
 }
