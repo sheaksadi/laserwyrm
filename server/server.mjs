@@ -3,7 +3,7 @@
  *
  * Games: every finished run is saved with a code like BORK#4821 (a silly
  * four-letter word and four digits) that anyone can use to watch it.
- *   POST /api/games                    { score, level, cheated, replay } → { code }
+ *   POST /api/games                    { score, level, cheated, mode, replay } → { code }
  *   GET  /api/games/:code              one game with its replay (BORK-4821 or BORK%234821)
  *   GET  /api/games?q=…                search: a game code, or a player's name
  *   GET  /api/me/games                 the signed-in player's games
@@ -15,19 +15,20 @@
  *   GET  /api/me                       { name }
  *
  * High scores (signed-in players put their own saved games on the board):
- *   GET  /api/scores?limit=50          the board, best first (no emails)
+ *   GET  /api/scores?mode=normal&limit=50   a board (normal or hardcore), best first (no emails)
  *   GET  /api/scores/:id               one entry with its replay
  *   POST /api/scores                   { game, email? }
  *
  *   GET  /api/health
  *
  * Data lives in Postgres (DATABASE_URL). Without it, for local work, the
- * server runs PGlite, Postgres in-process, so the same SQL runs everywhere.
+ * server runs PGlite, Postgres in-process (kept in .data/pglite), so the same
+ * SQL runs everywhere.
  * A replay is the run's seed, grid and inputs; the game replays it exactly.
  */
 import { createServer } from 'node:http'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WORDS } from './words.mjs'
@@ -60,6 +61,7 @@ const SCHEMA = `
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS games_user_idx ON games (user_id, created_at DESC);
+  ALTER TABLE games ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'normal';
   CREATE TABLE IF NOT EXISTS scores (
     id          BIGSERIAL PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -89,9 +91,12 @@ async function openDatabase() {
     await pool.query(SCHEMA)
     return { kind: 'postgres', query: (sql, params) => pool.query(sql, params) }
   }
-  console.warn('DATABASE_URL is not set: using PGlite in memory; data vanishes on restart.')
+  // Kept on disk, so restarting the local server keeps accounts and games.
+  const dir = process.env.PGLITE_DIR ?? resolve(fileURLToPath(new URL('../.data/pglite', import.meta.url)))
+  console.warn(`DATABASE_URL is not set: using PGlite in ${dir}.`)
+  await mkdir(dir, { recursive: true })
   const { PGlite } = await import('@electric-sql/pglite')
-  const db = new PGlite()
+  const db = new PGlite(dir)
   await db.exec(SCHEMA)
   return { kind: 'pglite', query: (sql, params) => db.query(sql, params) }
 }
@@ -135,7 +140,8 @@ function checkReplay(r) {
     if (!Array.isArray(e) || e.length !== 2 || !int(e[0], last, r.steps) || !CODES.has(e[1])) return 'replay inputs are invalid'
     last = e[0]
   }
-  return { v: 1, seed: r.seed, cols: r.cols, rows: r.rows, steps: r.steps, events: r.events }
+  const mode = r.mode === 'hardcore' ? 'hardcore' : 'normal'
+  return { v: 1, mode, seed: r.seed, cols: r.cols, rows: r.rows, steps: r.steps, events: r.events }
 }
 
 function checkEmail(raw) {
@@ -240,8 +246,10 @@ async function serveStatic(res, pathname) {
 
 /* ─── The API ─────────────────────────────────────────────────────────── */
 
+const MODES = new Set(['normal', 'hardcore'])
 const gameRow = (r) => ({
   code: r.code,
+  mode: r.mode ?? 'normal',
   name: r.name ?? null,
   score: r.score,
   level: r.level,
@@ -251,6 +259,7 @@ const gameRow = (r) => ({
 })
 const scoreRow = (r) => ({
   id: Number(r.id),
+  mode: r.mode ?? 'normal',
   name: r.name,
   code: r.code ?? null,
   score: r.score,
@@ -322,13 +331,15 @@ function api(db) {
       if (!int(body.level, 1, 100)) throw new HttpError(400, 'level must be 1 to 100')
       const replay = checkReplay(body.replay)
       if (typeof replay === 'string') throw new HttpError(400, replay)
+      const mode = body.mode ?? replay.mode
+      if (!MODES.has(mode) || mode !== replay.mode) throw new HttpError(400, 'mode must be normal or hardcore, as in the replay')
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = newGameCode()
         try {
           await db.query(
-            `INSERT INTO games (code, user_id, score, level, steps, cheated, replay, ip_hash)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [code, user?.id ?? null, body.score, body.level, replay.steps, body.cheated === true, replay, ipHash(clientIp(req))],
+            `INSERT INTO games (code, user_id, score, level, steps, cheated, mode, replay, ip_hash)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [code, user?.id ?? null, body.score, body.level, replay.steps, body.cheated === true, mode, replay, ipHash(clientIp(req))],
           )
           return { status: 201, body: { code } }
         } catch (err) {
@@ -355,14 +366,14 @@ function api(db) {
       const code = normalizeCode(text)
       if (code) {
         const { rows } = await db.query(
-          `SELECT g.code, g.score, g.level, g.steps, g.cheated, g.created_at, u.name
+          `SELECT g.code, g.mode, g.score, g.level, g.steps, g.cheated, g.created_at, u.name
            FROM games g LEFT JOIN users u ON u.id = g.user_id WHERE g.code = $1`,
           [code],
         )
         return { games: rows.map(gameRow) }
       }
       const { rows } = await db.query(
-        `SELECT g.code, g.score, g.level, g.steps, g.cheated, g.created_at, u.name
+        `SELECT g.code, g.mode, g.score, g.level, g.steps, g.cheated, g.created_at, u.name
          FROM games g JOIN users u ON u.id = g.user_id
          WHERE u.name_key = $1 ORDER BY g.created_at DESC LIMIT 50`,
         [nameKey(text)],
@@ -373,27 +384,29 @@ function api(db) {
     async myGames(req) {
       const user = await userFrom(req, true)
       const { rows } = await db.query(
-        `SELECT code, score, level, steps, cheated, created_at FROM games
+        `SELECT code, mode, score, level, steps, cheated, created_at FROM games
          WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
         [user.id],
       )
       return { games: rows.map((r) => ({ ...gameRow(r), name: user.name })) }
     },
 
-    async board(limitParam) {
+    async board(limitParam, modeParam) {
       const n = Math.min(BOARD_MAX, Math.max(1, Number(limitParam) || 50))
+      const mode = modeParam === 'hardcore' ? 'hardcore' : 'normal'
       const { rows } = await db.query(
-        `SELECT s.id, s.name, s.score, s.level, s.steps, s.created_at, g.code
+        `SELECT s.id, s.name, s.score, s.level, s.steps, s.created_at, g.code, COALESCE(g.mode, 'normal') AS mode
          FROM scores s LEFT JOIN games g ON g.id = s.game_id
+         WHERE COALESCE(g.mode, 'normal') = $2
          ORDER BY s.score DESC, s.created_at ASC LIMIT $1`,
-        [n],
+        [n, mode],
       )
       return { scores: rows.map(scoreRow) }
     },
 
     async boardEntry(id) {
       const { rows } = await db.query(
-        `SELECT s.id, s.name, s.score, s.level, s.steps, s.created_at, g.code, COALESCE(s.replay, g.replay) AS replay
+        `SELECT s.id, s.name, s.score, s.level, s.steps, s.created_at, g.code, COALESCE(g.mode, 'normal') AS mode, COALESCE(s.replay, g.replay) AS replay
          FROM scores s LEFT JOIN games g ON g.id = s.game_id WHERE s.id = $1`,
         [id],
       )
@@ -409,7 +422,7 @@ function api(db) {
       if (email === false) throw new HttpError(400, 'email does not look right')
       const code = normalizeCode(body.game)
       if (!code) throw new HttpError(400, 'which game? send its code')
-      const { rows } = await db.query('SELECT id, user_id, score, level, steps, cheated FROM games WHERE code = $1', [code])
+      const { rows } = await db.query('SELECT id, user_id, score, level, steps, cheated, mode FROM games WHERE code = $1', [code])
       const game = rows[0]
       if (!game) throw new HttpError(404, `no game ${code}`)
       if (game.cheated) throw new HttpError(400, 'games with cheats cannot go on the board')
@@ -421,7 +434,11 @@ function api(db) {
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
           [user.name, email, game.score, game.level, game.steps, game.id, user.id, ipHash(clientIp(req))],
         )
-        const ahead = await db.query('SELECT count(*)::int AS n FROM scores WHERE score > $1', [game.score])
+        const ahead = await db.query(
+          `SELECT count(*)::int AS n FROM scores s LEFT JOIN games g ON g.id = s.game_id
+           WHERE s.score > $1 AND COALESCE(g.mode, 'normal') = $2`,
+          [game.score, game.mode],
+        )
         return { status: 201, body: { id: Number(inserted.rows[0].id), rank: ahead.rows[0].n + 1 } }
       } catch (err) {
         if (err.code === '23505') throw new HttpError(409, 'that game is already on the board')
@@ -453,7 +470,7 @@ async function main() {
       else if (path === '/api/games' && post) out = await routes.saveGame(req)
       else if (path === '/api/games' && get) out = await routes.searchGames(url.searchParams.get('q'))
       else if ((m = path.match(/^\/api\/games\/([^/]+)$/)) && get) out = await routes.getGame(decodeURIComponent(m[1]))
-      else if (path === '/api/scores' && get) out = await routes.board(url.searchParams.get('limit'))
+      else if (path === '/api/scores' && get) out = await routes.board(url.searchParams.get('limit'), url.searchParams.get('mode'))
       else if (path === '/api/scores' && post) out = await routes.addScore(req)
       else if ((m = path.match(/^\/api\/scores\/(\d+)$/)) && get) out = await routes.boardEntry(Number(m[1]))
       else if (path.startsWith('/api/')) throw new HttpError(404, 'not found')

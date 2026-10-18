@@ -1,82 +1,92 @@
 <script setup lang="ts">
 /**
- * The one button for phones, bottom right: an arcade button. In play it uses
- * the oldest held power-up (shown on its face, with the next one above);
- * otherwise it starts or resumes. It reacts on touch, not on release.
+ * Phone action: the whole right half of the screen is the button. A tap uses
+ * the oldest held power-up in play, or starts and resumes otherwise; a faint
+ * ring shows where it landed. The held power-ups sit faintly in the corner,
+ * so you know what a tap will do. Everything here is see-through.
  */
 import { ref } from 'vue'
-import { play, POWERS, state, useItem } from '../game'
+import { play, state, useItem } from '../game'
 import PowerIcon from './PowerIcon.vue'
 
-const pressed = ref(false)
+const rings = ref<{ id: number; x: number; y: number }[]>([])
+let next = 0
 
-function press() {
-  pressed.value = true
+function press(event: PointerEvent) {
   if (state.status === 'running') useItem()
   else play()
+  const id = ++next
+  rings.value = [...rings.value, { id, x: event.clientX, y: event.clientY }]
+  setTimeout(() => (rings.value = rings.value.filter((r) => r.id !== id)), 360)
 }
 </script>
 
 <template>
-  <div class="action" @touchstart.stop @touchmove.stop>
-    <!-- The second held power-up waits above -->
-    <span class="next-slot" :class="{ filled: state.held[1] }">
-      <svg v-if="state.held[1]" viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon :kind="state.held[1]" /></svg>
-    </span>
-    <button
-      class="big"
-      :class="{ pressed, ready: state.status === 'running' && state.held.length }"
-      :aria-label="state.status !== 'running' ? 'Play' : state.held[0] ? `Use ${POWERS[state.held[0]].name}` : 'No power-up held'"
-      @pointerdown.prevent="press"
-      @pointerup="pressed = false"
-      @pointercancel="pressed = false"
-      @pointerleave="pressed = false"
-      @contextmenu.prevent
-    >
-      <svg v-if="state.status !== 'running'" viewBox="0 0 24 24" width="34" height="34" fill="currentColor"><path d="M7 4v16l13-8z" /></svg>
-      <svg v-else-if="state.held[0]" viewBox="-0.5 -0.5 1 1" width="44" height="44"><PowerIcon :kind="state.held[0]" /></svg>
-      <span v-else class="empty">A</span>
-    </button>
+  <div
+    class="zone"
+    role="button"
+    :aria-label="state.status === 'running' ? 'Use power-up' : 'Play'"
+    @pointerdown.prevent="press"
+    @touchstart.stop.prevent
+    @touchmove.stop.prevent
+    @contextmenu.prevent
+  >
+    <span v-for="r in rings" :key="r.id" class="ring" :style="{ left: `${r.x}px`, top: `${r.y}px` }"></span>
+    <!-- What a tap will use: the next power-up, then the one after -->
+    <div class="held" aria-hidden="true">
+      <span v-for="i in 2" :key="i" class="slot" :class="{ next: i === 1 }">
+        <svg v-if="state.held[i - 1]" viewBox="-0.5 -0.5 1 1"><PowerIcon :kind="state.held[i - 1]!" /></svg>
+      </span>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.action {
-  position: absolute;
-  right: calc(26px + env(safe-area-inset-right));
-  bottom: calc(26px + env(safe-area-inset-bottom));
-  z-index: 5;
-  display: grid;
-  justify-items: center;
-  gap: 10px;
+.zone {
+  position: fixed;
+  right: 0;
+  top: 56px;
+  bottom: 0;
+  width: 50%;
+  z-index: 4;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-}
-.next-slot {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 2px dashed var(--border);
-  background: rgba(0, 0, 0, 0.6);
-}
-.next-slot.filled { border: 2px solid var(--text-dim); }
-.big {
-  display: grid;
-  place-items: center;
-  width: 104px;
-  height: 104px;
-  border: 3px solid var(--ink);
-  border-radius: 999px;
-  background: radial-gradient(circle at 35% 30%, #FF6A82, var(--coral) 55%, #B81C3A);
-  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.3), 0 5px 0 var(--ink), 0 0 0 4px var(--border);
-  color: var(--ink);
-  touch-action: none;
+  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
-/* Holding a power-up: the button glows, ready to fire. */
-.big.ready { box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.3), 0 5px 0 var(--ink), 0 0 0 4px var(--sun); }
-.big.pressed { translate: 0 4px; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3), 0 1px 0 var(--ink), 0 0 0 4px var(--border); }
-.empty { font-family: var(--font-pixel); font-size: 22px; opacity: 0.55; }
+.ring {
+  position: fixed;
+  width: 70px;
+  height: 70px;
+  border: 3px solid rgba(240, 240, 255, 0.5);
+  border-radius: 999px;
+  translate: -50% -50%;
+  pointer-events: none;
+  animation: ring 0.36s ease-out both;
+}
+@keyframes ring {
+  from { scale: 0.4; opacity: 1; }
+  to { scale: 1.3; opacity: 0; }
+}
+.held {
+  position: fixed;
+  right: calc(14px + env(safe-area-inset-right));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.slot {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 2px solid rgba(220, 220, 240, 0.35);
+  border-radius: 8px;
+}
+.slot.next { width: 42px; height: 42px; border-color: rgba(240, 240, 255, 0.6); }
+.slot svg { width: 70%; height: 70%; }
 </style>

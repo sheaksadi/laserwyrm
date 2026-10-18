@@ -9,19 +9,30 @@ rises and more lasers come.
   the menu (or press B and M)
 - Score: every beat you survive scores your multiplier, which grows faster
   than your length and rises with each level
-- Three hearts, refilled one per level up to three (heart drops go past it, to
-  five): a laser through the head costs one, walls and biting yourself cost all of
+- Press start shows a short how-to-play (what to do, and the controls for your
+  keyboard, controller or touch) over a warm-up beat; any key, click, tap or A
+  starts, and the game's music fades in from it
+- Normal mode: walls wrap you to the other side. Each new kind of laser
+  (levels 11, 21, … 81) pauses play for two bars to introduce it: the music
+  slides to a stop and comes back in a new arrangement, then lasers ease in
+- Hardcore (the small square button next to Press start): walls kill, no hearts
+  back on level up, no pauses, no easing in; it has its own high scores
+- Three hearts, refilled one per level up to three in normal mode (heart drops
+  go past it, to five): a laser through the head costs one, walls and biting yourself cost all of
   them; rare heart drops give one back (up to five)
 - Fruit grows the snake: apple +1, cherries +3, star +5
 - Power-ups: shield, double points, slow-mo, dash, magnet, ghost. Hold up to two
   and press Space (or tap the slots) to use the oldest
 - Totem of Undying: very rare, cheats death once
-- Phones play sideways: a stick on the left steers, one button on the right uses
-  power-ups (and starts the game)
+- Phones play sideways with the board full screen: touch anywhere on the left
+  half and a faint stick appears under your thumb; tap the right half to use a
+  power-up
+- Every screen plays the same 36 × 20 board, scaled to fit, so runs compare fairly
 - ☰ → Settings: music and effects volume, controller vibration (on/off,
   strength; it rumbles harder for bigger cuts, hits and game over), full screen
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
-  power-ups, Start to pause, View / Share for cheats; prompts switch to match
+  power-ups, Start to pause, B / Circle to go back, View / Share for cheats;
+  prompts switch to match
 - 100 levels. New lasers arrive as you climb: blue (11, three wide), purple
   (21, row and column at once), white (31, half the warning), green (41,
   follows your head), gold (51, strikes twice); from 61 they mix two tricks,
@@ -68,22 +79,22 @@ and the API:
 | POST | `/api/users` | claim a name → `{ name, code }`, or 409 with suggestions |
 | POST | `/api/login` | `{ code }` → `{ name }` |
 | GET | `/api/me` | the signed-in player |
-| GET | `/api/scores?limit=50` | the board, best first (no emails) |
+| GET | `/api/scores?mode=normal&limit=50` | a board (normal or hardcore), best first (no emails) |
 | GET | `/api/scores/:id` | one board entry with its replay |
 | POST | `/api/scores` | put one of your games on the board: `{ game, email? }` |
 | GET | `/api/health` | `{ ok, store }` |
 
 Signed-in requests send `Authorization: Bearer <login code>`; the server keeps
 only a hash of it. Data lives in Postgres from `DATABASE_URL`, with tables
-made on start. Without it the server runs PGlite (Postgres in-process, in
-memory) for local work. Input is checked and rate-limited per address; scores
+made on start. Without it the server runs PGlite (Postgres in-process, kept in
+`.data/pglite`) for local work. Input is checked and rate-limited per address; scores
 are not yet re-simulated on the server, so a determined cheater could post one.
 
 ## Develop
 
 ```bash
 npm install
-npm run server  # API on :8787 (PGlite in memory; set DATABASE_URL for Postgres)
+npm run server  # API on :8787 (PGlite in .data/pglite; set DATABASE_URL for Postgres)
 npm run dev     # the game on :5173, with /api proxied to :8787
 npm run build   # type check and production build into dist/
 npm start       # production: game and API on $PORT (8080)

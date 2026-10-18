@@ -2,11 +2,12 @@
  * The Laserwyrm server (server/server.mjs): saved games, players and the
  * high-score board. Signed-in calls carry the player's login code.
  */
-import type { Replay } from './game'
+import type { Mode, Replay } from './game'
 import { account, signIn } from './account'
 
 export interface ScoreRow {
   id: number
+  mode: Mode
   name: string
   /** The saved game behind the entry, e.g. BORK#4821. */
   code: string | null
@@ -20,6 +21,7 @@ export interface ScoreEntry extends ScoreRow {
 }
 export interface GameRow {
   code: string
+  mode: Mode
   /** The player, when the game was played signed in. */
   name: string | null
   score: number
@@ -63,7 +65,7 @@ export const codeForUrl = (code: string) => code.replace('#', '-')
 
 /* ─── Games ─── */
 
-export const saveGame = (game: { score: number; level: number; cheated: boolean; replay: Replay }) =>
+export const saveGame = (game: { score: number; level: number; cheated: boolean; mode: Mode; replay: Replay }) =>
   post<{ code: string }>('/api/games', game)
 export const fetchGame = (code: string) => call<GameEntry>(`/api/games/${encodeURIComponent(codeForUrl(code))}`)
 export const searchGames = (q: string) => call<{ games: GameRow[] }>(`/api/games?q=${encodeURIComponent(q)}`).then((r) => r.games)
@@ -90,17 +92,17 @@ export async function signInWithCode(code: string) {
 
 /* ─── High scores ─── */
 
-export const fetchScores = (limit = BOARD_SIZE) =>
-  call<{ scores: ScoreRow[] }>(`/api/scores?limit=${limit}`).then((r) => r.scores)
+export const fetchScores = (limit = BOARD_SIZE, mode: Mode = 'normal') =>
+  call<{ scores: ScoreRow[] }>(`/api/scores?limit=${limit}&mode=${mode}`).then((r) => r.scores)
 export const fetchScore = (id: number) => call<ScoreEntry>(`/api/scores/${id}`)
 export const submitScore = (entry: { game: string; email: string }) =>
   post<{ id: number; rank: number }>('/api/scores', entry)
 
 /** Would this score make the board? True when the board cannot be reached, so nobody loses a run. */
-export async function placesOnBoard(score: number): Promise<boolean> {
+export async function placesOnBoard(score: number, mode: Mode): Promise<boolean> {
   if (score <= 0) return false
   try {
-    const board = await fetchScores(BOARD_SIZE)
+    const board = await fetchScores(BOARD_SIZE, mode)
     return board.length < BOARD_SIZE || score > board[board.length - 1]!.score
   } catch {
     return true

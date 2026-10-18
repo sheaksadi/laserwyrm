@@ -9,7 +9,7 @@
  * signed out too. Saving one offline keeps its whole replay here as well.
  */
 import { reactive, watch } from 'vue'
-import type { Replay } from './game'
+import type { Mode, Replay } from './game'
 
 const ACCOUNT_KEY = 'laserwyrm-account'
 const GAMES_KEY = 'laserwyrm-my-games'
@@ -47,6 +47,8 @@ export function signOut() {
 
 export interface LocalGame {
   code: string
+  /** Missing on games saved before modes: those are normal. */
+  mode?: Mode
   score: number
   level: number
   steps: number

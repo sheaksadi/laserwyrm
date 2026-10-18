@@ -1,26 +1,26 @@
 <script setup lang="ts">
 /**
- * The on-screen stick for phones, bottom left. Put a thumb down anywhere on
- * it and drag: the snake turns the way the thumb leans most, once per new
- * direction, like the stick on a controller. Let go and the knob springs back.
+ * Phone steering: the whole left half of the screen. Put a thumb down
+ * anywhere there and a faint stick appears under it; lean the way to go, like
+ * the stick on a controller (one turn per new direction). Let go and it
+ * fades. It is see-through, so the board stays visible under the thumb.
  */
 import { ref } from 'vue'
 import { turn, type DirName } from '../game'
 
 /** Radius the knob can travel, and the lean before it counts as a turn, in px. */
-const REACH = 42
-const DEADZONE = 16
+const REACH = 40
+const DEADZONE = 14
 
+const base = ref<{ x: number; y: number } | null>(null)
 const knob = ref({ x: 0, y: 0 })
-const active = ref(false)
-let center = { x: 0, y: 0 }
 let pointer: number | null = null
 let leaning: DirName | null = null
 
 function move(event: PointerEvent) {
-  if (event.pointerId !== pointer) return
-  let dx = event.clientX - center.x
-  let dy = event.clientY - center.y
+  if (event.pointerId !== pointer || !base.value) return
+  let dx = event.clientX - base.value.x
+  let dy = event.clientY - base.value.y
   const dist = Math.hypot(dx, dy)
   if (dist > REACH) {
     dx = (dx / dist) * REACH
@@ -34,29 +34,26 @@ function move(event: PointerEvent) {
 }
 
 function down(event: PointerEvent) {
-  const base = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  center = { x: base.left + base.width / 2, y: base.top + base.height / 2 }
+  if (pointer !== null) return
   pointer = event.pointerId
   ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-  active.value = true
-  move(event)
+  base.value = { x: event.clientX, y: event.clientY }
+  knob.value = { x: 0, y: 0 }
 }
 
 function up(event: PointerEvent) {
   if (event.pointerId !== pointer) return
   pointer = null
   leaning = null
-  active.value = false
-  knob.value = { x: 0, y: 0 }
+  base.value = null
 }
 </script>
 
 <template>
   <div
-    class="stick"
-    :class="{ active }"
+    class="zone"
     role="application"
-    aria-label="Steering stick"
+    aria-label="Steer: touch and drag"
     @pointerdown.prevent="down"
     @pointermove="move"
     @pointerup="up"
@@ -65,52 +62,43 @@ function up(event: PointerEvent) {
     @touchmove.stop.prevent
     @contextmenu.prevent
   >
-    <span class="arrow up"></span><span class="arrow down"></span><span class="arrow left"></span><span class="arrow right"></span>
-    <span class="knob" :style="{ translate: `${knob.x}px ${knob.y}px` }"></span>
+    <div v-if="base" class="stick" :style="{ left: `${base.x}px`, top: `${base.y}px` }">
+      <span class="knob" :style="{ translate: `${knob.x}px ${knob.y}px` }"></span>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.stick {
-  position: absolute;
-  left: calc(22px + env(safe-area-inset-left));
-  bottom: calc(22px + env(safe-area-inset-bottom));
-  z-index: 5;
-  display: grid;
-  place-items: center;
-  width: 140px;
-  height: 140px;
-  border: 3px solid var(--sky);
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(63, 169, 255, 0.12), rgba(11, 11, 26, 0.85) 70%);
-  box-shadow: 4px 4px 0 var(--border);
+.zone {
+  position: fixed;
+  left: 0;
+  top: 56px;
+  bottom: 0;
+  width: 50%;
+  z-index: 4;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-.stick.active { border-color: var(--mint); }
-.knob {
-  width: 58px;
-  height: 58px;
-  border: 3px solid var(--ink);
+/* Faint and grey, centred on the thumb, so the board shows through. */
+.stick {
+  position: fixed;
+  display: grid;
+  place-items: center;
+  width: 110px;
+  height: 110px;
+  border: 2px solid rgba(220, 220, 240, 0.35);
   border-radius: 999px;
-  background: radial-gradient(circle at 35% 30%, #6BBEFF, var(--sky) 55%, #1F6FB8);
-  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.3), 0 3px 0 var(--ink);
+  background: rgba(200, 200, 220, 0.08);
+  translate: -50% -50%;
   pointer-events: none;
 }
-.stick:not(.active) .knob { transition: translate 0.12s steps(3); }
-/* Small pixel arrows at the four edges. */
-.arrow {
-  position: absolute;
-  width: 0;
-  height: 0;
-  border: 6px solid transparent;
-  opacity: 0.55;
-  pointer-events: none;
+.knob {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: rgba(220, 220, 240, 0.3);
+  border: 2px solid rgba(240, 240, 255, 0.45);
 }
-.arrow.up { top: 8px; border-bottom-color: var(--sky); }
-.arrow.down { bottom: 8px; border-top-color: var(--sky); }
-.arrow.left { left: 8px; border-right-color: var(--sky); }
-.arrow.right { right: 8px; border-left-color: var(--sky); }
 </style>

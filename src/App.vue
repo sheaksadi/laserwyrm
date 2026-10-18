@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
-import { musicOn, muted } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, lastReplay, layout, multiplier, onFeel, pause, play, POWER_KINDS, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName } from './game'
+import { conductor, musicOn, muted, soundBlocked } from './audio'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
 import { canFullscreen, enterFullscreen, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
-import { account, localGames, rememberGame } from './account'
+import { account, localGames, rememberGame, signOut } from './account'
 import { ApiError, claimName, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
 import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
+import Briefing from './components/Briefing.vue'
 import CheatMenu from './components/CheatMenu.vue'
 import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
+import Mascot from './components/Mascot.vue'
 import ReplaysPanel from './components/ReplaysPanel.vue'
 import Leaderboard from './components/Leaderboard.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -118,6 +120,9 @@ async function onRoute() {
 /** The finished game's code once the server has it; null while saving or if it could not. */
 const gameCode = ref<string | null>(null)
 const gameSave = ref<'saving' | 'saved' | 'failed'>('saved')
+const saveError = ref('')
+/** The server did not know this device's login code (an old or wiped account): signed out, game saved anyway. */
+const signedOutNote = ref('')
 let saving: Promise<string | null> = Promise.resolve(null)
 
 const entryName = ref('')
@@ -133,25 +138,36 @@ watch(
     if (status !== 'over' || replay.active) return
     // Every game is saved, signed in or not, so it can be found and shared.
     const run = lastReplay()
-    const summary = { score: state.score, level: state.level + 1, steps: run.steps }
+    const summary = { score: state.score, level: state.level + 1, steps: run.steps, mode: state.mode }
     gameCode.value = null
     gameSave.value = 'saving'
     newLoginCode.value = null
     nameSuggestions.value = []
     entryName.value = account.name ?? entryName.value
-    saving = saveGame({ ...summary, cheated: state.cheated, replay: run })
+    saveError.value = ''
+    signedOutNote.value = ''
+    const payload = { ...summary, cheated: state.cheated, replay: run }
+    saving = saveGame(payload)
+      .catch((err) => {
+        // A login code this server does not know: sign out here and save the game without it.
+        if (!(err instanceof ApiError) || err.status !== 401 || !account.code) throw err
+        signedOutNote.value = `${account.name ?? 'Your account'} was not recognised by the server, so you are signed out on this device.`
+        signOut()
+        return saveGame(payload)
+      })
       .then(({ code }) => {
         gameCode.value = code
         gameSave.value = 'saved'
         rememberGame({ code, ...summary, created_at: new Date().toISOString() })
         return code
       })
-      .catch(() => {
+      .catch((err) => {
         gameSave.value = 'failed'
+        saveError.value = err instanceof Error ? err.message : String(err)
         return null
       })
     entry.value = { phase: 'checking' }
-    const places = !state.cheated && (await placesOnBoard(state.score))
+    const places = !state.cheated && (await placesOnBoard(state.score, state.mode))
     if (state.status === 'over') entry.value = { phase: places ? 'open' : 'none' }
   },
 )
@@ -161,7 +177,7 @@ async function submitScore(name = entryName.value.trim()) {
   nameSuggestions.value = []
   try {
     const code = await saving
-    if (!code) throw new Error('this game could not be saved, so it cannot go on the board')
+    if (!code) throw new Error(`this game could not be saved (${saveError.value}), so it cannot go on the board`)
     // Not signed in: the name typed here becomes the player's account.
     if (!account.name) {
       const made = await claimName(name)
@@ -182,6 +198,27 @@ function openAccount() {
   menuOpen.value = false
   accountOpen.value = true
   pause()
+}
+
+/**
+ * The briefing between Press start and the first move: how to play, with
+ * warm-up music. Any key, click, tap or A starts; Esc or B goes back.
+ */
+const briefing = ref<Mode | null>(null)
+function openBriefing(mode: Mode) {
+  setMode(mode)
+  briefing.value = mode
+  conductor.warmup()
+}
+function begin(dir?: DirName) {
+  if (!briefing.value) return
+  briefing.value = null
+  play()
+  if (dir) turn(dir)
+}
+function closeBriefing() {
+  briefing.value = null
+  conductor.stop()
 }
 
 /** Settings, from the menu; the game pauses while it is open. */
@@ -226,6 +263,12 @@ function onKey(event: KeyboardEvent) {
   }
   if (settingsOpen.value) {
     if (event.key === 'Escape') settingsOpen.value = false
+    return
+  }
+  if (briefing.value && state.status === 'ready' && !accountOpen.value && !cheatOpen.value) {
+    event.preventDefault()
+    if (event.key === 'Escape') closeBriefing()
+    else begin(KEYMAP[event.key])
     return
   }
   if (event.key === 'c' || event.key === 'C') return toggleCheats()
@@ -294,10 +337,12 @@ function onVisibility() {
 const typing = () => document.activeElement instanceof HTMLInputElement
 const padHandlers = {
   turn: (dir: DirName) => {
+    if (briefing.value) return begin(dir)
     if (route.value.name === 'watch' && (dir === 'left' || dir === 'right')) seekBy(dir === 'left' ? -36 : 36)
     else if (route.value.name === 'game' && !cheatOpen.value) turn(dir)
   },
   primary: () => {
+    if (briefing.value) return begin()
     if (route.value.name === 'watch') return togglePlay()
     if (route.value.name === 'scores' || route.value.name === 'replays') return go('#/')
     if (cheatOpen.value || typing()) return
@@ -305,19 +350,24 @@ const padHandlers = {
     else play()
   },
   start: () => {
+    if (briefing.value) return begin()
     if (cheatOpen.value) cheatOpen.value = false
     else toggle()
   },
   back: () => {
     if (route.value.name === 'game') toggleCheats()
   },
+  // B is back: out of whatever is open, one layer at a time; on the pause screen, back into the game.
   cancel: () => {
-    if (route.value.name === 'watch') return go('#/scores')
-    if (route.value.name === 'scores' || route.value.name === 'replays') return go('#/')
-    accountOpen.value = false
-    settingsOpen.value = false
-    cheatOpen.value = false
-    menuOpen.value = false
+    const r = route.value
+    if (r.name === 'watch') return go('code' in r ? '#/replays' : '#/scores')
+    if (r.name === 'scores' || r.name === 'replays') return go('#/')
+    if (menuOpen.value) return (menuOpen.value = false)
+    if (accountOpen.value) return (accountOpen.value = false)
+    if (settingsOpen.value) return (settingsOpen.value = false)
+    if (cheatOpen.value) return (cheatOpen.value = false)
+    if (briefing.value) return closeBriefing()
+    if (state.status === 'paused') play()
   },
 }
 // Cuts, hits, game over and the rest rumble the controller, as hard as they land.
@@ -331,6 +381,19 @@ watch(
     if (portrait) pause()
   },
 )
+
+/** Colours for the tier intro card. */
+const INTRO_COLOR = {
+  red: 'var(--coral)',
+  blue: 'var(--sky)',
+  purple: 'var(--lavender)',
+  white: '#FFFFFF',
+  green: 'var(--sage)',
+  gold: 'var(--sun)',
+  prism: 'linear-gradient(90deg, #FF3355, #FFE14D, #5CFF5C, #3FA9FF, #B26BFF)',
+} as const
+/** The intro lasts two bars at the current tempo. */
+const introSeconds = computed(() => (60 / state.bpm) * 8)
 
 /* ─── Full screen ─── */
 // Playing goes full screen and stays there; the pause screen is the way out.
@@ -401,7 +464,7 @@ onBeforeUnmount(() => {
       class="arena"
       :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
     ><Board /></div>
-    <!-- Phones: a stick on the left, one arcade button on the right -->
+    <!-- Phones: the left half steers, the right half uses power-ups; both faint, over the board -->
     <template v-if="layout.pad === 'sticks' && !layout.portrait && route.name !== 'watch'">
       <Joystick />
       <ActionButton />
@@ -424,6 +487,7 @@ onBeforeUnmount(() => {
           <span class="stat"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
           <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') }">×{{ multiplier() }}</b></span>
           <span v-if="state.cheated" class="cheat-tag" title="Cheats used: this run cannot set a best">cheats</span>
+          <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
         <template v-for="effect in EFFECTS" :key="effect.key">
           <div v-if="isActive(effect.key)" class="effect" :style="{ '--fx': effect.color }">
@@ -497,6 +561,16 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- A new kind of laser: play waits while it is introduced -->
+    <div v-if="state.intro && state.status === 'running'" :key="state.intro.until" class="tier-intro" :style="{ '--laser': INTRO_COLOR[LASER_TIERS[state.intro.tier]!.kind], '--intro': `${introSeconds}s` }">
+      <p class="tier-level">Level {{ state.level + 1 }}</p>
+      <p class="tier-name">{{ LASER_TIERS[state.intro.tier]!.name }}</p>
+      <div class="tier-beam" aria-hidden="true"><span></span></div>
+      <p class="tier-blurb">{{ LASER_TIERS[state.intro.tier]!.blurb }}</p>
+      <p class="tier-heart"><template v-if="state.intro.healed">+1 heart · </template>lasers ease in for a moment</p>
+      <span class="tier-timer" aria-hidden="true"></span>
+    </div>
+
     <!-- What was just picked up or used, and what it does -->
     <div v-if="state.notice && state.status === 'running'" :key="state.notice.id" class="notice" :class="{ touch: layout.pad !== 'none' }">
       <svg viewBox="-0.5 -0.5 1 1" width="30" height="30"><PowerIcon :kind="state.notice.kind" /></svg>
@@ -550,61 +624,59 @@ onBeforeUnmount(() => {
       <CheatMenu @close="cheatOpen = false" />
     </div>
 
+    <!-- Briefing: how to play, then any key -->
+    <div v-else-if="briefing && state.status === 'ready'" class="overlay" @pointerdown.self="begin()">
+      <Briefing :mode="briefing" @start="begin()" />
+    </div>
+
     <!-- Start -->
     <div v-else-if="state.status === 'ready'" class="overlay">
-      <div class="card">
-        <p class="chrome-label">1 player · snake, set to the beat · sound on</p>
-        <h1>Laserwyrm<span class="brand-dot">.</span></h1>
-        <ul class="rules">
-          <li>
-            <svg viewBox="-0.5 -0.5 1 1" width="28" height="28"><circle cy="0.06" r="0.34" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.06" /><path d="M 0.02 -0.26 q 0.12 -0.18 0.3 -0.14 q -0.06 0.2 -0.3 0.14 z" fill="var(--sage)" stroke="var(--ink)" stroke-width="0.045" /></svg>
-            <span><b>Grow long.</b> Every beat scores your length, and more per cell the longer you get.</span>
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" width="28" height="28"><defs><pattern id="h" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.2" height="5" fill="var(--coral)" /></pattern></defs><rect x="1" y="7" width="22" height="10" rx="2" fill="url(#h)" stroke="var(--coral)" stroke-width="2" /></svg>
-            <span><b>Lasers</b> slice your body. Through the head costs a heart.</span>
-          </li>
-          <li>
-            <svg viewBox="-0.5 -0.5 8 7" width="28" height="28"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg>
-            <span><b>3 hearts.</b> Each level refills one, up to 3. Walls and biting yourself end it at once.</span>
-          </li>
-          <li>
-            <svg viewBox="-0.6 -0.6 1.2 1.2" width="28" height="28"><ellipse cx="-0.08" cy="0" rx="0.3" ry="0.32" fill="var(--lavender)" stroke="var(--ink)" stroke-width="0.07" /><path d="M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.22 -0.02 Z M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.05" /></svg>
-            <span><b>The snipper</b> cuts your middle. Bite it first.</span>
-          </li>
-        </ul>
-        <p class="powers-title"><b>Power-ups</b> · hold two, <span class="hide-touch">Space</span><span class="show-touch-inline">the button</span> to use</p>
-        <ul class="powers">
-          <li v-for="kind in POWER_KINDS" :key="kind" :title="POWERS[kind].blurb">
-            <svg viewBox="-0.5 -0.5 1 1" width="24" height="24"><PowerIcon :kind="kind" /></svg>
-            <span>{{ POWERS[kind].name }}</span>
-          </li>
-          <li :title="TOTEM.blurb">
-            <svg viewBox="-0.5 -0.5 1 1" width="24" height="24"><PowerIcon kind="totem" /></svg>
-            <span>Totem</span>
-          </li>
-        </ul>
-        <button class="btn" @click="play()"><span class="text-trim blink">Press start</span></button>
-        <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
-        <div v-if="pad.connected" class="keys">
-          <span class="keygroup"><PadGlyph button="dpad" /><PadGlyph button="stick" /> move</span>
-          <span class="keygroup"><PadGlyph button="a" /><PadGlyph button="rt" /> power-up</span>
-          <span class="keygroup"><PadGlyph button="start" /> pause</span>
-          <span class="keygroup"><PadGlyph button="back" /> cheats</span>
-        </div>
-        <div v-else class="keys hide-touch">
-          <span class="keygroup">
-            <span class="arrows"><kbd class="up">↑</kbd><kbd class="left">←</kbd><kbd class="down">↓</kbd><kbd class="right">→</kbd></span>
-            move <span class="alt">or WASD</span>
+      <div class="card card-start">
+        <Mascot class="corner-mascot" />
+        <header class="hello">
+          <h1>Laserwyrm<span class="brand-dot">.</span></h1>
+        </header>
+        <div class="start-buttons">
+        <button class="btn btn-start" @click="openBriefing('normal')">
+          <span class="start-face">
+            <svg class="blink" viewBox="-0.5 -0.5 8 7" width="16" height="14" aria-hidden="true"><path :d="HEART_PATH" fill="#FFFFFF" stroke="var(--ink)" stroke-width="0.8" /></svg>
+            <span class="text-trim">Press start</span>
           </span>
-          <span class="keygroup"><kbd class="space">space</kbd> power-up</span>
-          <span class="keygroup"><kbd>P</kbd> pause</span>
-          <span class="keygroup"><kbd>R</kbd> restart</span>
-          <span class="keygroup"><kbd>B</kbd> music</span>
-          <span class="keygroup"><kbd>M</kbd> sound</span>
-          <span class="keygroup"><kbd>C</kbd> cheats</span>
+        </button>
+        <button
+          class="btn btn-hardcore"
+          title="Hardcore: walls kill, no hearts back, no pauses. Its own high scores."
+          aria-label="Play hardcore"
+          @click="openBriefing('hardcore')"
+        >
+          <span class="start-face">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2h8v1h1v1h1v5h-1v1h-1v1h-1v3H5v-3H4v-1H3V9H2V4h1V3h1z" fill="currentColor" /><path d="M5 6h2v2H5zM9 6h2v2H9zM7 9h2v1H7zM6 12h1v1H6zM9 12h1v1H9z" fill="var(--ink)" /></svg>
+            <span class="text-trim">Hardcore</span>
+          </span>
+        </button>
+        <!-- Settings, and the account (a face: claim a name, or your games) -->
+        <div class="start-row">
+          <button class="btn btn-line" @click="openSettings">
+            <span class="start-face">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 1h4v2h1l1-1 2 2-1 1v1h2v4h-2v1l1 1-2 2-1-1h-1v2H6v-2H5l-1 1-2-2 1-1V9H1V5h2V4L2 3l2-2 1 1h1z" fill="currentColor" /><path d="M6 6h4v4H6z" fill="var(--ink)" /></svg>
+              <span class="text-trim">Settings</span>
+            </span>
+          </button>
+          <button
+            class="btn btn-account"
+            :class="{ signed: account.name }"
+            :title="account.name ? `${account.name}: your account and games` : 'Claim a name'"
+            :aria-label="account.name ? `Account: ${account.name}` : 'Claim a name'"
+            @click="openAccount"
+          >
+            <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
+              <path d="M5 1h6v1h2v2h1v8h-1v2h-2v1H5v-1H3v-2H2V4h1V2h2z" fill="currentColor" />
+              <path d="M5 6h2v2H5zM9 6h2v2H9zM5 10h1v1h4v-1h1v1h-1v1H6v-1H5z" fill="var(--ink)" />
+            </svg>
+          </button>
         </div>
-        <p v-if="!pad.connected" class="keys show-touch">Steer with the stick on the left; the button on the right uses power-ups.</p>
+        <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
+        </div>
         <p v-if="!pad.connected" class="pad-note">
           <svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true"><path d="M5 1h14a4 4 0 0 1 4 4l1 7a3 3 0 0 1-5 2l-3-3H8l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-4Z" fill="currentColor" /><path d="M6 5v4M4 7h4" stroke="var(--bg)" stroke-width="1.6" /><circle cx="17" cy="5.5" r="1.1" fill="var(--bg)" /><circle cx="19" cy="8" r="1.1" fill="var(--bg)" /></svg>
           Controller supported · press any button to connect
@@ -629,13 +701,14 @@ onBeforeUnmount(() => {
     <!-- Game over: the score big, everything else quiet -->
     <div v-else-if="state.status === 'over'" class="overlay">
       <div class="card card-small card-over">
-        <p class="over-label">Game over · the snake {{ state.reason }}</p>
+        <p class="over-label">Game over · the snake {{ state.reason }}<template v-if="state.mode === 'hardcore'"> · hardcore</template></p>
         <!-- Every game gets a code to share: between who and what scored -->
         <p class="game-line">
           <template v-if="gameCode">game <GameCode :code="gameCode" link /></template>
           <template v-else-if="gameSave === 'saving'">saving game…</template>
-          <template v-else>could not save this game (offline?)</template>
+          <template v-else>could not save this game: {{ saveError }}</template>
         </p>
+        <p v-if="signedOutNote" class="entry-note">{{ signedOutNote }}</p>
         <p class="final-label">score</p>
         <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
         <p v-if="state.newBest" class="new-best blink">New best!</p>
@@ -685,6 +758,11 @@ onBeforeUnmount(() => {
     <div v-if="fsHint && state.status === 'running'" class="fs-hint">
       <template v-if="pad.connected"><PadGlyph button="start" /> pause · leave full screen from the pause screen</template>
       <template v-else><kbd>Esc</kbd> pause · <kbd>Esc</kbd> again to leave full screen</template>
+    </div>
+
+    <!-- Started from a controller before any click: playing, but silent until one -->
+    <div v-if="soundBlocked && state.status === 'running'" class="pad-toast sound-off">
+      sound is off · tap, click or press any key to turn it on
     </div>
 
     <!-- Controller connected -->
@@ -838,6 +916,48 @@ onBeforeUnmount(() => {
   color: var(--sun);
 }
 .rotate-sub { margin: 0; max-width: 18rem; font-size: 18px; color: var(--text-dim); }
+.tier-intro {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 6;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(26rem, calc(100% - 32px));
+  padding: 1.4rem 1.6rem 1.2rem;
+  border: 3px solid var(--text-dim);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 0 0 3px var(--ink), 8px 8px 0 3px var(--ink);
+  text-align: center;
+  pointer-events: none;
+  translate: -50% -50%;
+  animation: pop-in 0.3s steps(3) both;
+}
+.tier-level { margin: 0; font-size: 17px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+.tier-name {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 1.15rem;
+  text-transform: uppercase;
+  color: var(--text);
+  text-shadow: 3px 3px 0 var(--ink);
+}
+/* A sample beam in the laser's colour, firing across. */
+.tier-beam { width: 100%; height: 12px; border: 2px solid var(--ink); background: var(--bg-off); overflow: hidden; }
+.tier-beam span { display: block; height: 100%; background: var(--laser); animation: beam-fire 0.8s steps(8) infinite; transform-origin: left; }
+@keyframes beam-fire {
+  0% { transform: scaleX(0); }
+  60%, 100% { transform: scaleX(1); }
+}
+.tier-blurb { margin: 0; font-size: 20px; color: var(--text-dim); }
+.tier-heart { margin: 0; font-size: 15px; text-transform: uppercase; color: var(--rose); }
+.tier-timer { width: 100%; height: 3px; background: var(--text-muted); transform-origin: left; animation: shrink var(--intro) linear both; }
+@keyframes shrink {
+  to { transform: scaleX(0); }
+}
+.pad-toast.sound-off { animation: none; border-color: var(--sun); font-size: 16px; }
 .pad-toast {
   position: absolute;
   bottom: 24px;
@@ -856,6 +976,13 @@ onBeforeUnmount(() => {
   translate: -50% 0;
   pointer-events: none;
   animation: notice 2.2s steps(12) both;
+}
+.hc-tag {
+  padding: 2px 6px;
+  background: var(--coral);
+  color: var(--ink);
+  font-size: 15px;
+  text-transform: uppercase;
 }
 .cheat-tag {
   padding: 2px 6px;
@@ -924,10 +1051,18 @@ onBeforeUnmount(() => {
   height: 22px;
   background: var(--border);
 }
+/* Label and number come from two fonts with different line boxes; trimmed to
+   their capital height and centred, they sit level with each other. */
 .stat {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+}
+.stat .chrome-label,
+.stat b {
+  display: block;
+  line-height: 1;
+  text-box: trim-both cap alphabetic;
 }
 .stat .chrome-label { font-size: 16px; }
 .stat b {
@@ -957,9 +1092,10 @@ onBeforeUnmount(() => {
   inset: 0;
   display: grid;
   place-items: center;
-  /* Clear of the HUD, which stays on top and usable (z 6); over the phone stick and button (z 5, earlier in the page). */
+  /* Clear of the HUD and the power-up hint under it, which stay on top and
+     usable (z 6); over the phone stick and button (z 5, earlier in the page). */
   z-index: 5;
-  padding: 72px 16px 16px;
+  padding: 96px 16px 16px;
   background: rgba(0, 0, 0, 0.7);
 }
 .card {
@@ -973,6 +1109,77 @@ onBeforeUnmount(() => {
   animation: pop-in 0.3s steps(3) both;
 }
 .card-small { width: min(24rem, 100%); }
+
+/* ─── Start card: the same neon, softer: rounded corners, pink and mint, a mascot ─── */
+.card-start {
+  position: relative;
+  overflow: visible;
+  width: min(25.5rem, 100%);
+  padding: 1.25rem 1.6rem 1.1rem;
+  border-color: var(--rose);
+  border-radius: 16px;
+  box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--mint), 8px 8px 0 6px var(--ink);
+}
+/* The wyrm peeks over the card's top right corner. */
+.corner-mascot {
+  position: absolute;
+  top: -50px;
+  right: -34px;
+  rotate: 6deg;
+  pointer-events: none;
+}
+.hello {
+  display: grid;
+  justify-items: center;
+  margin: 0.4rem 0 1.4rem;
+  text-align: center;
+}
+.card-start h1 {
+  margin: 0.3rem 0 0;
+  font-size: clamp(1.2rem, 5vw, 1.8rem);
+  text-shadow: 3px 3px 0 var(--rose);
+}
+.card-start .pad-note { margin-top: 0.6rem; }
+.card-start .btn { border-radius: 12px; }
+/* Short screens (phones sideways): a smaller wyrm, just the title and buttons. */
+@media (max-height: 520px) {
+  .corner-mascot { top: -34px; right: -20px; scale: 0.7; }
+  .hello { margin: 0 0 0.9rem; }
+  .card-start .pad-note { display: none; }
+}
+/* Phones sideways: just the title and the buttons. */
+@media (max-height: 460px) {
+  .card-start { padding: 0.8rem 1.2rem; }
+  .card-start h1 { font-size: 1.3rem; }
+  .hello { margin-bottom: 0.6rem; }
+}
+/* Start and high scores side by side, start the bigger. */
+/* Start, hardcore, high scores: one above the other. */
+.start-buttons { display: grid; gap: 10px; }
+.btn.btn-hardcore {
+  background: var(--bg-off);
+  border-color: var(--coral);
+  color: var(--coral);
+  text-shadow: none;
+}
+.btn.btn-hardcore:hover { background: var(--coral); color: var(--ink); }
+.start-buttons .btn + .btn { margin-top: 0; }
+.start-buttons .btn-hardcore,
+.start-buttons .btn-line { padding-block: calc(0.45rem + 0.38em); font-size: 0.6rem; }
+/* Settings, with the square account button on its right. */
+.start-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.start-row .btn + .btn { margin-top: 0; }
+.btn.btn-account {
+  width: 52px;
+  padding: 0;
+  background: var(--bg-off);
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+.btn.btn-account.signed { border-color: var(--mint); color: var(--mint); }
+.btn.btn-account:hover { background: var(--mint); color: var(--ink); }
+
+.start-face { display: inline-flex; align-items: center; gap: 10px; }
 .card h1 {
   margin: 0.8rem 0 1.5rem;
   font-family: var(--font-pixel);
@@ -994,23 +1201,6 @@ onBeforeUnmount(() => {
   text-shadow: 3px 3px 0 var(--ink);
 }
 .card h2.over { color: var(--coral); }
-.rules {
-  margin: 0 0 1.5rem;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 0.8rem;
-}
-.rules li {
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: 0.9rem;
-  align-items: start;
-  font-size: 19px;
-  line-height: 1.15;
-  color: var(--text-dim);
-}
-.rules b { color: var(--sun); font-weight: 400; }
 .btn {
   display: grid;
   place-items: center;
@@ -1191,29 +1381,6 @@ onBeforeUnmount(() => {
   color: var(--text-dim);
 }
 
-/* ─── Power-up row on the start card ─── */
-.powers-title {
-  margin: 0 0 0.5rem;
-  font-size: 17px;
-  color: var(--text-dim);
-}
-.powers-title b { font-weight: 400; color: var(--sun); }
-.powers {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-  gap: 8px;
-  margin: 0 0 1.4rem;
-  padding: 0;
-  list-style: none;
-}
-.powers li {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  font-size: 14px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
 
 /* ─── HUD extras ─── */
 .bpm {
@@ -1372,10 +1539,10 @@ onBeforeUnmount(() => {
 .show-touch { display: none; }
 @media (pointer: coarse) {
   .hide-touch { display: none; }
+  /* No hint under the HUD on phones, so cards can sit higher. */
+  .overlay { padding-top: 64px; }
   /* The pad has its own play/pause in the middle. */
   .round { width: 40px; height: 40px; }
-  .rules li { font-size: 17px; line-height: 1.1; }
-  .rules { gap: 0.6rem; margin-bottom: 1rem; }
   .note { font-size: 15px; }
   .card h1 { margin-bottom: 1rem; }
   .show-touch { display: block; }

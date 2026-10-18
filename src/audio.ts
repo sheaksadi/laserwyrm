@@ -82,6 +82,8 @@ export function previewSfx() {
 let ctx: AudioContext | null = null
 let master: GainNode
 let musicBus: GainNode
+/** Between the music and the mix: dips for a tier's tape-stop, opens on the build. */
+let musicFilter: BiquadFilterNode
 let sfxBus: GainNode
 let noise: AudioBuffer
 
@@ -101,7 +103,11 @@ function ensure(): AudioContext | null {
   musicBus.gain.value = musicGain()
   sfxBus = ctx.createGain()
   sfxBus.gain.value = sfxGain()
-  musicBus.connect(master)
+  musicFilter = ctx.createBiquadFilter()
+  musicFilter.type = 'lowpass'
+  musicFilter.frequency.value = 20000
+  musicFilter.Q.value = 0.8
+  musicBus.connect(musicFilter).connect(master)
   sfxBus.connect(master)
   master.connect(comp).connect(ctx.destination)
 
@@ -238,40 +244,125 @@ function zap(t: number, bus: AudioNode) {
 
 /* ─── The track ──────────────────────────────────────────────────────── */
 
-// A minor: Am, F, C, G. Roots as MIDI notes in octave 2.
-const ROOTS = [45, 41, 48, 43]
-const CHORDS = [
-  [57, 60, 64], // Am
-  [53, 57, 60], // F
-  [55, 60, 64], // C
-  [55, 59, 62], // G
+/**
+ * One arrangement per laser tier, so each new kind of laser brings its own
+ * feel: key and chords, bass rhythm, drums, the arpeggio's shape and voice.
+ * `arp` indexes the chord (3 is the root an octave up).
+ */
+interface Variant {
+  roots: number[]
+  chords: number[][]
+  bassSteps: Set<number>
+  kickSteps: Set<number>
+  clapSteps: Set<number>
+  arp: number[]
+  lead: OscillatorType
+  /** Semitones added to the arpeggio. */
+  lift: number
+}
+const VARIANTS: Variant[] = [
+  // Red: A minor, four on the floor. The original.
+  { roots: [45, 41, 48, 43], chords: [[57, 60, 64], [53, 57, 60], [55, 60, 64], [55, 59, 62]],
+    bassSteps: new Set([0, 3, 6, 8, 10, 11, 14]), kickSteps: new Set([0, 4, 8, 12]), clapSteps: new Set([4, 12]),
+    arp: [0, 1, 2, 1, 2, 0, 1, 2], lead: 'square', lift: 0 },
+  // Blue: D minor, rolling offbeat bass, rising arpeggio.
+  { roots: [38, 46, 41, 48], chords: [[62, 65, 69], [58, 62, 65], [60, 65, 69], [60, 64, 67]],
+    bassSteps: new Set([2, 6, 10, 14, 15]), kickSteps: new Set([0, 4, 8, 12]), clapSteps: new Set([4, 12]),
+    arp: [0, 1, 2, 3, 0, 1, 2, 3], lead: 'triangle', lift: 12 },
+  // Purple: E phrygian, half-time and heavy.
+  { roots: [40, 41, 40, 38], chords: [[64, 67, 71], [65, 69, 72], [64, 67, 71], [62, 65, 69]],
+    bassSteps: new Set([0, 1, 7, 8, 9, 15]), kickSteps: new Set([0, 10]), clapSteps: new Set([8]),
+    arp: [0, 2, 1, 2, 0, 2, 3, 2], lead: 'sawtooth', lift: 0 },
+  // White: C major, bright and quick.
+  { roots: [48, 43, 45, 41], chords: [[60, 64, 67], [59, 62, 67], [60, 64, 69], [60, 65, 69]],
+    bassSteps: new Set([2, 6, 10, 14]), kickSteps: new Set([0, 4, 8, 12]), clapSteps: new Set([4, 12]),
+    arp: [0, 1, 2, 3, 2, 1, 2, 3], lead: 'sine', lift: 12 },
+  // Green: acid in A, one chord, a busy squelchy bass.
+  { roots: [45, 45, 45, 48], chords: [[57, 60, 64], [57, 60, 64], [57, 60, 64], [60, 64, 67]],
+    bassSteps: new Set([0, 2, 3, 5, 7, 8, 10, 11, 13, 14]), kickSteps: new Set([0, 4, 8, 12]), clapSteps: new Set([4, 12]),
+    arp: [0, 0, 2, 0, 1, 0, 3, 0], lead: 'sawtooth', lift: 0 },
+  // Gold: F major anthem, big chords.
+  { roots: [41, 43, 40, 45], chords: [[65, 69, 72], [67, 71, 74], [64, 67, 71], [64, 69, 72]],
+    bassSteps: new Set([0, 3, 6, 8, 11, 14]), kickSteps: new Set([0, 4, 8, 12]), clapSteps: new Set([4, 12]),
+    arp: [0, 1, 2, 3, 0, 1, 2, 3], lead: 'square', lift: 12 },
+  // Combos: F minor breakbeat.
+  { roots: [41, 37, 44, 39], chords: [[65, 68, 72], [61, 65, 68], [63, 68, 72], [63, 67, 70]],
+    bassSteps: new Set([0, 3, 10, 11]), kickSteps: new Set([0, 6, 10]), clapSteps: new Set([4, 12]),
+    arp: [3, 2, 1, 0, 3, 2, 1, 2], lead: 'triangle', lift: 0 },
+  // Prism: everything, climbing a semitone every bar of four.
+  { roots: [45, 46, 47, 48], chords: [[57, 60, 64], [58, 61, 65], [59, 62, 66], [60, 63, 67]],
+    bassSteps: new Set([0, 2, 3, 6, 8, 10, 11, 14]), kickSteps: new Set([0, 4, 8, 12, 14]), clapSteps: new Set([4, 12]),
+    arp: [0, 1, 2, 3, 2, 1, 0, 3], lead: 'sawtooth', lift: 12 },
 ]
-const BASS_STEPS = new Set([0, 3, 6, 8, 10, 11, 14])
-const ARP = [0, 1, 2, 1, 2, 0, 1, 2]
+
+/** Which arrangement, and where in a tier change it is: an intro pause, a build back up, or full play. */
+let style = { variant: 0, phase: 'play' as 'play' | 'intro' | 'build' | 'warmup', from: 0 }
+const BUILD_BARS = 4
+
+function lead(t: number, midi: number, type: OscillatorType, bus: AudioNode) {
+  const g = ctx!.createGain()
+  const f = filter('lowpass', 3200, 3)
+  f.frequency.setValueAtTime(4200, t)
+  f.frequency.exponentialRampToValueAtTime(600, t + 0.14)
+  f.connect(g).connect(bus)
+  env(g, t, type === 'sine' || type === 'triangle' ? 0.13 : 0.08, 0.003, 0.16)
+  osc(type, hz(midi), t, 0.2, f)
+}
+
+/** A soft held chord, for the pause while a new tier is introduced. */
+function pad(t: number, notes: number[], length: number, bus: AudioNode) {
+  const g = ctx!.createGain()
+  const f = filter('lowpass', 1200, 1)
+  f.connect(g).connect(bus)
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(0.05, t + length * 0.4)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + length)
+  for (const midi of notes) {
+    osc('triangle', hz(midi) * 1.004, t, length, f)
+    osc('triangle', hz(midi - 12) * 0.996, t, length, f)
+  }
+}
 
 function playStep(step: number, t: number, level: number) {
   const bus = musicBus
+  const v = VARIANTS[style.variant]!
   const s = step % 16
   const bar = Math.floor(step / 16)
   const chord = bar % 4
   const sd = stepSeconds()
 
-  // Kick on every beat, plus a pickup at higher levels.
-  if (s % 4 === 0 || (level >= 4 && s === 14)) kick(t, bus)
-  // Bass from the first bar: a pumping line on the chord root.
-  if (BASS_STEPS.has(s)) bass(t, ROOTS[chord]! + (s === 14 ? 12 : 0), sd * 1.6, bus)
-  // Hats come in at level 1, go 16ths at level 3.
-  if (level >= 1 && s % 4 === 2) hat(t, true, bus)
-  if (level >= 3 && s % 2 === 1) hat(t, false, bus, 0.06)
-  // Clap on 2 and 4 from level 2.
-  if (level >= 2 && (s === 4 || s === 12)) clap(t, bus)
-  // Arpeggio from level 2, an octave higher from level 5.
-  if (level >= 2 && (level >= 3 || s % 2 === 0)) {
-    const note = CHORDS[chord]![ARP[s % 8]!]! + (level >= 5 && s >= 8 ? 12 : 0)
-    pluck(t, note + 12, bus)
+  // Waiting to start (the briefing): a muffled heartbeat that gathers itself.
+  if (style.phase === 'warmup') {
+    const into = Math.floor((step - style.from) / 16)
+    if (s === 0 || s === 8) kick(t, bus)
+    if (s === 0) pad(t, v.chords[chord]!, sd * 16, bus)
+    if (into >= 1 && s % 4 === 2) hat(t, false, bus, 0.05)
+    if (into >= 2 && v.bassSteps.has(s) && s % 4 === 0) bass(t, v.roots[chord]!, sd * 2, bus)
+    if (into >= 3 && (s === 4 || s === 12)) clap(t, bus)
+    return
   }
-  // Chord stabs at level 4.
-  if (level >= 4 && (s === 0 || s === 6)) stab(t, CHORDS[chord]!, bus)
+  // The pause: only a pad of the new key, one per bar.
+  if (style.phase === 'intro') {
+    if (s === 0) pad(t, v.chords[chord]!, sd * 16, bus)
+    return
+  }
+  // The build: the band comes back in a part at a time over four bars.
+  const into = style.phase === 'build' ? Math.floor((step - style.from) / 16) : BUILD_BARS
+  if (into >= BUILD_BARS && style.phase === 'build') style.phase = 'play'
+  const drums = into >= 1
+  const full = into >= 2
+
+  if (drums && (v.kickSteps.has(s) || (level >= 4 && s === 14))) kick(t, bus)
+  if (v.bassSteps.has(s)) bass(t, v.roots[chord]! + (s === 14 ? 12 : 0), sd * 1.6, bus)
+  if (full && level >= 1 && s % 4 === 2) hat(t, true, bus)
+  if (full && level >= 3 && s % 2 === 1) hat(t, false, bus, 0.06)
+  if (full && level >= 2 && v.clapSteps.has(s)) clap(t, bus)
+  if (level >= 2 && (level >= 3 || s % 2 === 0)) {
+    const pick = v.arp[s % 8]!
+    const note = pick === 3 ? v.chords[chord]![0]! + 12 : v.chords[chord]![pick]!
+    lead(t, note + 12 + v.lift + (level >= 5 && s >= 8 ? 12 : 0) - (v.lift && level >= 5 ? 12 : 0), v.lead, bus)
+  }
+  if (full && level >= 4 && (s === 0 || s === 6)) stab(t, v.chords[chord]!, bus)
 }
 
 /* ─── Conductor ──────────────────────────────────────────────────────── */
@@ -298,15 +389,49 @@ export const queue: StepEvent[] = []
 /** Called for every step as it is scheduled, ahead of time, to add game sounds. */
 let onSchedule: (event: StepEvent) => void = () => {}
 
+/**
+ * Which clock the game runs on. Normally the audio clock, so sound and play
+ * stay locked together. But browsers only start audio after a click, tap or
+ * key press, and a controller button does not count: a game started from a
+ * controller on a fresh page would sit still. Then the game runs on a plain
+ * timer, silently, until the first click or key lets audio start; it then
+ * hands over to the audio clock without a jump (`audioOffset` lines the two
+ * up), and the music joins in.
+ */
+let clock: 'audio' | 'timer' = 'timer'
+let audioOffset = 0
+/** True while a game is running silently, waiting for a click or key to allow sound. */
+export const soundBlocked = ref(false)
+
+const timerNow = () => ((running ? performance.now() : fallbackPausedAt) - fallbackStart) / 1000
+
 export function now(): number {
-  if (ctx) return ctx.currentTime
-  return ((running ? performance.now() : fallbackPausedAt) - fallbackStart) / 1000
+  if (ctx && clock === 'audio') return ctx.currentTime - audioOffset
+  return timerNow()
+}
+
+/** Audio has just become available mid-game: carry on from the same moment on its clock. */
+function handOver() {
+  if (!ctx || ctx.state !== 'running' || clock === 'audio' || !running) return
+  audioOffset = ctx.currentTime - timerNow()
+  clock = 'audio'
+  soundBlocked.value = false
+}
+
+/** Any click, tap or key unlocks audio for the page; take the chance whenever it comes. */
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    if (!ensure() || !ctx) return
+    if (ctx.state === 'suspended' && running) void ctx.resume().then(handOver)
+  }
+  window.addEventListener('pointerdown', unlock, true)
+  window.addEventListener('keydown', unlock, true)
 }
 
 function schedule() {
   while (nextTime < now() + LOOKAHEAD) {
     const event = { step: nextStep, time: nextTime }
-    if (ctx) playStep(nextStep, nextTime, level)
+    if (ctx && clock === 'audio') playStep(nextStep, nextTime + audioOffset, level)
     onSchedule(event)
     queue.push(event)
     nextStep++
@@ -329,12 +454,49 @@ export const conductor = {
   setRate(value: number) {
     rate = value
   },
+  /**
+   * Switch the arrangement for a laser tier. 'intro' slides the music down
+   * (a tape stop) and holds a pad; 'build' brings the new arrangement back in
+   * over four bars as the filter opens; 'play' just switches.
+   */
+  setStyle(variant: number, phase: 'play' | 'intro' | 'build' | 'warmup', fromStep: number) {
+    style = { variant: Math.max(0, Math.min(VARIANTS.length - 1, variant)), phase, from: fromStep }
+    if (!ctx || !musicFilter) return
+    const f = musicFilter.frequency
+    const t = ctx.currentTime
+    f.cancelScheduledValues(t)
+    f.setValueAtTime(f.value, t)
+    if (phase === 'intro') {
+      f.exponentialRampToValueAtTime(260, t + 0.9)
+      tapeStop(t, sfxBus)
+    } else if (phase === 'warmup') {
+      f.setValueAtTime(700, t)
+    } else if (phase === 'build') {
+      f.setValueAtTime(400, t)
+      f.exponentialRampToValueAtTime(20000, t + stepSeconds() * 16 * BUILD_BARS)
+    } else {
+      f.setValueAtTime(20000, t)
+    }
+  },
+  /**
+   * The waiting music, while the briefing is up: the conductor runs (steps
+   * pile up unused; the game is not running) and plays a muffled build. Play
+   * starts the conductor afresh, and the game's first bars fade in from it.
+   */
+  warmup() {
+    this.setLevel(0, 108)
+    this.start(0)
+    this.setStyle(0, 'warmup', 0)
+  },
   /** Start the track; a replay starts mid-run, so bars stay in step with the game. */
   start(fromStep = 0) {
     ensure()
-    if (ctx?.state === 'suspended') void ctx.resume()
+    if (ctx?.state === 'suspended') void ctx.resume().then(handOver)
     fallbackStart = performance.now()
     running = true
+    audioOffset = 0
+    clock = ctx?.state === 'running' ? 'audio' : 'timer'
+    soundBlocked.value = clock === 'timer' && !!ctx
     queue.length = 0
     nextStep = fromStep
     nextTime = now() + 0.08
@@ -353,17 +515,33 @@ export const conductor = {
     if (running) return
     fallbackStart += performance.now() - fallbackPausedAt
     running = true
-    void ctx?.resume()
+    if (clock === 'audio') void ctx?.resume()
+    else void ctx?.resume().then(handOver)
     timer ??= setInterval(schedule, 25)
   },
   stop() {
     running = false
+    soundBlocked.value = false
     if (timer) clearInterval(timer)
     timer = null
     queue.length = 0
     // Let scheduled notes ring out instead of cutting them.
     if (ctx?.state === 'suspended') void ctx.resume()
   },
+}
+
+/** A record slowing to a stop: a falling, darkening saw and a low thud. */
+function tapeStop(t: number, bus: AudioNode) {
+  const g = ctx!.createGain()
+  const f = filter('lowpass', 2400, 1)
+  f.frequency.setValueAtTime(2400, t)
+  f.frequency.exponentialRampToValueAtTime(120, t + 0.9)
+  f.connect(g).connect(bus)
+  env(g, t, 0.22, 0.01, 0.95)
+  for (const midi of [57, 64]) {
+    const o = osc('sawtooth', hz(midi), t, 1, f)
+    o.frequency.exponentialRampToValueAtTime(hz(midi) / 6, t + 0.95)
+  }
 }
 
 /* ─── Game sounds ────────────────────────────────────────────────────── */
@@ -375,7 +553,7 @@ function sfx(play: (t: number, bus: AudioNode) => void, delay = 0) {
 
 export const sound = {
   /** Schedule the laser's zap at the exact time of its beat. */
-  zapAt: (time: number) => ctx && zap(time, sfxBus),
+  zapAt: (time: number) => ctx && clock === 'audio' && zap(time + audioOffset, sfxBus),
   /** The charge-up, from now until the strike. */
   riser: (length: number) => sfx((t, bus) => riser(t, length, bus)),
   turn: () => sfx((t, bus) => hat(t, false, bus, 0.05)),

@@ -9,7 +9,25 @@ import { HEART_PATH, isActive, state, TONE_COLOR, type Beam, type LaserKind } fr
 import PowerIcon from './PowerIcon.vue'
 
 
-const points = computed(() => state.snake.map((c) => `${c.x + 0.5},${c.y + 0.5}`).join(' '))
+/**
+ * The snake as runs of touching cells. Where it wraps through a wall, two
+ * neighbours in the body are a board apart; the line breaks there instead of
+ * striking across the board.
+ */
+const runs = computed(() => {
+  const out: string[][] = []
+  let run: string[] = []
+  state.snake.forEach((c, i) => {
+    const prev = state.snake[i - 1]
+    if (prev && Math.abs(prev.x - c.x) + Math.abs(prev.y - c.y) > 1) {
+      out.push(run)
+      run = []
+    }
+    run.push(`${c.x + 0.5},${c.y + 0.5}`)
+  })
+  out.push(run)
+  return out.map((r) => r.join(' '))
+})
 const head = computed(() => state.snake[0]!)
 const shielded = computed(() => isActive('shield'))
 const doubled = computed(() => isActive('double'))
@@ -234,11 +252,13 @@ watch(
 
     <!-- The snake: outline tube, body tube, belly dots, head -->
     <polyline
-      :points="points" fill="none" stroke="var(--ink)" stroke-width="0.84"
+      v-for="(run, i) in runs" :key="`o${i}`"
+      :points="run" fill="none" stroke="var(--ink)" stroke-width="0.84"
       stroke-linecap="square" stroke-linejoin="miter"
     />
     <polyline
-      :points="points" fill="none" :stroke="doubled ? 'var(--sun)' : 'var(--sage)'" stroke-width="0.7"
+      v-for="(run, i) in runs" :key="`b${i}`"
+      :points="run" fill="none" :stroke="doubled ? 'var(--sun)' : 'var(--sage)'" stroke-width="0.7"
       stroke-linecap="square" stroke-linejoin="miter"
     />
     <rect

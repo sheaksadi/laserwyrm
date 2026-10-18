@@ -26,7 +26,7 @@ const mine = computed<GameRow[]>(() => {
   const seen = new Set(serverMine.value.map((g) => g.code))
   const local = localGames.list
     .filter((g) => !seen.has(g.code))
-    .map((g) => ({ ...g, name: account.name, cheated: false }))
+    .map((g) => ({ ...g, mode: g.mode ?? ('normal' as const), name: account.name, cheated: false }))
   return [...serverMine.value, ...local].sort((a, b) => b.created_at.localeCompare(a.created_at))
 })
 
@@ -105,7 +105,7 @@ const shown = computed(() => (tab.value === 'mine' ? mine.value : results.value)
     <ul v-if="shown.length" class="list">
       <li v-for="g in shown" :key="g.code">
         <GameCode :code="g.code" link />
-        <span class="who">{{ g.name ?? '—' }}</span>
+        <span class="who">{{ g.name ?? '—' }}<span v-if="g.mode === 'hardcore'" class="hc" title="Hardcore">HC</span></span>
         <span class="score">{{ g.score.toLocaleString() }}</span>
         <span class="meta">L{{ g.level }} · {{ time(g.steps) }} · {{ when(g.created_at) }}<template v-if="g.cheated"> · cheats</template></span>
         <span class="actions">
@@ -209,6 +209,7 @@ h2 {
 }
 .list :deep(.game-code) { grid-area: code; }
 .who { grid-area: who; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; text-transform: uppercase; color: var(--text); }
+.hc { margin-left: 8px; padding: 0 5px; background: var(--coral); color: var(--ink); font-size: 14px; }
 .score { grid-area: score; text-align: right; font-size: 19px; color: var(--sun); font-variant-numeric: tabular-nums; }
 .meta { grid-area: meta; font-size: 15px; text-transform: uppercase; color: var(--text-muted); }
 .actions { grid-area: actions; display: flex; gap: 4px; }

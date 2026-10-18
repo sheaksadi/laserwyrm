@@ -4,12 +4,14 @@
  */
 import { onMounted, ref } from 'vue'
 import { fetchScores, type ScoreRow } from '../api'
-import { runSeconds } from '../game'
+import { runSeconds, state, type Mode } from '../game'
 import GameCode from './GameCode.vue'
 
 const props = defineProps<{ highlight?: number }>()
 const emit = defineEmits<{ close: []; watch: [id: number] }>()
 
+/** Which board: normal or hardcore. Opens on the mode last played. */
+const mode = ref<Mode>(state.mode)
 const rows = ref<ScoreRow[]>([])
 const status = ref<'loading' | 'ok' | 'error'>('loading')
 const error = ref('')
@@ -17,7 +19,7 @@ const error = ref('')
 async function load() {
   status.value = 'loading'
   try {
-    rows.value = await fetchScores()
+    rows.value = await fetchScores(undefined, mode.value)
     status.value = 'ok'
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -25,6 +27,10 @@ async function load() {
   }
 }
 onMounted(load)
+function show(next: Mode) {
+  mode.value = next
+  void load()
+}
 
 const time = (steps: number) => {
   const s = Math.round(runSeconds(steps))
@@ -41,6 +47,11 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </header>
+
+    <div class="tabs" role="tablist" aria-label="Board">
+      <button role="tab" :aria-selected="mode === 'normal'" :class="{ on: mode === 'normal' }" @click="show('normal')">Normal</button>
+      <button role="tab" :aria-selected="mode === 'hardcore'" class="hard" :class="{ on: mode === 'hardcore' }" @click="show('hardcore')">Hardcore</button>
+    </div>
 
     <p v-if="status === 'loading'" class="msg">Loading…</p>
     <p v-else-if="status === 'error'" class="msg err">
@@ -104,6 +115,19 @@ h2 {
   color: var(--text-dim);
 }
 .close:hover { border-color: var(--sun); color: var(--text); }
+.tabs { display: flex; gap: 4px; margin-bottom: 0.8rem; border-bottom: 2px dashed var(--border); }
+.tabs button {
+  padding: 4px 12px 6px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  font-size: 18px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tabs button.on { border-bottom-color: var(--sun); color: var(--text); }
+.tabs button.hard.on { border-bottom-color: var(--coral); color: var(--coral); }
+.tabs button:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
 .msg { margin: 1rem 0; font-size: 19px; color: var(--text-dim); }
 .msg.err { color: var(--coral); }
 .link { border: 0; background: none; padding: 0; color: var(--sky); text-decoration: underline; font-size: inherit; }

@@ -4,9 +4,10 @@
  * taken), keep the login code the server gives back, sign in elsewhere with
  * it, or sign out.
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { account, signOut } from '../account'
-import { ApiError, claimName, signInWithCode } from '../api'
+import { ApiError, claimName, codeForUrl, myGames, signInWithCode, type GameRow } from '../api'
+import GameCode from './GameCode.vue'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -20,6 +21,34 @@ const reveal = ref(false)
 /** Just made: the code is shown open, with a nudge to save it. */
 const fresh = ref(false)
 const copied = ref(false)
+
+/** Signed in: the latest few games, to watch or share. */
+const games = ref<GameRow[]>([])
+const gamesError = ref('')
+watch(
+  () => account.code,
+  async (code) => {
+    games.value = []
+    gamesError.value = ''
+    if (!code) return
+    try {
+      games.value = (await myGames()).slice(0, 5)
+    } catch (err) {
+      // The server does not know this login code (an old or wiped account): sign out here.
+      if (err instanceof ApiError && err.status === 401) {
+        signOut()
+        error.value = 'That account was not recognised by the server, so you are signed out on this device.'
+        return
+      }
+      gamesError.value = err instanceof Error ? err.message : String(err)
+    }
+  },
+  { immediate: true },
+)
+function goTo(hash: string) {
+  emit('close')
+  location.hash = hash
+}
 
 async function create(name = nameInput.value.trim()) {
   if (!name) return
@@ -90,6 +119,19 @@ function leave() {
           This code is your account. Keep it somewhere safe: it is the only way back in on another device,
           and anyone who has it can play as you.
         </p>
+      </section>
+      <section>
+        <h3>Your games</h3>
+        <p v-if="gamesError" class="error">{{ gamesError }}</p>
+        <p v-else-if="!games.length" class="hint">No games yet. Play one!</p>
+        <ul v-else class="games">
+          <li v-for="g in games" :key="g.code">
+            <GameCode :code="g.code" link />
+            <span class="g-score">{{ g.score.toLocaleString() }}<span v-if="g.mode === 'hardcore'" class="hc">HC</span></span>
+            <button class="small" @click="goTo(`#/game/${codeForUrl(g.code)}`)">Watch</button>
+          </li>
+        </ul>
+        <button class="row-btn" @click="goTo('#/replays')">All replays</button>
       </section>
       <button class="row-btn" @click="leave">Sign out</button>
     </template>
@@ -182,6 +224,11 @@ code {
 .small:hover, .go:hover, .row-btn:hover, .chip:hover { border-color: var(--mint); color: var(--text); }
 .go { border-color: var(--mint); color: var(--mint); }
 .row-btn { width: 100%; }
+.row-btn + .row-btn, section + .row-btn { margin-top: 6px; }
+.games { margin: 0 0 8px; padding: 0; list-style: none; }
+.games li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.g-score { text-align: right; font-size: 18px; color: var(--sun); }
+.hc { margin-left: 6px; padding: 0 4px; background: var(--coral); color: var(--ink); font-size: 13px; }
 .warn { margin: 8px 0 0; font-size: 16px; line-height: 1.2; color: var(--text-muted); }
 .warn.loud { color: var(--sun); }
 .inline { display: flex; gap: 6px; }
