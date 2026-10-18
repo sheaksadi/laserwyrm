@@ -12,7 +12,9 @@ ENV NODE_ENV=production PORT=8080
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY server ./server
+# The design checks the MCP tools share with the game (loaded as TypeScript).
+COPY src/designCore.ts ./src/designCore.ts
 COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 8080
-CMD ["node", "server/server.mjs"]
+CMD ["node", "--experimental-strip-types", "server/server.mjs"]

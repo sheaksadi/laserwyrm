@@ -126,6 +126,36 @@ made on start. Without it the server runs PGlite (Postgres in-process, kept in
 `.data/pglite`) for local work. Input is checked and rate-limited per address; scores
 are not yet re-simulated on the server, so a determined cheater could post one.
 
+## AI agents (MCP)
+
+AI agents can make and change a player's custom games over MCP: Claude Code,
+Codex, OpenCode, Cursor, Gemini CLI, or anything that speaks Streamable HTTP
+(Claude Desktop through `mcp-remote`). In the game: sign in, open ☰ → AI
+agent, switch on "Connect AI agents" (the player's games sync to their
+account), make a key, and paste the setup shown for the agent. For example:
+
+```bash
+claude mcp add --transport http laserwyrm https://<host>/mcp --header "Authorization: Bearer lwa_…"
+```
+
+The server answers MCP at `POST /mcp` (stateless, JSON replies) with tools
+to list, create, rename and delete games; read and change levels (pacing,
+feel, items), draw walls (as a 48 × 26 grid of `#`, or built-in templates),
+set the global curve and game rules, write Strudel music for the game or a
+level (main or background track), make and tweak items, and get a share
+code. Agent keys (`lwa_…`) open only these tools, for that player's custom
+games: no playing, no scores, no other accounts. Everything is cleaned by
+the same code as in the game (`src/designCore.ts`). Changes reach the open
+game within a few seconds, and can be undone there.
+
+| Method | Path | What |
+|---|---|---|
+| POST | `/mcp` | MCP (agent key) |
+| GET | `/api/me/library` | the player's synced games |
+| PUT / DELETE | `/api/me/library/:id` | sync one game (newest wins) |
+| GET / POST | `/api/me/agent-keys` | list or make agent keys |
+| DELETE | `/api/me/agent-keys/:id` | revoke one |
+
 ## Develop
 
 ```bash

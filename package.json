@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "start": "node server/server.mjs",
-    "server": "PORT=8787 node server/server.mjs"
+    "start": "node --experimental-strip-types server/server.mjs",
+    "server": "PORT=8787 node --experimental-strip-types server/server.mjs"
   },
   "dependencies": {
     "@strudel/web": "^1.3.0",

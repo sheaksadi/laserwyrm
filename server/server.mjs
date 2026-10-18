@@ -44,6 +44,8 @@ import { mkdir, readFile, stat } from 'node:fs/promises'
 import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WORDS } from './words.mjs'
+import { handleMcp } from './mcp.mjs'
+import * as core from '../src/designCore.ts'
 
 const PORT = Number(process.env.PORT) || 8080
 const DIST = resolve(fileURLToPath(new URL('../dist', import.meta.url)))
@@ -113,6 +115,24 @@ const SCHEMA = `
   ALTER TABLE games ADD COLUMN IF NOT EXISTS design_id BIGINT REFERENCES designs(id);
   ALTER TABLE games ADD COLUMN IF NOT EXISTS design_clean BOOLEAN NOT NULL DEFAULT false;
   CREATE INDEX IF NOT EXISTS games_design_idx ON games (design_id, score DESC);
+  CREATE TABLE IF NOT EXISTS user_games (
+    user_id     BIGINT NOT NULL REFERENCES users(id),
+    gid         TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    design      JSONB NOT NULL,
+    deleted     BOOLEAN NOT NULL DEFAULT false,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, gid)
+  );
+  CREATE TABLE IF NOT EXISTS agent_keys (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users(id),
+    key_hash    TEXT NOT NULL UNIQUE,
+    label       TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used   TIMESTAMPTZ,
+    revoked     BOOLEAN NOT NULL DEFAULT false
+  );
 `
 
 /** Postgres when DATABASE_URL is set, PGlite otherwise; both answer `query(sql, params) → { rows }`. */
@@ -201,6 +221,10 @@ function checkDesign(d) {
   return null
 }
 /** A design's share code: six letters and digits, no look-alikes (K7QM2X), easy to read out or type. */
+/** An AI agent's key: lwa_ and 32 random characters. Only the MCP tools accept it. */
+const newAgentKey = () => `lwa_${randomBytes(24).toString('base64url')}`
+const newGid = () => randomBytes(6).toString('base64url').replace(/[-_]/g, 'x')
+
 const newSlug = () => [...randomBytes(6)].map((b) => LOGIN_ALPHABET[b % LOGIN_ALPHABET.length]).join('')
 
 function checkEmail(raw) {
@@ -229,6 +253,7 @@ function send(res, status, body, headers = {}) {
     'x-content-type-options': 'nosniff',
     ...headers,
   })
+  if (body === null) return res.end()
   res.end(raw ? body : JSON.stringify(body))
 }
 
@@ -515,6 +540,108 @@ function api(db) {
       }
     },
 
+    /* ─── The player's games, synced (the game and AI agents share them) ─── */
+
+    async library(req) {
+      const user = await userFrom(req, true)
+      const { rows } = await db.query(
+        `SELECT gid, name, design, deleted, updated_at FROM user_games WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 100`,
+        [user.id],
+      )
+      return { games: rows.map((r) => ({ id: r.gid, name: r.name, design: r.design, deleted: r.deleted, updated_at: new Date(r.updated_at).toISOString() })) }
+    },
+
+    async putGame(req, gid) {
+      limit(clientIp(req), 'sync', 120)
+      const user = await userFrom(req, true)
+      const body = await readJson(req)
+      if (JSON.stringify(body.design ?? {}).length > 200_000) throw new HttpError(400, 'design is too big')
+      const design = core.compact(core.cleanDesign(body.design))
+      const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 40) : 'My game'
+      // Last change wins: an older copy from the browser does not overwrite a newer one (an agent's).
+      const when = Number.isFinite(Date.parse(body.updated_at)) ? new Date(body.updated_at) : new Date()
+      const { rows } = await db.query(
+        `INSERT INTO user_games (user_id, gid, name, design, deleted, updated_at) VALUES ($1, $2, $3, $4, false, $5)
+         ON CONFLICT (user_id, gid) DO UPDATE SET name = EXCLUDED.name, design = EXCLUDED.design, deleted = false, updated_at = EXCLUDED.updated_at
+           WHERE user_games.updated_at < EXCLUDED.updated_at
+         RETURNING updated_at`,
+        [user.id, gid, name, design, when],
+      )
+      return { stored: rows.length > 0 }
+    },
+
+    async deleteGame(req, gid) {
+      const user = await userFrom(req, true)
+      await db.query('UPDATE user_games SET deleted = true, updated_at = now() WHERE user_id = $1 AND gid = $2', [user.id, gid])
+      return { ok: true }
+    },
+
+    /* ─── AI agent keys ─── */
+
+    async agentKeys(req) {
+      const user = await userFrom(req, true)
+      const { rows } = await db.query(
+        'SELECT id, label, created_at, last_used FROM agent_keys WHERE user_id = $1 AND NOT revoked ORDER BY created_at DESC',
+        [user.id],
+      )
+      return { keys: rows.map((r) => ({ id: Number(r.id), label: r.label, created_at: new Date(r.created_at).toISOString(), last_used: r.last_used ? new Date(r.last_used).toISOString() : null })) }
+    },
+
+    async newAgentKey(req) {
+      limit(clientIp(req), 'agentkey', 10)
+      const user = await userFrom(req, true)
+      const body = await readJson(req).catch(() => ({}))
+      const key = newAgentKey()
+      const label = typeof body.label === 'string' ? body.label.trim().slice(0, 40) : ''
+      const { rows } = await db.query('INSERT INTO agent_keys (user_id, key_hash, label) VALUES ($1, $2, $3) RETURNING id', [user.id, hashToken(key), label])
+      return { status: 201, body: { id: Number(rows[0].id), key } }
+    },
+
+    async revokeAgentKey(req, id) {
+      const user = await userFrom(req, true)
+      await db.query('UPDATE agent_keys SET revoked = true WHERE id = $1 AND user_id = $2', [id, user.id])
+      return { ok: true }
+    },
+
+    /* ─── MCP: AI agents edit this player's games ─── */
+
+    async mcp(req) {
+      limit(clientIp(req), 'mcp', 600)
+      const auth = req.headers.authorization ?? ''
+      const key = auth.startsWith('Bearer ') ? auth.slice(7).trim() : ''
+      if (!key.startsWith('lwa_')) throw new HttpError(401, 'an agent key (lwa_…) is needed: make one in the game, under ☰ → AI agent')
+      const { rows } = await db.query(
+        `SELECT k.id, u.id AS user_id, u.name FROM agent_keys k JOIN users u ON u.id = k.user_id WHERE k.key_hash = $1 AND NOT k.revoked`,
+        [hashToken(key)],
+      )
+      if (!rows[0]) throw new HttpError(401, 'that agent key is not recognised (it may have been revoked)')
+      const user = { id: Number(rows[0].user_id), name: rows[0].name }
+      void db.query('UPDATE agent_keys SET last_used = now() WHERE id = $1', [rows[0].id])
+      const notFound = (gid) => Object.assign(new Error(`no game ${gid} (list_games shows them)`), { status: 404 })
+      const store = {
+        list: async () =>
+          (await db.query('SELECT gid, name, design, updated_at FROM user_games WHERE user_id = $1 AND NOT deleted ORDER BY updated_at DESC', [user.id])).rows.map((r) => ({ ...r, updated_at: new Date(r.updated_at).toISOString() })),
+        get: async (gid) => {
+          const r = (await db.query('SELECT gid, name, design FROM user_games WHERE user_id = $1 AND gid = $2 AND NOT deleted', [user.id, String(gid)])).rows[0]
+          if (!r) throw notFound(gid)
+          return r
+        },
+        create: async (name, design) => {
+          const gid = newGid()
+          await db.query('INSERT INTO user_games (user_id, gid, name, design) VALUES ($1, $2, $3, $4)', [user.id, gid, name, core.compact(core.cleanDesign(design))])
+          return gid
+        },
+        save: async (gid, name, design) =>
+          db.query('UPDATE user_games SET name = $3, design = $4, updated_at = now() WHERE user_id = $1 AND gid = $2', [user.id, gid, name, design]),
+        remove: async (gid) => db.query('UPDATE user_games SET deleted = true, updated_at = now() WHERE user_id = $1 AND gid = $2', [user.id, String(gid)]),
+      }
+      const body = JSON.parse((await readBody(req)) || 'null')
+      const messages = Array.isArray(body) ? body : [body]
+      const replies = (await Promise.all(messages.map((m) => handleMcp(m, { user, store })))).filter(Boolean)
+      if (!replies.length) return { status: 202, body: null }
+      return Array.isArray(body) ? replies : replies[0]
+    },
+
     /* ─── Explore: shared designs ─── */
 
     async listDesigns(req, params) {
@@ -654,6 +781,14 @@ async function main() {
       else if (path === '/api/scores' && get) out = await routes.board(url.searchParams.get('limit'), url.searchParams.get('mode'))
       else if (path === '/api/scores' && post) out = await routes.addScore(req)
       else if ((m = path.match(/^\/api\/scores\/(\d+)$/)) && get) out = await routes.boardEntry(Number(m[1]))
+      else if (path === '/mcp' && post) out = await routes.mcp(req)
+      else if (path === '/mcp') throw new HttpError(405, 'POST MCP messages here (Streamable HTTP, JSON replies)')
+      else if (path === '/api/me/library' && get) out = await routes.library(req)
+      else if ((m = path.match(/^\/api\/me\/library\/([\w-]{1,16})$/)) && req.method === 'PUT') out = await routes.putGame(req, m[1])
+      else if ((m = path.match(/^\/api\/me\/library\/([\w-]{1,16})$/)) && req.method === 'DELETE') out = await routes.deleteGame(req, m[1])
+      else if (path === '/api/me/agent-keys' && get) out = await routes.agentKeys(req)
+      else if (path === '/api/me/agent-keys' && post) out = await routes.newAgentKey(req)
+      else if ((m = path.match(/^\/api\/me\/agent-keys\/(\d+)$/)) && req.method === 'DELETE') out = await routes.revokeAgentKey(req, Number(m[1]))
       else if (path === '/api/designs' && get) out = await routes.listDesigns(req, url.searchParams)
       else if (path === '/api/designs' && post) out = await routes.publishDesign(req)
       else if ((m = path.match(/^\/api\/designs\/([\w]{1,16})$/)) && get) out = await routes.getDesign(req, m[1])

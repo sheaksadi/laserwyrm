@@ -13,6 +13,8 @@ import { navFocusFirst, navMove, navPress, navScope } from './menuNav'
 import Briefing from './components/Briefing.vue'
 import CheatMenu from './components/CheatMenu.vue'
 import CustomPanel from './components/CustomPanel.vue'
+import AgentPanel from './components/AgentPanel.vue'
+import { sync } from './sync'
 import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
@@ -256,6 +258,14 @@ const cheatOpen = ref(false)
 /** Which workshop tab opens first: cheats from C, the level editor from custom play. */
 const cheatTab = ref<'cheats' | 'global' | 'levels'>('cheats')
 
+/** AI agents (☰ → AI agent): connect one to edit your custom games over MCP. */
+const agentOpen = ref(false)
+function openAgent() {
+  menuOpen.value = false
+  agentOpen.value = true
+  pause()
+}
+
 /** Custom play: the start screen's Custom button. */
 const customOpen = ref(false)
 function openCustom() {
@@ -319,6 +329,10 @@ function onKey(event: KeyboardEvent) {
   }
   if (settingsOpen.value) {
     if (event.key === 'Escape') settingsOpen.value = false
+    return
+  }
+  if (agentOpen.value) {
+    if (event.key === 'Escape' && !document.activeElement?.matches('input:not([type=range]), textarea')) agentOpen.value = false
     return
   }
   if (customOpen.value) {
@@ -436,6 +450,7 @@ const padHandlers = {
     if (accountOpen.value) return (accountOpen.value = false)
     if (settingsOpen.value) return (settingsOpen.value = false)
     if (customOpen.value) return (customOpen.value = false)
+    if (agentOpen.value) return (agentOpen.value = false)
     if (cheatOpen.value) return (cheatOpen.value = false)
     if (briefing.value) return closeBriefing()
     if (state.status === 'running') pause()
@@ -652,6 +667,10 @@ onBeforeUnmount(() => {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" /></svg>
               <span>Account</span><span class="state" :class="{ on: account.name }">{{ account.name ?? 'sign in' }}</span><span></span>
             </button>
+            <button class="menu-item" role="menuitem" @click="openAgent">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="2" /><path d="M12 4v4M9 13h.01M15 13h.01M9 16h6" /></svg>
+              <span>AI agent</span><span class="state" :class="{ on: sync.on }">{{ sync.on ? 'on' : '' }}</span><span></span>
+            </button>
             <button class="menu-item" role="menuitem" @click="openCustom">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 14 10M14 4v3M14 13v3M10 7H7M21 7h-3M17 4l-1.5 1.5M17 10l-1.5-1.5" /></svg>
               <span>Custom</span><span></span><kbd class="hide-touch">C</kbd>
@@ -730,6 +749,11 @@ onBeforeUnmount(() => {
       <!-- Cheats, and the custom game's editor -->
       <div v-else-if="cheatOpen" class="overlay">
         <CheatMenu :start="cheatTab" @close="cheatOpen = false" />
+      </div>
+
+      <!-- AI agents -->
+      <div v-else-if="agentOpen" class="overlay">
+        <AgentPanel @close="agentOpen = false" />
       </div>
 
       <!-- Custom play: your design, shared ones, sharing yours -->
