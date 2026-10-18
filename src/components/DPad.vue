@@ -82,10 +82,11 @@ const ARROWS: { dir: DirName; d: string }[] = [
 <style scoped>
 .dpad {
   position: fixed;
-  left: calc(18px + env(safe-area-inset-left));
-  bottom: calc(18px + env(safe-area-inset-bottom));
+  /* Just inside the board, clear of the HUD's gutter. */
+  left: calc(74px + env(safe-area-inset-left));
+  bottom: calc(14px + env(safe-area-inset-bottom));
   z-index: 4;
-  width: clamp(120px, 36vh, 170px);
+  width: clamp(110px, 34vh, 150px);
   aspect-ratio: 1;
   touch-action: none;
   user-select: none;

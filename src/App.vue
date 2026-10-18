@@ -533,7 +533,7 @@ onBeforeUnmount(() => {
 
     <!-- HUD: stats on the left, held power-ups in the middle, level and buttons on the right.
          Every number sits in a fixed-width box, so nothing shifts as it counts. -->
-    <div class="hud" :class="layout.pad === 'none' ? 'hud-grid' : 'hud-flex'">
+    <div class="hud" :class="layout.pad === 'none' ? 'hud-grid' : 'hud-phone'">
       <div class="hud-left">
         <div class="chip">
           <span class="brand show-wide">Laserwyrm<span class="brand-dot">.</span></span>
@@ -545,17 +545,19 @@ onBeforeUnmount(() => {
             <svg v-if="state.totem" class="totem-held" viewBox="-0.5 -0.5 1 1" width="18" height="18" :title="TOTEM.name"><PowerIcon kind="totem" /></svg>
           </span>
           <span class="divider"></span>
-          <span class="stat"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
+          <span class="stat stat-score"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
           <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') }">×{{ multiplier() }}</b></span>
           <span v-if="state.cheated" class="cheat-tag" :title="state.usedCheats ? 'Cheats used: this run cannot set a best' : 'A changed game: this run cannot set a best'">{{ state.usedCheats ? 'cheats' : shared.slug ? 'shared' : 'custom' }}</span>
           <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
-        <template v-for="effect in EFFECTS" :key="effect.key">
-          <div v-if="isActive(effect.key)" class="effect" :style="{ '--fx': effect.color }">
-            <span class="text-trim">{{ effect.label }}</span>
-            <span class="effect-bar" :style="{ transform: `scaleX(${effectLeft(effect.key)})` }"></span>
-          </div>
-        </template>
+        <div class="effects">
+          <template v-for="effect in EFFECTS" :key="effect.key">
+            <div v-if="isActive(effect.key)" class="effect" :style="{ '--fx': effect.color }">
+              <span class="text-trim">{{ effect.label }}</span>
+              <span class="effect-bar" :style="{ transform: `scaleX(${effectLeft(effect.key)})` }"></span>
+            </div>
+          </template>
+        </div>
       </div>
       <div class="hud-center">
         <HeldPills v-if="layout.pad === 'none'" />
@@ -584,6 +586,11 @@ onBeforeUnmount(() => {
                 <path v-if="!musicOn" d="M3 3l18 18" />
               </svg>
               <span>Music</span><span class="state" :class="{ on: musicOn }">{{ musicOn ? 'on' : 'off' }}</span><kbd class="hide-touch">B</kbd>
+            </button>
+            <!-- Phones: switch between the D-pad and the stick without going into settings -->
+            <button v-if="layout.pad !== 'none'" class="menu-item" role="menuitem" @click="touchControls = touchControls === 'dpad' ? 'stick' : 'dpad'">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" /></svg>
+              <span>Controls</span><span class="state on">{{ touchControls === 'dpad' ? 'd-pad' : 'stick' }}</span><span></span>
             </button>
             <button class="menu-item" role="menuitem" @click="openSettings">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0" /><path d="M16 4v4M8 10v4M18 16v4" /></svg>
@@ -927,12 +934,8 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr auto 1fr;
   align-items: start;
 }
-/* Touch: the power-ups sit by the pad, so just left and right. */
-.hud-flex {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
+/* Desktop: effect tags are just more items in the row. */
+.effects { display: contents; }
 .hud-left,
 .hud-right {
   display: flex;
@@ -1708,5 +1711,69 @@ onBeforeUnmount(() => {
 @media (max-width: 520px) {
   .chip { gap: 10px; padding: 6px 12px; }
   .card { padding: 1.4rem; }
+}
+
+/* ─── Phones (sideways): the board fills the height; the HUD lives in the
+   side gutters. Left: hearts at the top, score and multiplier at the bottom.
+   Right: pause and the menu, one above the other. Everything a size down. ─── */
+.hud-phone {
+  top: calc(6px + env(safe-area-inset-top));
+  bottom: calc(6px + env(safe-area-inset-bottom));
+  left: calc(4px + env(safe-area-inset-left));
+  right: calc(4px + env(safe-area-inset-right));
+  display: flex;
+  justify-content: space-between;
+}
+.hud-phone .hud-left { flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: 54px; height: 100%; }
+.hud-phone .chip {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 2px;
+  border-width: 2px;
+  border-radius: 10px;
+  background: rgba(11, 11, 26, 0.8);
+  box-shadow: none;
+}
+.hud-phone .chip .divider { display: none; }
+.hud-phone .hearts { flex-direction: column; align-items: center; gap: 3px; }
+.hud-phone .hearts svg { width: 14px; height: 13px; }
+.hud-phone .cheat-tag,
+.hud-phone .hc-tag { order: 1; padding: 1px 3px; font-size: 10px; writing-mode: vertical-rl; }
+.hud-phone .stat { order: 2; flex-direction: column; gap: 3px; }
+.hud-phone .stat-score { margin-top: auto; }
+.hud-phone .num { text-align: center; }
+.hud-phone .stat .chrome-label { display: block; font-size: 11px; }
+.hud-phone .stat b { font-size: 9px; }
+.hud-phone .score-num { min-width: 0; }
+.hud-phone .effects {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: calc(66px + env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  zoom: 0.8;
+}
+.hud-phone .hud-right { flex-direction: column; align-items: center; width: 54px; gap: 8px; }
+.hud-phone .round { width: 40px; height: 40px; border-width: 2px; border-radius: 10px; box-shadow: none; background: rgba(11, 11, 26, 0.8); }
+/* The menu opens to the left of the buttons, a size down, and scrolls if the screen is short. */
+.hud-phone .menu {
+  top: 0;
+  right: calc(100% + 8px);
+  max-height: calc(100vh - 20px);
+  overflow: auto;
+  zoom: 0.7;
+}
+.hud-phone .menu-item { padding-block: 6px; }
+@media (pointer: coarse) and (max-height: 560px) {
+  /* Cards sit between the HUD columns, a size down. */
+  .overlay { padding: 8px 64px; }
+  .overlay > * { zoom: 0.8; }
+  .notice.touch, .tier-intro.touch { top: calc(8px + env(safe-area-inset-top)); }
+  .tier-intro { zoom: 0.85; }
+  .notice { zoom: 0.85; }
 }
 </style>

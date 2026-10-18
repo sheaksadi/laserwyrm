@@ -435,8 +435,8 @@ export function arenaInsets() {
   const w = window.innerWidth
   const h = window.innerHeight
   if (!isTouch()) return { top: 90, right: 12, bottom: 12, left: 12, pad: 'none' as 'none' | 'sticks', portrait: false }
-  // The board fills the screen; the HUD and controls lie faintly over it.
-  return { top: 0, right: 0, bottom: 0, left: 0, pad: 'sticks' as 'none' | 'sticks', portrait: h > w }
+  // The board fills the height; the HUD sits in narrow gutters either side, the controls lie faintly over the board.
+  return { top: 4, right: 62, bottom: 4, left: 62, pad: 'sticks' as 'none' | 'sticks', portrait: h > w }
 }
 
 export const layout = reactive(arenaInsets())
