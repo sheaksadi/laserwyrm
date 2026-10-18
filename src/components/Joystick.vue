@@ -88,9 +88,9 @@ function up(event: PointerEvent) {
   place-items: center;
   width: 110px;
   height: 110px;
-  border: 2px solid rgba(220, 220, 240, 0.35);
+  border: 2px solid rgba(220, 220, 240, 0.22);
   border-radius: 999px;
-  background: rgba(200, 200, 220, 0.08);
+  background: rgba(200, 200, 220, 0.04);
   translate: -50% -50%;
   pointer-events: none;
 }
@@ -98,7 +98,7 @@ function up(event: PointerEvent) {
   width: 48px;
   height: 48px;
   border-radius: 999px;
-  background: rgba(220, 220, 240, 0.3);
-  border: 2px solid rgba(240, 240, 255, 0.45);
+  background: rgba(220, 220, 240, 0.16);
+  border: 2px solid rgba(240, 240, 255, 0.3);
 }
 </style>

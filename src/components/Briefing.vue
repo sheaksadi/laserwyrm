@@ -5,6 +5,7 @@
  * whichever is in use). Any key, click, tap or A starts; the warm-up music
  * plays meanwhile.
  */
+import { touchControls } from '../controls'
 import { computed } from 'vue'
 import { HEART_PATH, isTouch, POWER_KINDS, POWERS, type Mode } from '../game'
 import { pad } from '../gamepad'
@@ -49,10 +50,12 @@ const touch = computed(() => isTouch() && !pad.connected)
           <p><span class="caps"><PadGlyph button="dpad" /><PadGlyph button="stick" /></span><span>move</span></p>
           <p><span class="caps"><PadGlyph button="a" /><PadGlyph button="rt" /></span><span>power-up</span></p>
           <p><span class="caps"><PadGlyph button="start" /></span><span>pause</span></p>
-          <p><span class="caps"><PadGlyph button="b" /></span><span>back</span></p>
+          <p><span class="caps"><PadGlyph button="b" /></span><span>pause, back</span></p>
+          <p><span class="caps"><PadGlyph button="back" /></span><span>custom</span></p>
         </template>
         <template v-else-if="touch">
-          <p><span class="caps zone">left half</span><span>touch and drag to steer</span></p>
+          <p v-if="touchControls === 'dpad'"><span class="caps zone">d-pad</span><span>tap, or hold and slide, to steer</span></p>
+          <p v-else><span class="caps zone">left half</span><span>touch and drag to steer</span></p>
           <p><span class="caps zone">right half</span><span>tap to use a power-up</span></p>
           <p><span class="caps zone">❚❚</span><span>pause, top right</span></p>
         </template>
@@ -65,6 +68,7 @@ const touch = computed(() => isTouch() && !pad.connected)
           <p><span class="caps"><kbd>P</kbd><kbd>Esc</kbd></span><span>pause</span></p>
           <p><span class="caps"><kbd>R</kbd></span><span>restart</span></p>
           <p><span class="caps"><kbd>B</kbd><kbd>M</kbd></span><span>music, sound</span></p>
+          <p><span class="caps"><kbd>C</kbd></span><span>custom</span></p>
         </template>
       </div>
     </div>
@@ -88,7 +92,6 @@ const touch = computed(() => isTouch() && !pad.connected)
   border-radius: 16px;
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--mint), 8px 8px 0 6px var(--ink);
   cursor: pointer;
-  animation: pop-in 0.25s steps(3) both;
 }
 header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 1rem; }
 h2 {

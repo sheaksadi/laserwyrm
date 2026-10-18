@@ -149,6 +149,14 @@ watch(
       stroke="var(--sky)" stroke-width="3" vector-effect="non-scaling-stroke"
     />
 
+    <!-- Walls from a home-made level: solid blocks with a lit top edge -->
+    <g v-if="state.walls.length" class="walls">
+      <g v-for="i in state.walls" :key="i" :transform="`translate(${i % state.cols} ${Math.floor(i / state.cols)})`">
+        <rect x="0.04" y="0.04" width="0.92" height="0.92" fill="#2A2350" stroke="var(--lavender)" stroke-width="0.06" />
+        <rect x="0.14" y="0.14" width="0.72" height="0.12" fill="var(--lavender)" opacity="0.45" />
+      </g>
+    </g>
+
     <!-- Laser warnings: emitters at both ends, stripes, and a fuse that runs to the beat.
          A laser is one or two beams (a cross), each 1 or 3 cells wide, coloured by kind. -->
     <g v-for="laser in state.lasers" :key="laser.id" :style="{ '--laser': LASER_COLOR[laser.kind] }">

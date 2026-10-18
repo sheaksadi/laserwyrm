@@ -35,8 +35,10 @@
  * the step it landed before. Seed, grid size and inputs are a replay; feeding
  * them back through the same engine plays the game again exactly.
  */
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { conductor, now, queue, sound as rawSound, stepSeconds } from './audio'
+import { musicForLevel, warmUp } from './music'
+import { design, editOf, isStock, itemsStock, live, playWith, snapshot, unpackWalls, type CustomItem, type Design, type Edges, type Stack } from './design'
 
 export interface Vec { x: number; y: number }
 export type DirName = 'up' | 'down' | 'left' | 'right'
@@ -107,7 +109,11 @@ export interface Laser {
 
 export type PowerKind = 'shield' | 'double' | 'slow' | 'dash' | 'magnet' | 'ghost'
 export type FruitKind = 'apple' | 'cherry' | 'star'
-export type ItemKind = FruitKind | PowerKind | 'heart' | 'totem'
+/** A home-made item, by id: `c` and a number. */
+export type CustomId = `c${number}`
+/** Something that can be held for later: a stock power-up or a home-made one. */
+export type Holdable = PowerKind | CustomId
+export type ItemKind = FruitKind | PowerKind | 'heart' | 'totem' | CustomId
 export interface Item { id: number; kind: ItemKind; x: number; y: number; until: number | null }
 
 export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star: 5 }
@@ -136,6 +142,19 @@ export const TONE_COLOR: Record<Tone, string> = {
 }
 
 export const isPower = (kind: ItemKind): kind is PowerKind => kind in POWERS
+export const isCustom = (kind: string): kind is CustomId => /^c\d+$/.test(kind)
+/** A home-made item in the design being played. */
+export const customItem = (kind: CustomId): CustomItem | undefined => live().custom.find((c) => c.id === kind)
+
+/** Name and what it does, for anything that can be held or noticed. */
+export function itemInfo(kind: Holdable | 'totem'): { name: string; blurb: string } {
+  if (kind === 'totem') return TOTEM
+  if (isCustom(kind)) {
+    const c = customItem(kind)
+    return { name: c?.name ?? 'Unknown', blurb: c?.blurb ?? '' }
+  }
+  return POWERS[kind]
+}
 
 export const MAX_HELD = 2
 export const START_HEARTS = 3
@@ -160,7 +179,6 @@ const HOLD_MS = 700
 const POP_GAP_MS = 45
 const POPUP_MS = 1000
 const BOLT_MS = 320
-const BARS_PER_LEVEL = 8
 /** Counted in steps (16th notes), not ms, so replays match. */
 const SNIPPER_RESPAWN_STEPS = 64
 const SNIPPER_REST_STEPS = 20
@@ -217,6 +235,8 @@ export interface Replay {
   /** Steps played until the end. */
   steps: number
   events: ReplayEvent[]
+  /** The game's design, when the run was not played by the stock one. */
+  design?: Design
 }
 const DIR_CODE: Record<DirName, ReplayEvent[1]> = { up: 'u', down: 'd', left: 'l', right: 'r' }
 const CODE_DIR = { u: 'up', d: 'down', l: 'left', r: 'right' } as const
@@ -279,14 +299,41 @@ const inBeam = (cell: Vec, beam: Beam) =>
   Math.abs((beam.axis === 'row' ? cell.y : cell.x) - beam.index) <= (beam.width - 1) / 2
 const onLine = (cell: Vec, laser: Laser) => laser.beams.some((beam) => inBeam(cell, beam))
 /**
- * How hard a level (0-based) plays. Levels 1–10 stretch what used to be
- * levels 1–6 or so (×0.65 a level), then it climbs faster and faster: a
+ * How hard a level (0-based) plays. Stock: levels 1–10 stretch what used to
+ * be levels 1–6 or so (×0.65 a level), then it climbs faster and faster: a
  * steady 0.4 a level plus a growing square term. Tempo, laser counts and
- * warning time all read from this.
+ * warning time all read from this. The global tab moves every part of it,
+ * and each level can scale its own.
  */
-export const intensity = (level: number) =>
-  level < 10 ? level * 0.65 : 6.5 + (level - 10) * 0.4 + (level - 10) ** 2 * 0.012
-const tempoFor = (level: number) => Math.round(Math.min(172, 108 + intensity(level) * 8))
+export const intensity = (level: number) => {
+  const d = live()
+  const g = d.global
+  const base = level < 10 ? level * g.start : 10 * g.start + (level - 10) * g.climb + (level - 10) ** 2 * g.end
+  return base * g.overall * (editOf(d, level).difficulty ?? 1)
+}
+
+export const tempoFor = (level: number) => {
+  const d = live()
+  const g = d.global
+  return editOf(d, level).bpm ?? Math.round(Math.max(40, Math.min(g.tempoMax, g.tempoStart + intensity(level) * 8)))
+}
+
+const barsFor = (level: number) => editOf(live(), level).bars ?? live().global.barsPerLevel
+
+/** Which level a number of bars played reaches. Levels can each last their own number of bars. */
+function levelAtBar(bars: number): number {
+  const d = live()
+  const each = d.global.barsPerLevel
+  if (d.levels.every((l) => l.bars === undefined)) return Math.floor(bars / each)
+  let level = 0
+  let left = bars
+  for (; level < d.levels.length; level++) {
+    const length = barsFor(level)
+    if (left < length) return level
+    left -= length
+  }
+  return level + Math.floor(left / each)
+}
 
 let uid = 0
 
@@ -321,11 +368,11 @@ export const state = reactive({
   /** Each effect lasts until this step; 0 means off. */
   effects: { shield: 0, double: 0, slow: 0, magnet: 0, ghost: 0 },
   /** Power-ups carried for later, oldest first. */
-  held: [] as PowerKind[],
+  held: [] as Holdable[],
   /** Holding a Totem of Undying. */
   totem: false,
   /** A short note under the HUD: what was picked up or used, and what it does. */
-  notice: null as { id: number; kind: PowerKind | 'totem'; title: string; sub: string } | null,
+  notice: null as { id: number; kind: Holdable | 'totem'; title: string; sub: string } | null,
   /** The last game beat the stored best. */
   newBest: false,
   /** Levels skipped by the cheat menu: the level is this plus the bars played. */
@@ -337,8 +384,10 @@ export const state = reactive({
   intro: null as { tier: number; until: number; healed: boolean } | null,
   /** Until this step, after an intro, lasers come less often. */
   calmUntil: 0,
-  /** Cheats were used this run, so it cannot set a best. */
+  /** Cheats were used, or the game was changed, so this run cannot set a best. */
   cheated: false,
+  /** Real cheats (god mode, no lasers, a level jump, items handed out), not just a changed game. */
+  usedCheats: false,
   lasers: [] as Laser[],
   debris: [] as Debris[],
   popups: [] as Popup[],
@@ -353,6 +402,8 @@ export const state = reactive({
   },
 
   stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0 },
+  /** Wall cells (y × cols + x), from a home-made level. */
+  walls: [] as number[],
   /** Bumped on every hit, so the view can shake once. */
   shake: 0,
 })
@@ -377,14 +428,15 @@ export const isTouch = () =>
 /**
  * Where the board sits, in px from each window edge. The HUD band is on top
  * (with room under it for the power-up hint on desktop). Phones play
- * sideways with the controls laid faintly over the board, so the board takes
- * the whole screen; held upright, the view asks to be turned.
+ * sideways with the HUD and controls laid faintly over the board, so the
+ * board takes the whole screen; held upright, the view asks to be turned.
  */
 export function arenaInsets() {
   const w = window.innerWidth
   const h = window.innerHeight
   if (!isTouch()) return { top: 90, right: 12, bottom: 12, left: 12, pad: 'none' as 'none' | 'sticks', portrait: false }
-  return { top: 60, right: 8, bottom: 8, left: 8, pad: 'sticks' as 'none' | 'sticks', portrait: h > w }
+  // The board fills the screen; the HUD and controls lie faintly over it.
+  return { top: 0, right: 0, bottom: 0, left: 0, pad: 'sticks' as 'none' | 'sticks', portrait: h > w }
 }
 
 export const layout = reactive(arenaInsets())
@@ -395,19 +447,39 @@ export function fitLayout() {
 }
 
 /**
- * Every screen plays the same board: 36 × 20 cells, scaled to fit. A big
+ * Every screen plays the same board: 48 × 26 cells, scaled to fit. A big
  * monitor and a phone get the same room to move, so runs (and the high
  * scores) compare fairly.
  */
-export const GRID = { cols: 36, rows: 20 }
+export const GRID = { cols: 48, rows: 26 }
 export function fitGrid() {
   fitLayout()
   state.cols = GRID.cols
   state.rows = GRID.rows
 }
 
+/** Walls, for quick lookups; `state.walls` is the same, for drawing. */
+let wallSet = new Set<number>()
+const isWall = (cell: Vec) => wallSet.has(cell.y * state.cols + cell.x)
+
+/** The walls drawn for the current level. */
+let wallsShown: string | undefined
+
+/** Put up a level's walls, leaving any cell the snake is on clear. */
+function setWalls(level: number) {
+  const walls = editOf(live(), level).walls
+  if (walls === wallsShown && state.walls.length === wallSet.size) return
+  wallsShown = walls
+  const keep = new Set(state.snake.map((c) => c.y * state.cols + c.x))
+  const out = unpackWalls(walls, state.cols * state.rows).filter((at) => !keep.has(at))
+  state.walls = out
+  wallSet = new Set(out)
+  state.items = state.items.filter((i) => !isWall(i))
+}
+
 function freeCell(): Vec {
   const taken = (x: number, y: number) =>
+    wallSet.has(y * state.cols + x) ||
     state.snake.some((c) => c.x === x && c.y === y) ||
     state.items.some((i) => i.x === x && i.y === y) ||
     (state.snipper.active && state.snipper.x === x && state.snipper.y === y)
@@ -434,6 +506,7 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   random = seeded(seed)
   if (from) state.mode = from.mode ?? 'normal'
   recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [] }
+  if (!isStock(live())) recording.design = snapshot(live())
   conductor.setStyle(0, 'play', 0)
   stepsDone = 0
   const cx = Math.floor(state.cols / 2) - 3
@@ -461,7 +534,8 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     pausedBars: 0,
     intro: null,
     calmUntil: 0,
-    cheated: cheats.god || cheats.noLasers,
+    cheated: cheats.god || cheats.noLasers || !isStock(live()),
+    usedCheats: cheats.god || cheats.noLasers,
     lasers: [],
     debris: [],
     popups: [],
@@ -472,6 +546,12 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   state.snipper.until = 0
   timers.length = 0
   conductor.setLevel(0, state.bpm)
+  wallsShown = undefined
+  state.walls = []
+  wallSet = new Set()
+  setWalls(0)
+  warmUp(live().levels.flatMap((l) => (l.music ? [l.music] : [])))
+  musicForLevel(editOf(live(), 0).music, 0)
   addItem('apple', null)
 }
 
@@ -491,7 +571,7 @@ function banner(title: string, sub: string) {
   })
 }
 
-function notice(kind: PowerKind | 'totem', title: string, sub: string) {
+function notice(kind: Holdable | 'totem', title: string, sub: string) {
   const id = ++uid
   state.notice = { id, kind, title, sub }
   later(NOTICE_MS, () => {
@@ -525,7 +605,7 @@ function revive(reason: string) {
   state.totem = false
   state.hearts = Math.max(1, state.hearts)
   state.queue = []
-  if (reason === 'hit the wall') {
+  if (reason === 'hit the wall' || reason === 'hit a wall') {
     state.snake.reverse()
     const [head, neck] = state.snake
     state.direction = neck ? { x: head!.x - neck.x, y: head!.y - neck.y } : { x: -state.direction.x, y: -state.direction.y }
@@ -562,14 +642,72 @@ function cut(index: number) {
 /* ─── Lasers ─────────────────────────────────────────────────────────── */
 
 /** Warning before a laser strikes, in 16th notes: long at first, then shorter. */
-function warnSteps() {
-  const i = intensity(state.level)
-  return i < 1.3 ? 16 : i < 2.6 ? 12 : i < 14 ? 8 : 6
+function warnFor(level: number) {
+  const d = live()
+  const set = editOf(d, level).warn
+  if (set !== undefined) return set
+  const i = intensity(level)
+  const steps = i < 1.3 ? 16 : i < 2.6 ? 12 : i < 14 ? 8 : 6
+  return Math.max(4, Math.round(steps * d.global.warn))
 }
+const warnSteps = () => warnFor(state.level)
+/** Lasers that come each bar at a level, on average. */
+const lasersFor = (level: number) =>
+  editOf(live(), level).lasers ?? Math.min(10, 1 + intensity(level)) * live().global.lasers
+/** The most lasers armed at once. */
+const armedFor = (level: number) =>
+  editOf(live(), level).armed ?? Math.round(Math.min(14, Math.floor(2 + intensity(level))) * live().global.lasers)
+
+/** Laser tricks that can turn up at a level: its own pick, or the ones unlocked by then. */
+export const traitsFor = (level: number): LaserTrait[] =>
+  editOf(live(), level).traits ?? (Object.keys(LASER_TRAITS) as LaserTrait[]).filter((t) => LASER_TRAITS[t].unlock <= level)
+
+const edgesFor = (level: number): Edges => editOf(live(), level).edges ?? (state.mode === 'hardcore' ? 'kill' : 'wrap')
+const snipperFor = (level: number) => editOf(live(), level).snipper ?? 1
+/** Hearts back on reaching a level: normal play refills one, up to the starting three. */
+const healFor = (level: number) =>
+  editOf(live(), level).heal ?? (state.mode === 'normal' && state.hearts < START_HEARTS ? 1 : 0)
+/** Stop to introduce a level: stock does it for each new kind of laser, in normal play. */
+const introFor = (level: number) =>
+  editOf(live(), level).intro ?? (state.mode === 'normal' && level > 0 && LASER_TIERS.some((t) => t.level === level))
+
+/**
+ * How a level plays by the current design, for the editor: every value, and
+ * whether the level sets it itself or follows the curve.
+ */
+export const levelPlan = (level: number) => {
+  const e = editOf(live(), level)
+  return {
+    intensity: intensity(level),
+    bpm: tempoFor(level),
+    lasers: lasersFor(level),
+    armed: armedFor(level),
+    warn: warnFor(level),
+    bars: barsFor(level),
+    traits: traitsFor(level),
+    edges: edgesFor(level),
+    snipper: snipperFor(level),
+    heal: e.heal ?? (state.mode === 'normal' ? 1 : 0),
+    intro: introFor(level),
+    calm: e.calm ?? (introFor(level) ? CALM_STEPS / 16 : 0),
+    score: e.score ?? 1,
+  }
+}
+/** Older name, for the global tab. */
+export const levelFeel = levelPlan
 
 /** Which tricks a new laser gets: more of them, and more often, the higher the level. */
 function rollTraits(): LaserTrait[] {
   const level = state.level
+  const own = editOf(live(), level).traits
+  if (own) {
+    // A level with its own pick: about two in three lasers get one of its tricks, now and then two.
+    const open = own
+    if (!open.length || random() > 0.65) return []
+    const first = pick(open)
+    const second = open.length > 1 && random() < 0.3 ? pick(open.filter((t) => t !== first)) : null
+    return second ? [first, second] : [first]
+  }
   const open = (Object.keys(LASER_TRAITS) as LaserTrait[]).filter((t) => LASER_TRAITS[t].unlock <= level)
   if (!open.length) return []
   const newest = open[open.length - 1]!
@@ -780,7 +918,7 @@ function moveSnipper() {
 function eatSnipper() {
   const s = state.snipper
   s.active = false
-  s.until = state.step + SNIPPER_RESPAWN_STEPS
+  s.until = state.step + Math.round(SNIPPER_RESPAWN_STEPS / Math.max(0.25, snipperFor(state.level)))
   state.grow += 3
   state.stats.snippers++
   sound.bonus()
@@ -806,6 +944,7 @@ function eat(item: Item) {
     mark('power')
     return
   }
+  if (isCustom(item.kind)) return eatCustom(item, item.kind)
   if (isPower(item.kind)) {
     const power = POWERS[item.kind]
     if (state.held.length < MAX_HELD) {
@@ -819,7 +958,7 @@ function eat(item: Item) {
     }
     return
   }
-  const grow = FRUIT_GROW[item.kind]
+  const grow = live().items[item.kind]?.grow ?? FRUIT_GROW[item.kind]
   state.grow += grow
   state.stats.eaten++
   sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' ? 1 : 2)
@@ -828,11 +967,66 @@ function eat(item: Item) {
   if (item.kind === 'apple') addItem('apple', null)
 }
 
+/** A home-made item: a fruit grows, scores and heals; a power-up is held or goes off at once. */
+function eatCustom(item: Item, kind: CustomId) {
+  const c = customItem(kind)
+  if (!c) return
+  if (c.kind === 'power') {
+    if (c.hold && state.held.length < MAX_HELD) {
+      state.held.push(kind)
+      mark('power')
+      sound.pill()
+      popup(item, c.name, 'mint')
+      notice(kind, `${c.name} stored`, `${c.blurb}. Space to use.`)
+    } else {
+      activate(kind, item)
+    }
+    return
+  }
+  state.grow += c.grow
+  state.score += c.points
+  state.stats.eaten++
+  if (c.hearts) {
+    state.hearts = Math.min(MAX_HEARTS, state.hearts + c.hearts)
+    mark('heal')
+  }
+  sound.eat(c.grow >= 5 ? 2 : c.grow >= 2 ? 1 : 0)
+  feel('eat', c.grow)
+  const bits = [c.grow ? `+${c.grow} ×` : '', c.points ? `+${c.points}` : '', c.hearts ? `+${c.hearts} ♥` : ''].filter(Boolean)
+  popup(item, bits.join(' ') || c.name, 'sun')
+}
+
+/** Start an effect for `bars`, or, if it is already running, stretch it, start it over, or leave it. */
+function applyEffect(effect: keyof typeof state.effects, bars: number, stack: Stack) {
+  const until = state.effects[effect]
+  const running = until > state.step
+  if (stack === 'extend') state.effects[effect] = Math.max(until, state.step) + bars * 16
+  else if (stack === 'refresh') state.effects[effect] = Math.max(until, state.step + bars * 16)
+  else if (!running) state.effects[effect] = state.step + bars * 16
+  effectSpan[effect] = Math.max(state.effects[effect] - state.step, 1)
+}
+/** How long each running effect was set to last, for the HUD's bars. */
+const effectSpan: Record<keyof typeof state.effects, number> = { shield: 1, double: 1, slow: 1, magnet: 1, ghost: 1 }
+
 /** Start a power-up, or stretch its effect if it is already running. */
-function activate(kind: PowerKind, at: Vec) {
+function activate(kind: Holdable, at: Vec) {
+  if (isCustom(kind)) {
+    const c = customItem(kind)
+    if (!c) return
+    for (const effect of c.effects) {
+      if (effect === 'dash') dash()
+      else applyEffect(effect, c.bars, c.stack)
+    }
+    sound.pill()
+    popup(at, c.name, 'mint')
+    notice(kind, c.name, c.blurb)
+    mark('use')
+    return
+  }
   const power = POWERS[kind]
+  const tweak = live().items[kind] ?? {}
   if (kind === 'dash') dash()
-  else state.effects[kind] = Math.max(state.effects[kind], state.step) + power.bars * 16
+  else applyEffect(kind, tweak.bars ?? power.bars, tweak.stack ?? 'extend')
   sound.pill()
   popup(at, power.name, power.tone)
   notice(kind, power.name, power.blurb)
@@ -850,45 +1044,89 @@ export function useItem() {
 
 /* ─── The beat ───────────────────────────────────────────────────────── */
 
+/**
+ * Arrive at a new level: tempo, walls, hearts, and for a new kind of laser
+ * (or a level that asks), an intro. True when an intro started: that bar
+ * then drops nothing.
+ */
+function enterLevel(level: number): boolean {
+  const e = editOf(live(), level)
+  applyLevel(level)
+  setWalls(level)
+  if (snipperFor(level) === 0) state.snipper.active = false
+  sound.level()
+  feel('level')
+  mark('level')
+  const tierIndex = LASER_TIERS.findIndex((t) => t.level === level && level > 0)
+  if (introFor(level)) {
+    startIntro(tierIndex > 0 ? tierIndex : tierOf(level))
+    return true
+  }
+  if (tierIndex > 0) conductor.setStyle(tierIndex, 'play', state.step)
+  if (e.calm !== undefined) state.calmUntil = state.step + e.calm * 16
+  const heal = Math.min(healFor(level), MAX_HEARTS - state.hearts)
+  if (heal > 0) {
+    state.hearts += heal
+    popup(state.snake[0]!, `+${heal} ${heal === 1 ? 'life' : 'lives'}`, 'coral')
+    mark('heal')
+  }
+  const tier = LASER_TIERS.find((t) => t.level === level && level > 0)
+  const sub = e.name ?? (tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`)
+  banner(`Level ${level + 1}`, heal > 0 ? `${sub} · +${heal} heart${heal === 1 ? '' : 's'}` : sub)
+  return false
+}
+
 function onBar(bar: number) {
   if (state.intro) return
-  const level = state.levelOffset + Math.floor((bar - state.pausedBars) / BARS_PER_LEVEL)
-  if (level !== state.level) {
-    applyLevel(level)
-    sound.level()
-    feel('level')
-    mark('level')
-    const tierIndex = LASER_TIERS.findIndex((t) => t.level === level && level > 0)
-    if (tierIndex > 0) {
-      // A new kind of laser. Normal: stop and show it. Hardcore: just the new music.
-      if (state.mode === 'normal') return startIntro(tierIndex)
-      conductor.setStyle(tierIndex, 'play', state.step)
-    }
-    // Normal play refills one heart a level, up to the starting three; only
-    // heart drops take you past that. Hardcore gives nothing back.
-    const healed = state.mode === 'normal' && state.hearts < START_HEARTS
-    if (healed) {
-      state.hearts++
-      popup(state.snake[0]!, '+1 life', 'coral')
-      mark('heal')
-    }
-    const tier = LASER_TIERS.find((t) => t.level === level && level > 0)
-    const sub = tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`
-    banner(`Level ${level + 1}`, healed ? `${sub} · +1 heart` : sub)
-  }
+  const level = state.levelOffset + levelAtBar(bar - state.pausedBars)
+  if (level !== state.level && enterLevel(level)) return
 
   // Bonus fruit and pills, at most two extras at a time.
   const extras = state.items.filter((i) => i.kind !== 'apple').length
+  const stockItems = itemsStock(live())
   if (extras < 2 && bar > 0) {
     const roll = random()
-    if (roll < 0.3) addItem('cherry', 48)
+    if (!stockItems) dropWeighted(roll, level)
+    else if (roll < 0.3) addItem('cherry', 48)
     else if (roll < 0.4 && level >= 1) addItem('star', 32)
     else if (roll < 0.62 && level >= 1) addItem(pick(POWER_KINDS), 48)
   }
   const totemOut = state.items.some((i) => i.kind === 'totem')
-  if (level >= 1 && !state.totem && !totemOut && random() < TOTEM_CHANCE) addItem('totem', 32)
+  if (level >= 1 && !state.totem && !totemOut && random() < TOTEM_CHANCE * rateOf('totem', level)) addItem('totem', lifeOf('totem', 32))
   const heartOut = state.items.some((i) => i.kind === 'heart')
-  if (bar > 0 && !heartOut && state.hearts < MAX_HEARTS && random() < HEART_CHANCE) addItem('heart', 40)
+  if (bar > 0 && !heartOut && state.hearts < MAX_HEARTS && random() < HEART_CHANCE * rateOf('heart', level))
+    addItem('heart', lifeOf('heart', 40))
+}
+
+/** × on an item's chance at a level: the global tweak times the level's own. */
+const rateOf = (kind: string, level: number) => (live().items[kind]?.rate ?? 1) * (editOf(live(), level).items?.[kind] ?? 1)
+/** Steps an item stays on the board. */
+const lifeOf = (kind: string, steps: number) => {
+  const bars = live().items[kind]?.life
+  return bars === undefined ? steps : bars * 16
+}
+
+/**
+ * With items changed, each bonus item has a weight: its stock share of the
+ * old rolls (cherry 0.3, star 0.1, the six pills 0.22 between them), or a
+ * home-made item's own rate, times the global and level ×. One roll picks
+ * at most one, so the weights add up to the chance anything drops.
+ */
+function dropWeighted(roll: number, level: number) {
+  const options: [kind: ItemKind, weight: number, steps: number][] = [['cherry', 0.3 * rateOf('cherry', level), lifeOf('cherry', 48)]]
+  if (level >= 1) {
+    options.push(['star', 0.1 * rateOf('star', level), lifeOf('star', 32)])
+    for (const kind of POWER_KINDS) options.push([kind, (0.22 / POWER_KINDS.length) * rateOf(kind, level), lifeOf(kind, 48)])
+  }
+  for (const c of live().custom) if (level >= c.from) options.push([c.id as CustomId, c.rate * rateOf(c.id, level), c.life * 16])
+  const total = options.reduce((sum, [, w]) => sum + w, 0)
+  const chance = Math.min(0.95, total)
+  if (roll >= chance || total <= 0) return
+  let at = (roll / chance) * total
+  for (const [kind, weight, steps] of options) {
+    at -= weight
+    if (at < 0) return addItem(kind, steps)
+  }
 }
 
 /**
@@ -900,7 +1138,8 @@ export const multiplier = () => {
   const length = state.snake.length
   const perLength = length * (1 + length / 20)
   const perLevel = 1 + state.level * 0.25
-  return Math.round(perLength * perLevel) * (isActive('double') ? 2 : 1)
+  const own = editOf(live(), state.level).score ?? 1
+  return Math.round(perLength * perLevel * own) * (isActive('double') ? 2 : 1)
 }
 
 /* ─── Tier intros ────────────────────────────────────────────────────── */
@@ -915,7 +1154,8 @@ const CALM_STEPS = 64
 /** Freeze play and introduce a new kind of laser. Everything timed in steps waits it out. */
 function startIntro(tier: number) {
   const until = state.step + INTRO_STEPS
-  const healed = state.hearts < START_HEARTS
+  const heal = Math.min(healFor(state.level), MAX_HEARTS - state.hearts)
+  const healed = heal > 0
   state.intro = { tier, until, healed }
   state.pausedBars += INTRO_STEPS / 16
   state.lasers = state.lasers.filter((l) => l.struck)
@@ -924,7 +1164,7 @@ function startIntro(tier: number) {
   }
   for (const item of state.items) if (item.until !== null) item.until += INTRO_STEPS
   state.snipper.until += INTRO_STEPS
-  if (healed) state.hearts++
+  state.hearts += heal
   conductor.setStyle(tier, 'intro', state.step)
   mark('level')
 }
@@ -932,7 +1172,7 @@ function startIntro(tier: number) {
 function endIntro(step: number) {
   const tier = state.intro!.tier
   state.intro = null
-  state.calmUntil = step + CALM_STEPS
+  state.calmUntil = step + (editOf(live(), state.level).calm ?? CALM_STEPS / 16) * 16
   conductor.setStyle(tier, 'build', step)
 }
 
@@ -947,8 +1187,8 @@ function onBeat(step: number) {
 
   // More lasers per bar, and more armed at once, as the intensity climbs.
   const i = intensity(state.level)
-  const perBar = Math.min(10, 1 + i)
-  const armedCap = Math.min(14, Math.floor(2 + i))
+  const perBar = lasersFor(state.level)
+  const armedCap = armedFor(state.level)
   const armed = state.lasers.filter((l) => !l.struck).length
   if (armed >= armedCap) return
   // Just after an intro, the new lasers come gently.
@@ -977,10 +1217,11 @@ function tick() {
   const next = { x: head.x + state.direction.x, y: head.y + state.direction.y }
   if (next.x < 0 || next.y < 0 || next.x >= state.cols || next.y >= state.rows) {
     // Normal mode wraps to the other side; hardcore walls kill.
-    if (state.mode === 'hardcore' && !cheats.god) return die('hit the wall')
+    if (edgesFor(state.level) === 'kill' && !cheats.god) return die('hit the wall')
     next.x = (next.x + state.cols) % state.cols
     next.y = (next.y + state.rows) % state.rows
   }
+  if (isWall(next) && !isActive('ghost') && !cheats.god) return die('hit a wall')
   // The tail moves out of the way this tick, unless the snake is growing.
   const body = state.grow > 0 ? state.snake : state.snake.slice(0, -1)
   if (!isActive('ghost') && !cheats.god && body.some((cell) => same(cell, next))) return die('bit itself')
@@ -1008,10 +1249,11 @@ function dash() {
     const head = state.snake[0]!
     const next = { x: head.x + state.direction.x, y: head.y + state.direction.y }
     if (next.x < 0 || next.y < 0 || next.x >= state.cols || next.y >= state.rows) {
-      if (state.mode === 'hardcore') break
+      if (edgesFor(state.level) === 'kill') break
       next.x = (next.x + state.cols) % state.cols
       next.y = (next.y + state.rows) % state.rows
     }
+    if (isWall(next)) break
     state.snake.unshift(next)
     if (state.grow > 0) state.grow--
     else state.snake.pop()
@@ -1035,7 +1277,7 @@ function pullFruit() {
       eat(item)
       continue
     }
-    const blocked = state.snake.some((c) => same(c, to)) || state.items.some((i) => i !== item && same(i, to))
+    const blocked = isWall(to) || state.snake.some((c) => same(c, to)) || state.items.some((i) => i !== item && same(i, to))
     if (!blocked) Object.assign(item, to)
   }
 }
@@ -1058,7 +1300,7 @@ function onStep(step: number) {
 
   const s = state.snipper
   if (s.active && step % 2 === 0) moveSnipper()
-  if (!s.active && (state.level >= 1 || state.snake.length >= 8) && state.step >= s.until) spawnSnipper()
+  if (!s.active && snipperFor(state.level) > 0 && (state.level >= 1 || state.snake.length >= 8) && state.step >= s.until) spawnSnipper()
   if (s.active && s.resting && state.step >= s.until) s.resting = false
 
   state.items = state.items.filter((i) => i.until === null || i.until > step)
@@ -1088,6 +1330,7 @@ function applyLevel(level: number) {
   state.level = level
   state.bpm = tempoFor(level)
   conductor.setLevel(level, state.bpm)
+  musicForLevel(editOf(live(), level).music, state.step)
 }
 
 /* ─── Cheats ─────────────────────────────────────────────────────────── */
@@ -1097,14 +1340,16 @@ export const MAX_LEVEL = 100
 /** Jump to a level (0-based) now; later levels follow on from it. */
 export function cheatLevel(level: number) {
   state.cheated = true
-  state.levelOffset = level - Math.floor((Math.floor(state.step / 16) - state.pausedBars) / BARS_PER_LEVEL)
+  state.usedCheats = true
+  state.levelOffset = level - levelAtBar(Math.floor(state.step / 16) - state.pausedBars)
   applyLevel(level)
+  setWalls(level)
   conductor.setStyle(tierOf(level), 'play', state.step)
 }
 
 export function cheatToggle(name: keyof typeof cheats) {
   cheats[name] = !cheats[name]
-  if (cheats[name]) state.cheated = true
+  if (cheats[name]) state.cheated = state.usedCheats = true
   if (name === 'noLasers' && cheats.noLasers) state.lasers = state.lasers.filter((l) => l.struck)
 }
 
@@ -1114,8 +1359,9 @@ export function resetBest() {
   saveBest(0)
 }
 
-export function cheatGive(kind: PowerKind | 'totem' | 'heart' | 'grow') {
+export function cheatGive(kind: Holdable | 'totem' | 'heart' | 'grow') {
   state.cheated = true
+  state.usedCheats = true
   if (kind === 'totem') state.totem = true
   else if (kind === 'heart') state.hearts = MAX_HEARTS
   else if (kind === 'grow') state.grow += 10
@@ -1182,6 +1428,7 @@ export function startReplay(run: Replay) {
   replay.total = run.steps
   replayEvents = run.events
   replayCursor = 0
+  playWith(run.design ?? null)
   reset(run)
   replay.at = 0
   // 'running' so the board and HUD show as in play; the conductor stays off.
@@ -1222,10 +1469,9 @@ export function replaySeek(target: number, run: Replay) {
 
 /** How long `steps` of a run last in seconds, with the tempo rising level by level. */
 export function runSeconds(steps: number) {
-  const perLevel = 16 * BARS_PER_LEVEL
   let seconds = 0
-  for (let level = 0, left = steps; left > 0; level++, left -= perLevel) {
-    seconds += (Math.min(left, perLevel) * 60) / (tempoFor(level) * 4)
+  for (let bar = 0, left = steps; left > 0; bar++, left -= 16) {
+    seconds += (Math.min(left, 16) * 60) / (tempoFor(levelAtBar(bar)) * 4)
   }
   return seconds
 }
@@ -1238,13 +1484,31 @@ export function stopReplay() {
   replay.sound = false
   conductor.setRate(1)
   Object.assign(cheats, savedCheats)
+  playWith(null)
   reset()
 }
 
 /** Share of an effect still left, 0 to 1, for the HUD. */
 export function effectLeft(effect: keyof typeof state.effects): number {
-  const total = POWERS[effect].bars * 16
+  const total = Math.max(effectSpan[effect], POWERS[effect].bars * 16)
   return Math.max(0, Math.min(1, (state.effects[effect] - state.step) / total))
 }
+
+/**
+ * Changing the design mid-run plays on with it: the run counts as cheated,
+ * and its replay keeps the latest design. Before the first move, the game
+ * starts over instead, so the board shows the change (a level's walls).
+ */
+watch(
+  design,
+  (d) => {
+    if (replay.active || live() !== design) return
+    if (state.status === 'ready') return reset()
+    if (!isStock(d)) state.cheated = true
+    recording.design = isStock(d) ? undefined : snapshot(d)
+    setWalls(state.level)
+  },
+  { deep: true },
+)
 
 reset()

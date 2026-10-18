@@ -59,7 +59,7 @@ function press(event: PointerEvent) {
   position: fixed;
   width: 70px;
   height: 70px;
-  border: 3px solid rgba(240, 240, 255, 0.5);
+  border: 3px solid rgba(240, 240, 255, 0.32);
   border-radius: 999px;
   translate: -50% -50%;
   pointer-events: none;
@@ -76,7 +76,7 @@ function press(event: PointerEvent) {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  opacity: 0.55;
+  opacity: 0.38;
   pointer-events: none;
 }
 .slot {

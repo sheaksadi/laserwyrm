@@ -1,7 +1,9 @@
 /**
- * The Laserwyrm server (server/server.mjs): saved games, players and the
- * high-score board. Signed-in calls carry the player's login code.
+ * The Laserwyrm server (server/server.mjs): saved games, players, the
+ * high-score board, and Explore, where players share game designs. Signed-in
+ * calls carry the player's login code.
  */
+import type { Design } from './design'
 import type { Mode, Replay } from './game'
 import { account, signIn } from './account'
 
@@ -65,7 +67,8 @@ export const codeForUrl = (code: string) => code.replace('#', '-')
 
 /* ─── Games ─── */
 
-export const saveGame = (game: { score: number; level: number; cheated: boolean; mode: Mode; replay: Replay }) =>
+/** `design` names a shared design the run was played on; `cheats` says whether real cheats were used. */
+export const saveGame = (game: { score: number; level: number; cheated: boolean; mode: Mode; replay: Replay; design?: string; cheats?: boolean }) =>
   post<{ code: string }>('/api/games', game)
 export const fetchGame = (code: string) => call<GameEntry>(`/api/games/${encodeURIComponent(codeForUrl(code))}`)
 export const searchGames = (q: string) => call<{ games: GameRow[] }>(`/api/games?q=${encodeURIComponent(q)}`).then((r) => r.games)
@@ -108,3 +111,35 @@ export async function placesOnBoard(score: number, mode: Mode): Promise<boolean>
     return true
   }
 }
+
+/* ─── Explore ─── */
+
+export interface DesignRow {
+  slug: string
+  name: string
+  about: string
+  author: string
+  plays: number
+  likes: number
+  /** Liked by the signed-in player. */
+  liked: boolean
+  /** Levels with changes, and home-made items. */
+  levels: number
+  items: number
+  created_at: string
+}
+export interface DesignEntry extends DesignRow {
+  mine: boolean
+  design: Design
+  /** Its own board: the best clean runs on it. */
+  scores: GameRow[]
+}
+export type DesignSort = 'new' | 'played' | 'liked'
+
+export const listDesigns = (sort: DesignSort, q = '', mine = false) =>
+  call<{ designs: DesignRow[] }>(`/api/designs?sort=${sort}&q=${encodeURIComponent(q)}${mine ? '&mine=1' : ''}`).then((r) => r.designs)
+export const fetchDesign = (slug: string) => call<DesignEntry>(`/api/designs/${encodeURIComponent(slug)}`)
+export const publishDesign = (entry: { name: string; about: string; design: Design }) => post<{ slug: string }>('/api/designs', entry)
+export const likeDesign = (slug: string) => post<{ likes: number; liked: boolean }>(`/api/designs/${encodeURIComponent(slug)}/like`, {})
+export const countPlay = (slug: string) => post<{ ok: true }>(`/api/designs/${encodeURIComponent(slug)}/play`, {})
+export const removeDesign = (slug: string) => call<{ ok: true }>(`/api/designs/${encodeURIComponent(slug)}`, { method: 'DELETE' })

@@ -27,11 +27,11 @@ rises and more lasers come.
 - Phones play sideways with the board full screen: touch anywhere on the left
   half and a faint stick appears under your thumb; tap the right half to use a
   power-up
-- Every screen plays the same 36 × 20 board, scaled to fit, so runs compare fairly
+- Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
 - ☰ → Settings: music and effects volume, controller vibration (on/off,
   strength; it rumbles harder for bigger cuts, hits and game over), full screen
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
-  power-ups, Start to pause, B / Circle to go back, View / Share for cheats;
+  power-ups, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;
   prompts switch to match
 - 100 levels. New lasers arrive as you climb: blue (11, three wide), purple
   (21, row and column at once), white (31, half the warning), green (41,
@@ -39,8 +39,30 @@ rises and more lasers come.
   and from 81 prism lasers carry three
 - Playing goes full screen and stays there. Esc pauses; Esc again, or the
   pause screen's button, leaves full screen. Turn it off in the ☰ menu
-- C opens the cheat menu (also in the ☰ menu): pick any of the 100 levels, god mode, no
-  lasers, give yourself items, reset your best score. Runs with cheats never set a best
+- C (or ☰ → Custom, or the Custom button) opens custom play: play your own game
+  or a shared one, open the editor, or cheats. The editor (workshop) has tabs:
+  - Cheats: pick any of the 100 levels, god mode, no lasers, give yourself
+    items, reset your best score. Runs with cheats never set a best
+  - Global: the whole game's feel at once. Drag a bar per level (harder or
+    easier) and turn the knobs for the climb: overall, start feel, middle
+    climb, end feel, lasers, warning time, start and top tempo, level length
+  - Levels: every level, 1 to 100 and any you add, in a strip to slide
+    through. Pick one to name it, draw its walls (mirror, border, full
+    screen), and set its pacing (how hard, tempo, lasers, most at once,
+    warning, length, laser kinds), feel (edges wrap or kill, the snipper,
+    hearts back, an intro pause, a calm start, points), items (how often each
+    turns up here; stock items' rates, life, effect length and stacking; your
+    own fruit and power-ups) and music (Strudel code, starting from the stock
+    track written out). A level keeps only what you change; the rest follows
+    the curve
+- The custom screen also lists designs other players shared: browse newest,
+  most played or most liked, search, play one (it has its own board), like it,
+  or copy it into your game. Signed in, share yours. Normal play is always the
+  stock game; custom play is yours or a shared one, and the pause screen offers
+  the editor and a way back to normal
+- Your design stays on the device and travels as one share code (`LW2-…`).
+  Runs on a changed game count as custom (no best, not on the main boards),
+  and their replays carry the design so they play back the same
 - New best scores can be signed with a name and optional email (saved in the
   browser for now)
 - The snipper hunts your middle: bite it to grow +3
@@ -82,6 +104,12 @@ and the API:
 | GET | `/api/scores?mode=normal&limit=50` | a board (normal or hardcore), best first (no emails) |
 | GET | `/api/scores/:id` | one board entry with its replay |
 | POST | `/api/scores` | put one of your games on the board: `{ game, email? }` |
+| GET | `/api/designs?sort=new\|played\|liked&q=&mine=1` | shared designs |
+| GET | `/api/designs/:slug` | one design, with its own board |
+| POST | `/api/designs` | share yours (signed in): `{ name, about, design }` → `{ slug }` |
+| POST | `/api/designs/:slug/like` | like or unlike (signed in) |
+| POST | `/api/designs/:slug/play` | count a play |
+| DELETE | `/api/designs/:slug` | take down one of yours |
 | GET | `/api/health` | `{ ok, store }` |
 
 Signed-in requests send `Authorization: Bearer <login code>`; the server keeps
@@ -106,3 +134,10 @@ game clock. Game logic lives in `src/game.ts`, the board in
 
 Deployed with the `Dockerfile`: a Vite build served, with the API, by the Node
 server on port 8080. The hosting platform provides Postgres as `DATABASE_URL`.
+
+## License
+
+Laserwyrm is free software under the GNU Affero General Public License,
+version 3 or later (see `LICENSE`). Level music runs on
+[Strudel](https://strudel.cc), which is AGPL-3.0 as well. Anyone who plays a
+hosted copy can get the source: the game links to it under ☰ → Settings.

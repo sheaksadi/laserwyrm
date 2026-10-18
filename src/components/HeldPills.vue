@@ -6,13 +6,13 @@
  * chips beside it; names and what they do show in the notice and tooltip.
  */
 import { computed } from 'vue'
-import { MAX_HELD, POWERS, state, useItem } from '../game'
+import { itemInfo, MAX_HELD, state, useItem } from '../game'
 import { pad } from '../gamepad'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
 
 const tooltip = computed(
-  () => state.held.map((kind) => `${POWERS[kind].name}: ${POWERS[kind].blurb}`).join('\n') || 'Pick up power-ups to hold them here',
+  () => state.held.map((kind) => `${itemInfo(kind).name}: ${itemInfo(kind).blurb}`).join('\n') || 'Pick up power-ups to hold them here',
 )
 </script>
 
@@ -20,7 +20,7 @@ const tooltip = computed(
   <button
     class="held"
     :disabled="!state.held.length || state.status !== 'running'"
-    :aria-label="state.held.length ? `Use ${POWERS[state.held[0]!].name}: ${POWERS[state.held[0]!].blurb} (Space)` : 'No power-ups held'"
+    :aria-label="state.held.length ? `Use ${itemInfo(state.held[0]!).name}: ${itemInfo(state.held[0]!).blurb} (Space)` : 'No power-ups held'"
     :title="tooltip"
     @pointerdown.prevent="useItem()"
     @touchstart.stop

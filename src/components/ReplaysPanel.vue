@@ -138,7 +138,6 @@ const shown = computed(() => (tab.value === 'mine' ? mine.value : results.value)
   background: var(--bg);
   border: 3px solid var(--sky);
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--mint), 10px 10px 0 6px var(--ink);
-  animation: pop-in 0.25s steps(3) both;
 }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 h2 {

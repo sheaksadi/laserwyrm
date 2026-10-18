@@ -6,6 +6,8 @@
 import { muted, musicOn, musicVolume, previewSfx, sfxVolume } from '../audio'
 import { canFullscreen, fullscreenOn } from '../fullscreen'
 import { pad, rumbleFor, vibrationOn, vibrationStrength } from '../gamepad'
+import { touchControls } from '../controls'
+import { isTouch } from '../game'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -69,6 +71,18 @@ function setStrength(e: Event) {
       <p v-if="!pad.connected" class="note">No controller connected. Press any button on one to use it.</p>
     </section>
 
+    <section v-if="isTouch()">
+      <h3>Phone controls</h3>
+      <button class="row" role="radio" :aria-checked="touchControls === 'dpad'" @click="touchControls = 'dpad'">
+        <span><b>D-pad</b> in the corner: tap, or hold and slide</span>
+        <span class="state" :class="{ on: touchControls === 'dpad' }">{{ touchControls === 'dpad' ? 'on' : '' }}</span>
+      </button>
+      <button class="row" role="radio" :aria-checked="touchControls === 'stick'" @click="touchControls = 'stick'">
+        <span><b>Stick</b> wherever your left thumb lands</span>
+        <span class="state" :class="{ on: touchControls === 'stick' }">{{ touchControls === 'stick' ? 'on' : '' }}</span>
+      </button>
+    </section>
+
     <section v-if="canFullscreen()">
       <h3>Screen</h3>
       <button class="row" role="switch" :aria-checked="fullscreenOn" @click="fullscreenOn = !fullscreenOn">
@@ -76,6 +90,13 @@ function setStrength(e: Event) {
         <span class="state" :class="{ on: fullscreenOn }">{{ fullscreenOn ? 'on' : 'off' }}</span>
       </button>
     </section>
+
+    <!-- The AGPL asks for the source to be offered to everyone who plays -->
+    <p class="source">
+      Laserwyrm is free software under the AGPL-3.0, with music by
+      <a href="https://strudel.cc" target="_blank" rel="noopener">Strudel</a>.
+      <a href="https://github.com/sheaksadi/laserwyrm" target="_blank" rel="noopener">Source code</a>
+    </p>
   </div>
 </template>
 
@@ -88,9 +109,10 @@ function setStrength(e: Event) {
   background: var(--bg);
   border: 3px solid var(--sky);
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--lavender), 10px 10px 0 6px var(--ink);
-  animation: pop-in 0.25s steps(3) both;
 }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.source { margin: 1.2rem 0 0; font-size: 15px; line-height: 1.4; color: var(--text-muted); }
+.source a { color: var(--sky); }
 h2 {
   margin: 0;
   font-family: var(--font-pixel);
@@ -119,6 +141,7 @@ h3 {
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
+.row + .row { margin-top: 6px; }
 .row {
   display: flex;
   justify-content: space-between;

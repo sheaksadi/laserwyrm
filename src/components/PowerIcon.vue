@@ -1,16 +1,39 @@
 <script setup lang="ts">
 /**
- * A power-up as a coloured tile with a black glyph, or the golden totem.
- * Drawn in a 1 × 1 box centred on 0, so it drops into the board's cell
- * coordinates as it is, or into any <svg viewBox="-0.5 -0.5 1 1">.
+ * A power-up as a coloured tile with a black glyph, the golden totem, or a
+ * home-made item in its shape and colour. Drawn in a 1 × 1 box centred on
+ * 0, so it drops into the board's cell coordinates as it is, or into any
+ * <svg viewBox="-0.5 -0.5 1 1">.
  */
-import { POWERS, TONE_COLOR, type PowerKind } from '../game'
+import { computed } from 'vue'
+import { customItem, isCustom, POWERS, TONE_COLOR, type CustomId, type PowerKind } from '../game'
 
-defineProps<{ kind: PowerKind | 'totem' }>()
+const props = defineProps<{ kind: PowerKind | 'totem' | CustomId }>()
+const custom = computed(() => (isCustom(props.kind) ? customItem(props.kind) : undefined))
+const STAR = Array.from({ length: 10 }, (_, i) => {
+  const r = i % 2 ? 0.17 : 0.4
+  const a = (i * Math.PI) / 5 - Math.PI / 2
+  return `${(Math.cos(a) * r).toFixed(3)},${(Math.sin(a) * r + 0.03).toFixed(3)}`
+}).join(' ')
 </script>
 
 <template>
-  <g v-if="kind === 'totem'" class="totem">
+  <!-- A home-made item: its shape in its colour, outlined like the rest -->
+  <g v-if="isCustom(kind)" :fill="custom?.color ?? '#888'" stroke="var(--ink)" stroke-width="0.06" stroke-linejoin="round">
+    <template v-if="custom?.shape === 'fruit'">
+      <circle cy="0.06" r="0.34" />
+      <path d="M0.02 -0.26 q0.12 -0.18 0.3 -0.14 q-0.06 0.2 -0.3 0.14 z" fill="var(--sage)" />
+    </template>
+    <path v-else-if="custom?.shape === 'gem'" d="M0 -0.4 L0.36 -0.06 L0 0.4 L-0.36 -0.06 Z M-0.36 -0.06 H0.36" />
+    <rect v-else-if="custom?.shape === 'pill'" x="-0.38" y="-0.2" width="0.76" height="0.4" rx="0.2" />
+    <g v-else-if="custom?.shape === 'orb'">
+      <circle r="0.36" />
+      <circle cx="-0.1" cy="-0.12" r="0.08" fill="#FFFFFF" stroke="none" opacity="0.7" />
+    </g>
+    <path v-else-if="custom?.shape === 'bolt'" d="M0.08 -0.42 L-0.26 0.06 H-0.02 L-0.1 0.42 L0.26 -0.08 H0.02 Z" />
+    <polygon v-else :points="STAR" />
+  </g>
+  <g v-else-if="kind === 'totem'" class="totem">
     <!-- A little gold idol: head, arms out, body -->
     <rect x="-0.17" y="-0.42" width="0.34" height="0.3" fill="var(--sun)" stroke="var(--ink)" stroke-width="0.05" />
     <rect x="-0.38" y="-0.08" width="0.76" height="0.13" fill="var(--sun)" stroke="var(--ink)" stroke-width="0.05" />

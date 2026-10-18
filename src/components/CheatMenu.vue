@@ -1,13 +1,73 @@
 <script setup lang="ts">
 /**
- * The cheat menu, behind the C key. The game is paused while it is open.
- * Pick a level, flip god mode, hand yourself items, then play on.
+ * The workshop, behind the C key (cheats, and the custom game's editor). The
+ * game is paused while it is open. Three tabs: cheats (pick a level, flip god
+ * mode, hand yourself items), global (the whole custom game's feel at once)
+ * and levels (edit any level: walls, pacing, feel, items, music). The design
+ * travels as one code, to copy out or paste in; it plays in custom mode.
  */
-import { ref } from 'vue'
-import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, LASER_TIERS, MAX_LEVEL, play, POWER_KINDS, POWERS, reset, resetBest, state, TOTEM } from '../game'
+import { computed, ref } from 'vue'
+import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, LASER_TIERS, MAX_LEVEL, play, POWER_KINDS, POWERS, reset, resetBest, state, TOTEM, type CustomId } from '../game'
 import { pad } from '../gamepad'
+import { design, isStock, readShareCode, replaceDesign, shareCode, STOCK_GLOBAL, stockDesign } from '../design'
+import GlobalPanel from './GlobalPanel.vue'
+import LevelsPanel from './LevelsPanel.vue'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
+
+export type WorkshopTab = 'cheats' | 'global' | 'levels'
+const props = defineProps<{ start?: WorkshopTab }>()
+const TABS: { id: WorkshopTab; name: string }[] = [
+  { id: 'cheats', name: 'Cheats' },
+  { id: 'global', name: 'Global' },
+  { id: 'levels', name: 'Levels' },
+]
+const tab = ref<WorkshopTab>(props.start ?? 'cheats')
+const globalChanged = computed(
+  () => JSON.stringify(design.global) !== JSON.stringify(STOCK_GLOBAL) || design.levels.some((l) => l.difficulty !== undefined),
+)
+const levelsChanged = computed(() => design.levels.some((l) => Object.keys(l).some((k) => k !== 'difficulty')) || design.custom.length > 0)
+const customPowers = computed(() => design.custom.filter((c) => c.kind === 'power'))
+
+/* ─── Share code ─── */
+const pasted = ref('')
+const shareNote = ref('')
+let noteTimer = 0
+function note(text: string) {
+  shareNote.value = text
+  clearTimeout(noteTimer)
+  noteTimer = window.setTimeout(() => (shareNote.value = ''), 3000)
+}
+async function copyCode() {
+  const code = shareCode(design)
+  try {
+    await navigator.clipboard.writeText(code)
+    note('Code copied')
+  } catch {
+    // No clipboard (an insecure page, or blocked): show it to copy by hand.
+    pasted.value = code
+    note('Copy the code from the box')
+  }
+}
+function loadCode() {
+  const next = readShareCode(pasted.value)
+  if (!next) return note('That is not a Laserwyrm code')
+  replaceDesign(next)
+  pasted.value = ''
+  const changed = next.levels.filter((l) => Object.keys(l).length).length
+  note(isStock(next) ? 'Loaded: the stock game' : `Loaded: ${changed} level${changed === 1 ? '' : 's'} changed, ${next.custom.length} item${next.custom.length === 1 ? '' : 's'}`)
+}
+const confirmStock = ref(false)
+function backToStock() {
+  if (!confirmStock.value) {
+    confirmStock.value = true
+    setTimeout(() => (confirmStock.value = false), 2500)
+    return
+  }
+  confirmStock.value = false
+  replaceDesign(stockDesign())
+  note('Everything back to the stock game')
+}
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -32,15 +92,40 @@ function start() {
   emit('close')
   play()
 }
+
+/** A fresh run by the rules set here. */
+function restart() {
+  reset()
+  emit('close')
+  play()
+}
 </script>
 
 <template>
-  <div class="cheats" role="dialog" aria-label="Cheats">
+  <div class="cheats" :class="{ wide: tab !== 'cheats' }" role="dialog" aria-label="Workshop">
     <header>
-      <h2>Cheats</h2>
-      <span class="sub">runs with cheats never set a best</span>
+      <h2>Workshop</h2>
+      <span class="sub">runs with cheats or a changed game never set a best</span>
     </header>
 
+    <nav class="tabs" role="tablist">
+      <button
+        v-for="t in TABS"
+        :key="t.id"
+        class="tab"
+        role="tab"
+        :aria-selected="tab === t.id"
+        :class="{ on: tab === t.id }"
+        @click="tab = t.id"
+      >
+        {{ t.name }}<span v-if="(t.id === 'global' && globalChanged) || (t.id === 'levels' && levelsChanged)" class="dot" title="Changed"></span>
+      </button>
+    </nav>
+
+    <GlobalPanel v-if="tab === 'global'" />
+    <LevelsPanel v-else-if="tab === 'levels'" @close="emit('close')" />
+
+    <template v-else>
     <section>
       <h3>Level</h3>
       <div class="level-pick">
@@ -91,6 +176,10 @@ function start() {
           <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon :kind="kind" /></svg>
           <span>{{ POWERS[kind].name }}</span>
         </button>
+        <button v-for="c in customPowers" :key="c.id" class="give" :title="c.blurb" @click="cheatGive(c.id as CustomId)">
+          <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon :kind="c.id as CustomId" /></svg>
+          <span>{{ c.name }}</span>
+        </button>
         <button class="give" :title="TOTEM.blurb" :class="{ on: state.totem }" @click="cheatGive('totem')">
           <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon kind="totem" /></svg>
           <span>Totem</span>
@@ -107,9 +196,27 @@ function start() {
         <span class="state" :class="{ on: bestCleared }">{{ bestCleared ? 'done' : state.best.toLocaleString() }}</span>
       </button>
     </section>
+    </template>
+
+    <!-- Tuning and levels travel as one code: copy it out, paste one in -->
+    <section v-if="tab === 'global' || tab === 'levels'" class="share">
+      <h3>Share</h3>
+      <div class="share-row">
+        <button class="tool" @click="copyCode">Copy code</button>
+        <input v-model="pasted" class="code" placeholder="Paste a code" aria-label="Share code" spellcheck="false" @keydown.enter="loadCode" />
+        <button class="tool" :disabled="!pasted.trim()" @click="loadCode">Load</button>
+      </div>
+      <div class="share-row">
+        <span class="share-note">{{ shareNote || 'One code holds your whole game: feel, levels and items.' }}</span>
+        <button class="tool danger" @click="backToStock">{{ confirmStock ? 'Sure?' : 'All back to stock' }}</button>
+      </div>
+    </section>
 
     <footer>
-      <button class="play" @click="start()"><span class="text-trim">{{ state.status === 'paused' ? 'Resume' : 'Play' }}</span></button>
+      <div class="play-row" :class="{ two: state.status === 'paused' }">
+        <button class="play" @click="start()"><span class="text-trim">{{ state.status === 'paused' ? 'Resume' : 'Play' }}</span></button>
+        <button v-if="state.status === 'paused'" class="play again" @click="restart()"><span class="text-trim">Restart</span></button>
+      </div>
       <span v-if="pad.connected" class="hint"><PadGlyph button="b" /> close</span>
       <span v-else class="hint"><kbd>C</kbd> close</span>
     </footer>
@@ -119,15 +226,69 @@ function start() {
 <style scoped>
 .cheats {
   width: min(30rem, 100%);
+  transition: width 0.2s var(--ease-out);
   max-height: 100%;
   overflow: auto;
   padding: 1.4rem 1.6rem;
   background: var(--bg);
   border: 3px solid var(--sage);
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--coral), 10px 10px 0 6px var(--ink);
-  animation: pop-in 0.25s steps(3) both;
 }
-header { display: grid; gap: 4px; margin-bottom: 1rem; }
+header { display: grid; gap: 4px; margin-bottom: 0.8rem; }
+/* Tuning and levels need the room. */
+.cheats.wide { width: min(60rem, 100%); }
+.tabs { display: flex; gap: 6px; margin-bottom: 1rem; border-bottom: 2px solid var(--border); }
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -2px;
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-bottom-color: var(--border);
+  border-radius: 8px 8px 0 0;
+  background: none;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tab:hover { color: var(--text); }
+.tab.on { border-color: var(--border); border-bottom-color: var(--bg); color: var(--sage); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--sun); }
+.share { display: grid; gap: 6px; margin-top: 1.1rem; }
+.share h3 { margin: 0; }
+.share-row { display: flex; gap: 6px; align-items: center; }
+.code {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-warm);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+.code:focus { outline: none; border-color: var(--mint); }
+.share-note { flex: 1; font-size: 15px; color: var(--text-muted); }
+.tool {
+  padding: 5px 10px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-off);
+  font-size: 15px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.tool:hover:not(:disabled) { border-color: var(--sage); color: var(--text); }
+.tool:disabled { opacity: 0.4; cursor: default; }
+.tool.danger:hover { border-color: var(--coral); color: var(--coral); }
+.play-row { display: grid; width: 100%; gap: 10px; }
+.play-row.two { grid-template-columns: 2fr 1fr; }
+.play.again { background: var(--bg-warm); color: var(--text-dim); }
 h2 {
   margin: 0;
   font-family: var(--font-pixel);
@@ -243,7 +404,7 @@ h3 {
 .give:active { transform: translate(2px, 2px); }
 .give.on { border-color: var(--sun); }
 .big { font-family: var(--font-pixel); font-size: 13px; line-height: 26px; color: var(--coral); }
-footer { display: grid; gap: 10px; justify-items: center; }
+footer { display: grid; gap: 10px; justify-items: center; margin-top: 1.1rem; }
 .play {
   display: grid;
   place-items: center;
@@ -259,7 +420,7 @@ footer { display: grid; gap: 10px; justify-items: center; }
 }
 .play:active { transform: translate(4px, 4px); box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.25); }
 .hint { display: flex; align-items: center; gap: 6px; font-size: 15px; text-transform: uppercase; color: var(--text-muted); }
-.step:focus-visible, .tier:focus-visible, .row:focus-visible, .give:focus-visible {
+.step:focus-visible, .tier:focus-visible, .row:focus-visible, .give:focus-visible, .tab:focus-visible, .tool:focus-visible {
   outline: 3px solid var(--sun);
   outline-offset: 2px;
 }

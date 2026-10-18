@@ -8,8 +8,10 @@ import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
 import { ApiError, claimName, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
 import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
+import { custom, setCustom, shared, stopShared } from './design'
 import Briefing from './components/Briefing.vue'
 import CheatMenu from './components/CheatMenu.vue'
+import CustomPanel from './components/CustomPanel.vue'
 import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
@@ -22,6 +24,8 @@ import PadGlyph from './components/PadGlyph.vue'
 import PowerIcon from './components/PowerIcon.vue'
 import ActionButton from './components/ActionButton.vue'
 import Joystick from './components/Joystick.vue'
+import DPad from './components/DPad.vue'
+import { touchControls } from './controls'
 
 /** Power-ups that last a while get a countdown tag in the HUD; Dash is instant. */
 const EFFECTS = (['shield', 'double', 'slow', 'magnet', 'ghost'] as const).map((key) => ({
@@ -146,7 +150,7 @@ watch(
     entryName.value = account.name ?? entryName.value
     saveError.value = ''
     signedOutNote.value = ''
-    const payload = { ...summary, cheated: state.cheated, replay: run }
+    const payload = { ...summary, cheated: state.cheated, replay: run, design: shared.slug ?? undefined, cheats: state.usedCheats }
     saving = saveGame(payload)
       .catch((err) => {
         // A login code this server does not know: sign out here and save the game without it.
@@ -229,14 +233,47 @@ function openSettings() {
   pause()
 }
 
-/** The cheat menu: C opens it and pauses; C or Escape closes it, still paused. */
+/** The workshop (cheats and the editor), from the custom screen; it pauses, C or Escape closes it. */
 const cheatOpen = ref(false)
-function toggleCheats() {
-  cheatOpen.value = !cheatOpen.value
-  if (cheatOpen.value) {
-    menuOpen.value = false
-    pause()
-  }
+/** Which workshop tab opens first: cheats from C, the level editor from custom play. */
+const cheatTab = ref<'cheats' | 'global' | 'levels'>('cheats')
+
+/** Custom play: the start screen's Custom button. */
+const customOpen = ref(false)
+function openCustom() {
+  menuOpen.value = false
+  cheatOpen.value = false
+  customOpen.value = true
+  pause()
+}
+/** The workshop's cheats tab, from the custom screen. */
+function openCheats() {
+  customOpen.value = false
+  cheatTab.value = 'cheats'
+  cheatOpen.value = true
+  pause()
+}
+/** Play this device's own design, from its how-to-play. */
+function playCustom() {
+  customOpen.value = false
+  stopShared()
+  setCustom(true)
+  reset()
+  openBriefing('normal')
+}
+/** The level editor, from the custom screen or the pause screen. */
+function openEditor() {
+  customOpen.value = false
+  cheatTab.value = 'levels'
+  cheatOpen.value = true
+  menuOpen.value = false
+  pause()
+}
+/** Back to the stock game. */
+function playNormal() {
+  customOpen.value = false
+  setCustom(false)
+  reset()
 }
 
 function onKey(event: KeyboardEvent) {
@@ -265,13 +302,21 @@ function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape') settingsOpen.value = false
     return
   }
+  if (customOpen.value) {
+    // Typing in the search or share box: the keys are text.
+    if (document.activeElement?.matches('input:not([type=range]), textarea')) return
+    if (event.key === 'Escape' || event.key === 'c' || event.key === 'C') customOpen.value = false
+    return
+  }
   if (briefing.value && state.status === 'ready' && !accountOpen.value && !cheatOpen.value) {
     event.preventDefault()
     if (event.key === 'Escape') closeBriefing()
     else begin(KEYMAP[event.key])
     return
   }
-  if (event.key === 'c' || event.key === 'C') return toggleCheats()
+  // Typing a level name or a share code in the cheat menu: the keys are text.
+  if (cheatOpen.value && document.activeElement?.matches('input:not([type=range]), textarea')) return
+  if (event.key === 'c' || event.key === 'C') return cheatOpen.value ? (cheatOpen.value = false) : openCustom()
   if (cheatOpen.value) {
     if (event.key === 'Escape') cheatOpen.value = false
     return
@@ -355,9 +400,12 @@ const padHandlers = {
     else toggle()
   },
   back: () => {
-    if (route.value.name === 'game') toggleCheats()
+    if (route.value.name !== 'game') return
+    if (customOpen.value) customOpen.value = false
+    else if (cheatOpen.value) cheatOpen.value = false
+    else openCustom()
   },
-  // B is back: out of whatever is open, one layer at a time; on the pause screen, back into the game.
+  // B is back: out of whatever is open, one layer at a time. In play it pauses; on the pause screen, back into the game.
   cancel: () => {
     const r = route.value
     if (r.name === 'watch') return go('code' in r ? '#/replays' : '#/scores')
@@ -365,9 +413,11 @@ const padHandlers = {
     if (menuOpen.value) return (menuOpen.value = false)
     if (accountOpen.value) return (accountOpen.value = false)
     if (settingsOpen.value) return (settingsOpen.value = false)
+    if (customOpen.value) return (customOpen.value = false)
     if (cheatOpen.value) return (cheatOpen.value = false)
     if (briefing.value) return closeBriefing()
-    if (state.status === 'paused') play()
+    if (state.status === 'running') pause()
+    else if (state.status === 'paused') play()
   },
 }
 // Cuts, hits, game over and the rest rumble the controller, as hard as they land.
@@ -466,7 +516,8 @@ onBeforeUnmount(() => {
     ><Board /></div>
     <!-- Phones: the left half steers, the right half uses power-ups; both faint, over the board -->
     <template v-if="layout.pad === 'sticks' && !layout.portrait && route.name !== 'watch'">
-      <Joystick />
+      <DPad v-if="touchControls === 'dpad'" />
+      <Joystick v-else />
       <ActionButton />
     </template>
 
@@ -486,7 +537,7 @@ onBeforeUnmount(() => {
           <span class="divider"></span>
           <span class="stat"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
           <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') }">×{{ multiplier() }}</b></span>
-          <span v-if="state.cheated" class="cheat-tag" title="Cheats used: this run cannot set a best">cheats</span>
+          <span v-if="state.cheated" class="cheat-tag" :title="state.usedCheats ? 'Cheats used: this run cannot set a best' : 'A changed game: this run cannot set a best'">{{ state.usedCheats ? 'cheats' : shared.slug ? 'shared' : 'custom' }}</span>
           <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
         <template v-for="effect in EFFECTS" :key="effect.key">
@@ -552,9 +603,9 @@ onBeforeUnmount(() => {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" /></svg>
               <span>Account</span><span class="state" :class="{ on: account.name }">{{ account.name ?? 'sign in' }}</span><span></span>
             </button>
-            <button class="menu-item" role="menuitem" @click="toggleCheats">
+            <button class="menu-item" role="menuitem" @click="openCustom">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 14 10M14 4v3M14 13v3M10 7H7M21 7h-3M17 4l-1.5 1.5M17 10l-1.5-1.5" /></svg>
-              <span>Cheats</span><span></span><kbd class="hide-touch">C</kbd>
+              <span>Custom</span><span></span><kbd class="hide-touch">C</kbd>
             </button>
           </div>
         </div>
@@ -562,13 +613,21 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- A new kind of laser: play waits while it is introduced -->
-    <div v-if="state.intro && state.status === 'running'" :key="state.intro.until" class="tier-intro" :style="{ '--laser': INTRO_COLOR[LASER_TIERS[state.intro.tier]!.kind], '--intro': `${introSeconds}s` }">
-      <p class="tier-level">Level {{ state.level + 1 }}</p>
-      <p class="tier-name">{{ LASER_TIERS[state.intro.tier]!.name }}</p>
+    <!-- A new kind of laser: a popup from the top, like the item notices, a size up -->
+    <div
+      v-if="state.intro && state.status === 'running'"
+      :key="state.intro.until"
+      class="tier-intro"
+      :class="{ touch: layout.pad !== 'none' }"
+      :style="{ '--laser': INTRO_COLOR[LASER_TIERS[state.intro.tier]!.kind], '--intro': `${introSeconds}s` }"
+    >
+      <span class="tier-swatch" aria-hidden="true"></span>
+      <span class="tier-text">
+        <b class="tier-name">{{ LASER_TIERS[state.intro.tier]!.name }} <span class="tier-level">level {{ state.level + 1 }}</span></b>
+        <span class="tier-blurb">{{ LASER_TIERS[state.intro.tier]!.blurb }}</span>
+        <span class="tier-heart"><template v-if="state.intro.healed">+1 heart · </template>lasers ease in for a moment</span>
+      </span>
       <div class="tier-beam" aria-hidden="true"><span></span></div>
-      <p class="tier-blurb">{{ LASER_TIERS[state.intro.tier]!.blurb }}</p>
-      <p class="tier-heart"><template v-if="state.intro.healed">+1 heart · </template>lasers ease in for a moment</p>
-      <span class="tier-timer" aria-hidden="true"></span>
     </div>
 
     <!-- What was just picked up or used, and what it does -->
@@ -586,20 +645,21 @@ onBeforeUnmount(() => {
       <span class="banner-sub">{{ state.banner.sub }}</span>
     </div>
 
-    <!-- High scores -->
-    <div v-if="route.name === 'scores'" class="overlay">
-      <Leaderboard :highlight="route.highlight" @close="go('#/')" @watch="(id) => go(`#/watch/${id}`)" />
-    </div>
+    <!-- Menus and cards: one at a time, fading and growing in, quickly -->
+    <Transition name="menu">
+      <!-- High scores -->
+      <div v-if="route.name === 'scores'" class="overlay">
+        <Leaderboard :highlight="route.highlight" @close="go('#/')" @watch="(id) => go(`#/watch/${id}`)" />
+      </div>
 
-    <!-- Replays: search and my games -->
-    <div v-else-if="route.name === 'replays'" class="overlay">
-      <ReplaysPanel @close="go('#/')" />
-    </div>
+      <!-- Replays: search and my games -->
+      <div v-else-if="route.name === 'replays'" class="overlay">
+        <ReplaysPanel @close="go('#/')" />
+      </div>
 
-    <!-- Watching a run -->
-    <template v-else-if="route.name === 'watch'">
-      <ReplayViewer v-if="player.run" @exit="go('code' in route ? '#/replays' : '#/scores')" />
-      <div v-else class="overlay">
+      <!-- Watching a run -->
+      <ReplayViewer v-else-if="route.name === 'watch' && player.run" @exit="go('code' in route ? '#/replays' : '#/scores')" />
+      <div v-else-if="route.name === 'watch'" class="overlay">
         <div class="card card-small">
           <p class="chrome-label">replay</p>
           <h2>{{ watchError ? 'Not found' : 'Loading…' }}</h2>
@@ -607,155 +667,180 @@ onBeforeUnmount(() => {
           <button class="btn btn-line" @click="go('code' in route ? '#/replays' : '#/scores')"><span class="text-trim">Back</span></button>
         </div>
       </div>
-    </template>
 
-    <!-- Account -->
-    <div v-else-if="accountOpen" class="overlay">
-      <AccountPanel @close="accountOpen = false" />
-    </div>
+      <!-- Account -->
+      <div v-else-if="accountOpen" class="overlay">
+        <AccountPanel @close="accountOpen = false" />
+      </div>
 
-    <!-- Settings -->
-    <div v-else-if="settingsOpen" class="overlay">
-      <SettingsPanel @close="settingsOpen = false" />
-    </div>
+      <!-- Settings -->
+      <div v-else-if="settingsOpen" class="overlay">
+        <SettingsPanel @close="settingsOpen = false" />
+      </div>
 
-    <!-- Cheats -->
-    <div v-else-if="cheatOpen" class="overlay">
-      <CheatMenu @close="cheatOpen = false" />
-    </div>
+      <!-- Cheats, and the custom game's editor -->
+      <div v-else-if="cheatOpen" class="overlay">
+        <CheatMenu :start="cheatTab" @close="cheatOpen = false" />
+      </div>
 
-    <!-- Briefing: how to play, then any key -->
-    <div v-else-if="briefing && state.status === 'ready'" class="overlay" @pointerdown.self="begin()">
-      <Briefing :mode="briefing" @start="begin()" />
-    </div>
+      <!-- Custom play: your design, shared ones, sharing yours -->
+      <div v-else-if="customOpen" class="overlay">
+        <CustomPanel @close="customOpen = false" @play="playCustom" @editor="openEditor" @cheats="openCheats" @normal="playNormal" />
+      </div>
 
-    <!-- Start -->
-    <div v-else-if="state.status === 'ready'" class="overlay">
-      <div class="card card-start">
-        <Mascot class="corner-mascot" />
-        <header class="hello">
-          <h1>Laserwyrm<span class="brand-dot">.</span></h1>
-        </header>
-        <div class="start-buttons">
-        <button class="btn btn-start" @click="openBriefing('normal')">
-          <span class="start-face">
-            <svg class="blink" viewBox="-0.5 -0.5 8 7" width="16" height="14" aria-hidden="true"><path :d="HEART_PATH" fill="#FFFFFF" stroke="var(--ink)" stroke-width="0.8" /></svg>
-            <span class="text-trim">Press start</span>
-          </span>
-        </button>
-        <button
-          class="btn btn-hardcore"
-          title="Hardcore: walls kill, no hearts back, no pauses. Its own high scores."
-          aria-label="Play hardcore"
-          @click="openBriefing('hardcore')"
-        >
-          <span class="start-face">
-            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2h8v1h1v1h1v5h-1v1h-1v1h-1v3H5v-3H4v-1H3V9H2V4h1V3h1z" fill="currentColor" /><path d="M5 6h2v2H5zM9 6h2v2H9zM7 9h2v1H7zM6 12h1v1H6zM9 12h1v1H9z" fill="var(--ink)" /></svg>
-            <span class="text-trim">Hardcore</span>
-          </span>
-        </button>
-        <!-- Settings, and the account (a face: claim a name, or your games) -->
-        <div class="start-row">
-          <button class="btn btn-line" @click="openSettings">
+      <!-- Briefing: how to play, then any key -->
+      <div v-else-if="briefing && state.status === 'ready'" class="overlay" @pointerdown.self="begin()">
+        <Briefing :mode="briefing" @start="begin()" />
+      </div>
+
+      <!-- Start -->
+      <div v-else-if="state.status === 'ready'" class="overlay">
+        <div class="card card-start">
+          <Mascot class="corner-mascot" />
+          <header class="hello">
+            <h1>Laserwyrm<span class="brand-dot">.</span></h1>
+            <!-- Custom play is on: your design, or one from Explore -->
+            <p v-if="custom.on" class="shared-note">
+              Custom: <b>{{ shared.slug ? shared.name : 'your game' }}</b><template v-if="shared.slug"> by {{ shared.author }}</template>
+              <button class="shared-leave" @click="playNormal">play normal</button>
+            </p>
+          </header>
+          <div class="start-buttons">
+          <button class="btn btn-start" @click="openBriefing('normal')">
             <span class="start-face">
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 1h4v2h1l1-1 2 2-1 1v1h2v4h-2v1l1 1-2 2-1-1h-1v2H6v-2H5l-1 1-2-2 1-1V9H1V5h2V4L2 3l2-2 1 1h1z" fill="currentColor" /><path d="M6 6h4v4H6z" fill="var(--ink)" /></svg>
-              <span class="text-trim">Settings</span>
+              <svg class="blink" viewBox="-0.5 -0.5 8 7" width="16" height="14" aria-hidden="true"><path :d="HEART_PATH" fill="#FFFFFF" stroke="var(--ink)" stroke-width="0.8" /></svg>
+              <span class="text-trim">{{ custom.on ? 'Play custom' : 'Press start' }}</span>
             </span>
           </button>
-          <button
-            class="btn btn-account"
-            :class="{ signed: account.name }"
-            :title="account.name ? `${account.name}: your account and games` : 'Claim a name'"
-            :aria-label="account.name ? `Account: ${account.name}` : 'Claim a name'"
-            @click="openAccount"
-          >
-            <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
-              <path d="M5 1h6v1h2v2h1v8h-1v2h-2v1H5v-1H3v-2H2V4h1V2h2z" fill="currentColor" />
-              <path d="M5 6h2v2H5zM9 6h2v2H9zM5 10h1v1h4v-1h1v1h-1v1H6v-1H5z" fill="var(--ink)" />
-            </svg>
+          <!-- Hardcore and custom, half each -->
+          <div class="mode-row">
+            <button
+              class="btn btn-hardcore"
+              title="Hardcore: walls kill, no hearts back, no pauses. Its own high scores."
+              aria-label="Play hardcore"
+              @click="openBriefing('hardcore')"
+            >
+              <span class="start-face">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2h8v1h1v1h1v5h-1v1h-1v1h-1v3H5v-3H4v-1H3V9H2V4h1V3h1z" fill="currentColor" /><path d="M5 6h2v2H5zM9 6h2v2H9zM7 9h2v1H7zM6 12h1v1H6zM9 12h1v1H9z" fill="var(--ink)" /></svg>
+                <span class="text-trim">Hardcore</span>
+              </span>
+            </button>
+            <button class="btn btn-custom" :class="{ on: custom.on }" title="Your own levels, and ones other players made" @click="openCustom">
+              <span class="start-face">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM10 9h3v2h2v3h-2v-2h-3z" fill="currentColor" /></svg>
+                <span class="text-trim">Custom</span>
+              </span>
+            </button>
+          </div>
+          <!-- Settings, and the account (a face: claim a name, or your games) -->
+          <div class="start-row">
+            <button class="btn btn-line" @click="openSettings">
+              <span class="start-face">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 1h4v2h1l1-1 2 2-1 1v1h2v4h-2v1l1 1-2 2-1-1h-1v2H6v-2H5l-1 1-2-2 1-1V9H1V5h2V4L2 3l2-2 1 1h1z" fill="currentColor" /><path d="M6 6h4v4H6z" fill="var(--ink)" /></svg>
+                <span class="text-trim">Settings</span>
+              </span>
+            </button>
+            <button
+              class="btn btn-account"
+              :class="{ signed: account.name }"
+              :title="account.name ? `${account.name}: your account and games` : 'Claim a name'"
+              :aria-label="account.name ? `Account: ${account.name}` : 'Claim a name'"
+              @click="openAccount"
+            >
+              <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
+                <path d="M5 1h6v1h2v2h1v8h-1v2h-2v1H5v-1H3v-2H2V4h1V2h2z" fill="currentColor" />
+                <path d="M5 6h2v2H5zM9 6h2v2H9zM5 10h1v1h4v-1h1v1h-1v1H6v-1H5z" fill="var(--ink)" />
+              </svg>
+            </button>
+          </div>
+          <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
+          </div>
+          <p v-if="!pad.connected" class="pad-note">
+            <svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true"><path d="M5 1h14a4 4 0 0 1 4 4l1 7a3 3 0 0 1-5 2l-3-3H8l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-4Z" fill="currentColor" /><path d="M6 5v4M4 7h4" stroke="var(--bg)" stroke-width="1.6" /><circle cx="17" cy="5.5" r="1.1" fill="var(--bg)" /><circle cx="19" cy="8" r="1.1" fill="var(--bg)" /></svg>
+            Controller supported · press any button to connect
+          </p>
+        </div>
+      </div>
+
+      <!-- Paused -->
+      <div v-else-if="state.status === 'paused'" class="overlay">
+        <div class="card card-small">
+          <p class="chrome-label">paused</p>
+          <h2>Take a breath</h2>
+          <button class="btn" @click="play()"><span class="text-trim">Resume</span></button>
+          <button class="btn btn-line" @click="reset()"><span class="text-trim">Restart</span></button>
+          <!-- In custom play: the editor, or back to the stock game -->
+          <template v-if="custom.on">
+            <button class="btn btn-line" @click="openEditor"><span class="text-trim">Editor</span></button>
+            <button class="btn btn-line" @click="playNormal"><span class="text-trim">Play normal</span></button>
+          </template>
+          <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
+            <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
           </button>
+          <p v-if="isFullscreen && !pad.connected" class="keys"><span class="keygroup"><kbd>Esc</kbd> exit full screen</span></p>
         </div>
-        <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
-        </div>
-        <p v-if="!pad.connected" class="pad-note">
-          <svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true"><path d="M5 1h14a4 4 0 0 1 4 4l1 7a3 3 0 0 1-5 2l-3-3H8l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-4Z" fill="currentColor" /><path d="M6 5v4M4 7h4" stroke="var(--bg)" stroke-width="1.6" /><circle cx="17" cy="5.5" r="1.1" fill="var(--bg)" /><circle cx="19" cy="8" r="1.1" fill="var(--bg)" /></svg>
-          Controller supported · press any button to connect
-        </p>
       </div>
-    </div>
 
-    <!-- Paused -->
-    <div v-else-if="state.status === 'paused'" class="overlay">
-      <div class="card card-small">
-        <p class="chrome-label">paused</p>
-        <h2>Take a breath</h2>
-        <button class="btn" @click="play()"><span class="text-trim">Resume</span></button>
-        <button class="btn btn-line" @click="reset()"><span class="text-trim">Restart</span></button>
-        <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
-          <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
-        </button>
-        <p v-if="isFullscreen && !pad.connected" class="keys"><span class="keygroup"><kbd>Esc</kbd> exit full screen</span></p>
-      </div>
-    </div>
+      <!-- Game over: the score big, everything else quiet -->
+      <div v-else-if="state.status === 'over'" class="overlay">
+        <div class="card card-over">
+          <header class="over-head">
+            <p class="over-label">Game over · the snake {{ state.reason }}<template v-if="state.mode === 'hardcore'"> · hardcore</template></p>
+            <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
+            <p v-if="state.newBest" class="new-best blink">New best!</p>
+            <p v-else class="best-line">best {{ state.best }}<template v-if="state.cheated"> · {{ state.usedCheats ? 'cheats on' : 'changed game' }}, not counted</template></p>
+            <p v-if="shared.slug" class="best-line">{{ shared.name }}<template v-if="!state.usedCheats"> · on its own board</template></p>
+          </header>
+          <p v-if="signedOutNote" class="entry-note">{{ signedOutNote }}</p>
 
-    <!-- Game over: the score big, everything else quiet -->
-    <div v-else-if="state.status === 'over'" class="overlay">
-      <div class="card card-small card-over">
-        <p class="over-label">Game over · the snake {{ state.reason }}<template v-if="state.mode === 'hardcore'"> · hardcore</template></p>
-        <!-- Every game gets a code to share: between who and what scored -->
-        <p class="game-line">
-          <template v-if="gameCode">game <GameCode :code="gameCode" link /></template>
-          <template v-else-if="gameSave === 'saving'">saving game…</template>
-          <template v-else>could not save this game: {{ saveError }}</template>
-        </p>
-        <p v-if="signedOutNote" class="entry-note">{{ signedOutNote }}</p>
-        <p class="final-label">score</p>
-        <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
-        <p v-if="state.newBest" class="new-best blink">New best!</p>
-        <p v-else class="best-line">best {{ state.best }}<template v-if="state.cheated"> · cheats on, not counted</template></p>
-
-        <!-- A run that makes the board can be signed and sent, replay and all -->
-        <template v-if="entry.phase === 'open' || entry.phase === 'sending' || entry.phase === 'failed'">
-          <p class="entry-label">You made the high scores</p>
-          <form class="entry" :class="{ signed: account.name }" @submit.prevent="submitScore()">
-            <p v-if="account.name" class="as-player">as <b>{{ account.name }}</b></p>
-            <input v-else v-model="entryName" class="field" maxlength="12" placeholder="Pick a name" aria-label="Name" autocomplete="nickname" required autofocus />
+          <!-- A run that makes the board can be signed and sent, replay and all -->
+          <form
+            v-if="entry.phase === 'open' || entry.phase === 'sending' || entry.phase === 'failed'"
+            class="entry"
+            @submit.prevent="submitScore()"
+          >
+            <p class="entry-label">You made the high scores<template v-if="account.name"> as <b>{{ account.name }}</b></template></p>
+            <input v-if="!account.name" v-model="entryName" class="field" maxlength="12" placeholder="Pick a name" aria-label="Name" autocomplete="nickname" required autofocus />
             <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
             <button class="btn btn-submit" type="submit" :disabled="entry.phase === 'sending'"><span class="text-trim">{{ entry.phase === 'sending' ? '…' : 'Submit' }}</span></button>
+            <p v-if="!account.name" class="entry-note">Your name becomes your account.</p>
+            <p v-if="entry.phase === 'failed'" class="entry-error">{{ entry.error }}</p>
+            <p v-if="nameSuggestions.length" class="suggest">
+              Free:
+              <button v-for="n in nameSuggestions" :key="n" type="button" class="suggestion" @click="submitScore(n)">{{ n }}</button>
+            </p>
           </form>
-          <p v-if="!account.name" class="entry-note">The name becomes your account; you get a login code to keep.</p>
-          <p v-if="entry.phase === 'failed'" class="entry-error">{{ entry.error }}</p>
-          <p v-if="nameSuggestions.length" class="suggest">
-            Free:
-            <button v-for="n in nameSuggestions" :key="n" class="suggestion" @click="submitScore(n)">{{ n }}</button>
+          <p v-else-if="entry.phase === 'saved'" class="entry-done">
+            {{ account.name }}: #{{ entry.rank }} on the board.
+            <a :href="`#/scores/${entry.id}`">See the board</a> · <a :href="`#/watch/${entry.id}`">Watch your run</a>
           </p>
-        </template>
-        <p v-else-if="entry.phase === 'saved'" class="entry-done">
-          {{ account.name }}: #{{ entry.rank }} on the board.
-          <a :href="`#/scores/${entry.id}`">See the board</a> · <a :href="`#/watch/${entry.id}`">Watch your run</a>
-        </p>
-        <p v-if="newLoginCode" class="login-code">
-          Your login code: <b>{{ newLoginCode }}</b><br />
-          Keep it somewhere safe; it signs you in anywhere. It is also under ☰ → Account.
-        </p>
+          <p v-if="newLoginCode" class="login-code">
+            Your login code: <b>{{ newLoginCode }}</b><br />
+            Keep it somewhere safe; it signs you in anywhere. It is also under ☰ → Account.
+          </p>
 
-        <dl class="tally">
-          <div><dt>longest</dt><dd>{{ state.longest }}</dd></div>
-          <div><dt>fruit</dt><dd>{{ state.stats.eaten }}</dd></div>
-          <div><dt>level</dt><dd>{{ state.level + 1 }}</dd></div>
-          <div><dt>beats</dt><dd>{{ state.beat }}</dd></div>
-          <div><dt>cuts</dt><dd>{{ state.stats.cuts }}</dd></div>
-          <div><dt>cells lost</dt><dd>{{ state.stats.lost }}</dd></div>
-          <div><dt>blocked</dt><dd>{{ state.stats.blocked }}</dd></div>
-          <div><dt>snippers</dt><dd>{{ state.stats.snippers }}</dd></div>
-        </dl>
-        <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
-        <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
+          <dl class="tally">
+            <div><dt>level</dt><dd>{{ state.level + 1 }}</dd></div>
+            <div><dt>longest</dt><dd>{{ state.longest }}</dd></div>
+            <div><dt>fruit</dt><dd>{{ state.stats.eaten }}</dd></div>
+            <div><dt>cuts</dt><dd>{{ state.stats.cuts }}</dd></div>
+          </dl>
+          <div class="over-buttons">
+            <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
+            <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">Scores</span></button>
+          </div>
+          <!-- Every game gets a code to share -->
+          <p class="game-line">
+            <template v-if="gameCode">game <GameCode :code="gameCode" link /></template>
+            <template v-else-if="gameSave === 'saving'">saving game…</template>
+            <template v-else>could not save this game: {{ saveError }}</template>
+          </p>
+        </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- Just went full screen: how to get out -->
-    <div v-if="fsHint && state.status === 'running'" class="fs-hint">
+    <div v-if="fsHint && state.status === 'running' && layout.pad === 'none'" class="fs-hint">
       <template v-if="pad.connected"><PadGlyph button="start" /> pause · leave full screen from the pause screen</template>
       <template v-else><kbd>Esc</kbd> pause · <kbd>Esc</kbd> again to leave full screen</template>
     </div>
@@ -918,44 +1003,49 @@ onBeforeUnmount(() => {
 .rotate-sub { margin: 0; max-width: 18rem; font-size: 18px; color: var(--text-dim); }
 .tier-intro {
   position: absolute;
-  top: 50%;
+  /* Where the item notices drop in, below the power-up slots. */
+  top: 98px;
   left: 50%;
   z-index: 6;
   display: grid;
-  justify-items: center;
-  gap: 10px;
-  width: min(26rem, calc(100% - 32px));
-  padding: 1.4rem 1.6rem 1.2rem;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 14px;
+  width: min(31rem, calc(100% - 32px));
+  padding: 11px 17px 12px;
   border: 3px solid var(--text-dim);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg);
-  box-shadow: 0 0 0 3px var(--ink), 8px 8px 0 3px var(--ink);
-  text-align: center;
+  box-shadow: 5px 5px 0 var(--border);
   pointer-events: none;
-  translate: -50% -50%;
-  animation: pop-in 0.3s steps(3) both;
+  translate: -50% 0;
+  animation: intro-drop var(--intro) var(--ease-out) both;
 }
-.tier-level { margin: 0; font-size: 17px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+.tier-intro.touch { top: 70px; }
+.tier-swatch { width: 26px; height: 26px; border: 3px solid var(--ink); border-radius: 6px; background: var(--laser); }
+.tier-text { display: grid; gap: 3px; }
 .tier-name {
-  margin: 0;
   font-family: var(--font-pixel);
-  font-size: 1.15rem;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
   text-transform: uppercase;
   color: var(--text);
-  text-shadow: 3px 3px 0 var(--ink);
 }
+.tier-level { margin-left: 6px; font-family: var(--font-code); font-size: 17px; letter-spacing: 0.06em; color: var(--text-muted); }
+.tier-blurb { font-size: 20px; line-height: 1.1; color: var(--text-dim); }
+.tier-heart { font-size: 15px; text-transform: uppercase; color: var(--rose); }
 /* A sample beam in the laser's colour, firing across. */
-.tier-beam { width: 100%; height: 12px; border: 2px solid var(--ink); background: var(--bg-off); overflow: hidden; }
-.tier-beam span { display: block; height: 100%; background: var(--laser); animation: beam-fire 0.8s steps(8) infinite; transform-origin: left; }
+.tier-beam { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--bg-off); overflow: hidden; }
+.tier-beam span { display: block; height: 100%; background: var(--laser); animation: beam-fire 0.8s var(--ease-out) infinite; transform-origin: left; }
 @keyframes beam-fire {
   0% { transform: scaleX(0); }
   60%, 100% { transform: scaleX(1); }
 }
-.tier-blurb { margin: 0; font-size: 20px; color: var(--text-dim); }
-.tier-heart { margin: 0; font-size: 15px; text-transform: uppercase; color: var(--rose); }
-.tier-timer { width: 100%; height: 3px; background: var(--text-muted); transform-origin: left; animation: shrink var(--intro) linear both; }
-@keyframes shrink {
-  to { transform: scaleX(0); }
+@keyframes intro-drop {
+  0% { opacity: 0; transform: translateY(-22px); }
+  8%, 88% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-10px); }
 }
 .pad-toast.sound-off { animation: none; border-color: var(--sun); font-size: 16px; }
 .pad-toast {
@@ -1098,6 +1188,20 @@ onBeforeUnmount(() => {
   padding: 96px 16px 16px;
   background: rgba(0, 0, 0, 0.7);
 }
+
+/* Menus come and go quickly and smoothly: the backdrop fades, the card grows from a little smaller. */
+.menu-enter-active { transition: opacity 0.18s var(--ease-out); }
+.menu-leave-active { transition: opacity 0.12s ease-in; }
+.menu-enter-active > * { transition: transform 0.18s var(--ease-out); }
+.menu-leave-active > * { transition: transform 0.12s ease-in; }
+.menu-enter-from,
+.menu-leave-to { opacity: 0; }
+.menu-enter-from > *,
+.menu-leave-to > * { transform: scale(0.95); }
+@media (prefers-reduced-motion: reduce) {
+  .menu-enter-active > *,
+  .menu-leave-active > * { transition: none; }
+}
 .card {
   width: min(32rem, 100%);
   max-height: 100%;
@@ -1106,7 +1210,6 @@ onBeforeUnmount(() => {
   background: var(--bg);
   border: 3px solid var(--mint);
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--lavender), 10px 10px 0 6px var(--ink);
-  animation: pop-in 0.3s steps(3) both;
 }
 .card-small { width: min(24rem, 100%); }
 
@@ -1140,6 +1243,19 @@ onBeforeUnmount(() => {
   text-shadow: 3px 3px 0 var(--rose);
 }
 .card-start .pad-note { margin-top: 0.6rem; }
+.shared-note { margin: 0.6rem 0 0; font-size: 16px; text-transform: uppercase; color: var(--text-muted); }
+.shared-note b { font-weight: 400; color: var(--mint); }
+.shared-leave {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.shared-leave:hover { border-color: var(--sage); color: var(--text); }
 .card-start .btn { border-radius: 12px; }
 /* Short screens (phones sideways): a smaller wyrm, just the title and buttons. */
 @media (max-height: 520px) {
@@ -1165,7 +1281,18 @@ onBeforeUnmount(() => {
 .btn.btn-hardcore:hover { background: var(--coral); color: var(--ink); }
 .start-buttons .btn + .btn { margin-top: 0; }
 .start-buttons .btn-hardcore,
+.start-buttons .btn-custom,
 .start-buttons .btn-line { padding-block: calc(0.45rem + 0.38em); font-size: 0.6rem; }
+.mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mode-row .btn + .btn { margin-top: 0; }
+.btn.btn-custom {
+  background: var(--bg-off);
+  border-color: var(--mint);
+  color: var(--mint);
+  text-shadow: none;
+}
+.btn.btn-custom:hover, .btn.btn-custom.on { background: var(--mint); color: var(--ink); }
+
 /* Settings, with the square account button on its right. */
 .start-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
 .start-row .btn + .btn { margin-top: 0; }
@@ -1251,27 +1378,30 @@ onBeforeUnmount(() => {
 .arrows .down { grid-area: 2 / 2; }
 .arrows .right { grid-area: 2 / 3; }
 .keys kbd.space { min-width: 5.5em; }
-/* ─── Game over ─── */
-.card-over { text-align: center; }
+/* ─── Game over: like the start card. The score big, everything else quiet, one even gap between parts ─── */
+.card-over {
+  display: grid;
+  gap: 1rem;
+  width: min(25.5rem, 100%);
+  padding: 1.25rem 1.6rem 1rem;
+  border-color: var(--rose);
+  border-radius: 16px;
+  box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--mint), 8px 8px 0 6px var(--ink);
+  text-align: center;
+}
+.card-over p { margin: 0; }
+.card-over .btn { border-radius: 12px; }
+.over-head { display: grid; gap: 0.45rem; }
 .over-label {
-  margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--coral);
   opacity: 0.85;
 }
-.final-label {
-  margin: 1.1rem 0 0.4rem;
-  font-size: 16px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-}
 .final {
-  margin: 0;
   font-family: var(--font-pixel);
-  font-size: clamp(2rem, 9vw, 3rem);
+  font-size: clamp(2rem, 9vw, 2.8rem);
   line-height: 1.1;
   color: var(--text);
   text-shadow: 4px 4px 0 var(--lavender);
@@ -1279,99 +1409,77 @@ onBeforeUnmount(() => {
 }
 .final.best { color: var(--sun); text-shadow: 4px 4px 0 var(--coral); }
 .new-best {
-  margin: 0.7rem 0 0;
   font-family: var(--font-pixel);
   font-size: 10px;
   text-transform: uppercase;
   color: var(--sun);
 }
 .best-line {
-  margin: 0.6rem 0 0;
-  font-size: 17px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-/* Name and email stacked, submit on the side. */
-.entry {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  margin-top: 1.1rem;
-  text-align: left;
-}
-.field {
-  grid-column: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 2px solid var(--text-muted);
-  background: var(--bg-off);
-  color: var(--text);
-  font: inherit;
-  font-size: 20px;
-}
-.field::placeholder { color: var(--text-muted); text-transform: uppercase; }
-.field:focus { outline: none; border-color: var(--sun); }
-.btn.btn-submit {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  width: auto;
-  padding: 0 1rem;
-  background: var(--sky);
-  font-size: 0.6rem;
-}
-.btn.btn-submit:hover { background: #6BBEFF; }
-.game-line {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  margin: 0.6rem 0 0;
   font-size: 16px;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.entry.signed { grid-template-columns: 1fr auto; }
-.as-player { grid-column: 1; margin: 0; align-self: center; font-size: 19px; color: var(--text-muted); }
-.as-player b { font-weight: 400; color: var(--sun); text-transform: uppercase; }
-.entry-note { margin: 0.4rem 0 0; font-size: 15px; color: var(--text-muted); }
-.suggest { display: flex; justify-content: center; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0.5rem 0 0; font-size: 16px; color: var(--text-muted); }
-.suggestion { padding: 2px 8px; border: 2px solid var(--sage); background: var(--bg-off); color: var(--sage); font-size: 16px; }
+
+/* The high-score entry: a label, the fields and submit, one above the other. */
+.entry { display: grid; gap: 8px; text-align: left; }
+.entry-label {
+  text-align: center;
+  font-size: 16px;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+.entry-label b { font-weight: 400; color: var(--sun); }
+.field {
+  min-width: 0;
+  padding: 9px 13px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-warm);
+  color: var(--text);
+  font: inherit;
+  font-size: 20px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field::placeholder { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.field:hover { border-color: var(--text-muted); }
+.field:focus { outline: none; border-color: var(--mint); box-shadow: 0 0 0 3px rgba(0, 240, 200, 0.18); }
+.btn.btn-submit {
+  padding-block: calc(0.5rem + 0.38em);
+  background: var(--sky);
+  font-size: 0.6rem;
+}
+.btn.btn-submit:hover { background: #6BBEFF; }
+.btn.btn-submit:disabled { opacity: 0.6; cursor: progress; }
+.entry-note { text-align: center; font-size: 15px; color: var(--text-muted); }
+.entry-error { text-align: center; font-size: 16px; color: var(--coral); }
+.suggest { display: flex; justify-content: center; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 16px; color: var(--text-muted); }
+.suggestion { padding: 2px 8px; border: 2px solid var(--sage); border-radius: 8px; background: var(--bg-off); color: var(--sage); font-size: 16px; }
 .suggestion:hover { background: var(--sage); color: var(--ink); }
+.entry-done { font-size: 18px; color: var(--sage); }
+.entry-done a { color: var(--sky); }
 .login-code {
-  margin: 0.9rem 0 0;
   padding: 8px 10px;
   border: 2px dashed var(--sun);
+  border-radius: 10px;
   font-size: 16px;
   line-height: 1.3;
   color: var(--text-dim);
 }
 .login-code b { font-weight: 400; font-size: 19px; letter-spacing: 0.06em; color: var(--sun); user-select: all; }
-.entry-label {
-  margin: 1.1rem 0 0;
-  font-size: 17px;
-  text-transform: uppercase;
-  color: var(--sage);
-}
-.entry-error { margin: 0.6rem 0 0; font-size: 17px; color: var(--coral); }
-.entry-done a { color: var(--sky); }
-.entry-done {
-  margin: 1.1rem 0 0;
-  font-size: 18px;
-  color: var(--sage);
-}
-/* The small print: quiet, compact, there if you look. */
+
+/* The small print: four numbers in a quiet row. */
 .tally {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px 8px;
-  margin: 1.4rem 0 1.4rem;
-  padding: 10px 0 0;
-  border-top: 2px dashed var(--border);
-  opacity: 0.8;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: var(--bg-warm);
 }
 .tally div { display: grid; gap: 2px; }
 .tally dt {
-  font-size: 14px;
+  font-size: 13px;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -1379,6 +1487,20 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 18px;
   color: var(--text-dim);
+}
+
+/* Play again and scores side by side, play the bigger. */
+.over-buttons { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+.over-buttons .btn + .btn { margin-top: 0; }
+.over-buttons .btn-line { padding-inline: 0.5rem; font-size: 0.6rem; }
+.game-line {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 
@@ -1418,7 +1540,6 @@ onBeforeUnmount(() => {
   font-size: 9px;
   text-transform: uppercase;
   box-shadow: 4px 4px 0 var(--border);
-  animation: pop-in 0.3s steps(3) both;
 }
 .effect-bar {
   position: absolute;
@@ -1460,7 +1581,8 @@ onBeforeUnmount(() => {
   background: var(--bg);
   border: 3px solid var(--sky);
   box-shadow: 6px 6px 0 var(--border);
-  animation: pop-in 0.2s steps(2) both;
+  transform-origin: top right;
+  animation: pop-in 0.16s var(--ease-out) both;
 }
 .menu-item {
   display: grid;
@@ -1567,8 +1689,6 @@ onBeforeUnmount(() => {
   .stat b { font-size: 11px; }
   .tally { grid-template-columns: repeat(4, 1fr); }
   .tally dt { font-size: 12px; }
-  .entry { grid-template-columns: 1fr; }
-  .btn.btn-submit { grid-column: 1; grid-row: auto; padding: 0.8rem; }
 }
 @media (max-height: 500px) {
   .card { padding: 1.1rem 1.4rem; }

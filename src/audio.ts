@@ -87,6 +87,12 @@ let musicFilter: BiquadFilterNode
 let sfxBus: GainNode
 let noise: AudioBuffer
 
+/** The audio context and the music bus, for a level's own (Strudel) music to play into. */
+export function musicOutput(): { ctx: AudioContext; bus: AudioNode } | null {
+  const c = ensure()
+  return c ? { ctx: c, bus: musicBus } : null
+}
+
 function ensure(): AudioContext | null {
   if (ctx) return ctx
   try {
@@ -249,7 +255,7 @@ function zap(t: number, bus: AudioNode) {
  * feel: key and chords, bass rhythm, drums, the arpeggio's shape and voice.
  * `arp` indexes the chord (3 is the root an octave up).
  */
-interface Variant {
+export interface Variant {
   roots: number[]
   chords: number[][]
   bassSteps: Set<number>
@@ -260,7 +266,7 @@ interface Variant {
   /** Semitones added to the arpeggio. */
   lift: number
 }
-const VARIANTS: Variant[] = [
+export const VARIANTS: readonly Variant[] = [
   // Red: A minor, four on the floor. The original.
   { roots: [45, 41, 48, 43], chords: [[57, 60, 64], [53, 57, 60], [55, 60, 64], [55, 59, 62]],
     bassSteps: new Set([0, 3, 6, 8, 10, 11, 14]), kickSteps: new Set([0, 4, 8, 12]), clapSteps: new Set([4, 12]),
@@ -428,10 +434,42 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', unlock, true)
 }
 
+/**
+ * A level's own music, written in Strudel: something to ask which notes fall
+ * in a stretch of cycles (one cycle is one bar, counted from `from`), and
+ * something to play one. While it is set, it plays instead of the track.
+ */
+export interface CustomMusic {
+  from: number
+  notes: (begin: number, end: number, cps: number) => { at: number; length: number; play: (t: number, length: number, cps: number) => void }[]
+}
+let custom: CustomMusic | null = null
+export function setCustomMusic(music: CustomMusic | null) {
+  custom = music
+}
+
+/** One step of a level's own music: every note starting in this 16th, at its exact time. */
+function playCustom(music: CustomMusic, step: number, t: number) {
+  const cps = (bpm * rate) / 240
+  const begin = (step - music.from) / 16
+  try {
+    for (const note of music.notes(begin, begin + 1 / 16, cps)) note.play(t + (note.at - begin) / cps, note.length / cps, cps)
+  } catch {
+    // A pattern that throws while playing goes quiet rather than stopping the game.
+    custom = null
+  }
+}
+
+/** The audio clock when play paused, so time spent paused (a music preview) is not played through. */
+let pausedAtAudio = 0
+
 function schedule() {
   while (nextTime < now() + LOOKAHEAD) {
     const event = { step: nextStep, time: nextTime }
-    if (ctx && clock === 'audio') playStep(nextStep, nextTime + audioOffset, level)
+    if (ctx && clock === 'audio') {
+      if (custom && style.phase !== 'warmup') playCustom(custom, nextStep, nextTime + audioOffset)
+      else playStep(nextStep, nextTime + audioOffset, level)
+    }
     onSchedule(event)
     queue.push(event)
     nextStep++
@@ -507,6 +545,7 @@ export const conductor = {
     if (!running) return
     running = false
     fallbackPausedAt = performance.now()
+    pausedAtAudio = ctx?.currentTime ?? 0
     if (timer) clearInterval(timer)
     timer = null
     void ctx?.suspend()
@@ -514,6 +553,8 @@ export const conductor = {
   resume() {
     if (running) return
     fallbackStart += performance.now() - fallbackPausedAt
+    // The audio clock may have run while paused (previewing music in the editor): skip that time.
+    if (ctx && clock === 'audio') audioOffset += ctx.currentTime - pausedAtAudio
     running = true
     if (clock === 'audio') void ctx?.resume()
     else void ctx?.resume().then(handOver)

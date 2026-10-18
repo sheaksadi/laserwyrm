@@ -1,9 +1,10 @@
 /**
- * Laserwyrm's server: the built game, plus games, players and high scores.
+ * Laserwyrm's server: the built game, plus games, players, high scores and
+ * shared game designs.
  *
  * Games: every finished run is saved with a code like BORK#4821 (a silly
  * four-letter word and four digits) that anyone can use to watch it.
- *   POST /api/games                    { score, level, cheated, mode, replay } → { code }
+ *   POST /api/games                    { score, level, cheated, mode, replay, design?, cheats? } → { code }
  *   GET  /api/games/:code              one game with its replay (BORK-4821 or BORK%234821)
  *   GET  /api/games?q=…                search: a game code, or a player's name
  *   GET  /api/me/games                 the signed-in player's games
@@ -19,12 +20,22 @@
  *   GET  /api/scores/:id               one entry with its replay
  *   POST /api/scores                   { game, email? }
  *
+ * Explore: players share game designs (the workshop's levels, feel and
+ * items). Each has its own board of clean runs played on it.
+ *   GET    /api/designs?sort=new|played|liked&q=…&mine=1
+ *   GET    /api/designs/:slug          one design, with its board
+ *   POST   /api/designs                { name, about, design } → { slug }
+ *   POST   /api/designs/:slug/like     like or unlike → { likes, liked }
+ *   POST   /api/designs/:slug/play     count a play
+ *   DELETE /api/designs/:slug          take down your own
+ *
  *   GET  /api/health
  *
  * Data lives in Postgres (DATABASE_URL). Without it, for local work, the
  * server runs PGlite, Postgres in-process (kept in .data/pglite), so the same
  * SQL runs everywhere.
- * A replay is the run's seed, grid and inputs; the game replays it exactly.
+ * A replay is the run's seed, grid and inputs (and the design, if changed);
+ * the game replays it exactly.
  */
 import { createServer } from 'node:http'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
@@ -35,7 +46,7 @@ import { WORDS } from './words.mjs'
 
 const PORT = Number(process.env.PORT) || 8080
 const DIST = resolve(fileURLToPath(new URL('../dist', import.meta.url)))
-const MAX_BODY = 256 * 1024
+const MAX_BODY = 512 * 1024
 const BOARD_MAX = 100
 
 /* ─── Database ────────────────────────────────────────────────────────── */
@@ -78,6 +89,27 @@ const SCHEMA = `
   ALTER TABLE scores ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES users(id);
   CREATE UNIQUE INDEX IF NOT EXISTS scores_game_idx ON scores (game_id);
   CREATE INDEX IF NOT EXISTS scores_score_idx ON scores (score DESC, created_at ASC);
+  CREATE TABLE IF NOT EXISTS designs (
+    id          BIGSERIAL PRIMARY KEY,
+    slug        TEXT NOT NULL UNIQUE,
+    user_id     BIGINT NOT NULL REFERENCES users(id),
+    name        TEXT NOT NULL,
+    about       TEXT NOT NULL DEFAULT '',
+    design      JSONB NOT NULL,
+    plays       INTEGER NOT NULL DEFAULT 0,
+    likes       INTEGER NOT NULL DEFAULT 0,
+    removed     BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS designs_new_idx ON designs (created_at DESC);
+  CREATE TABLE IF NOT EXISTS design_likes (
+    design_id   BIGINT NOT NULL REFERENCES designs(id),
+    user_id     BIGINT NOT NULL REFERENCES users(id),
+    PRIMARY KEY (design_id, user_id)
+  );
+  ALTER TABLE games ADD COLUMN IF NOT EXISTS design_id BIGINT REFERENCES designs(id);
+  ALTER TABLE games ADD COLUMN IF NOT EXISTS design_clean BOOLEAN NOT NULL DEFAULT false;
+  CREATE INDEX IF NOT EXISTS games_design_idx ON games (design_id, score DESC);
 `
 
 /** Postgres when DATABASE_URL is set, PGlite otherwise; both answer `query(sql, params) → { rows }`. */
@@ -141,8 +173,31 @@ function checkReplay(r) {
     last = e[0]
   }
   const mode = r.mode === 'hardcore' ? 'hardcore' : 'normal'
-  return { v: 1, mode, seed: r.seed, cols: r.cols, rows: r.rows, steps: r.steps, events: r.events }
+  const out = { v: 1, mode, seed: r.seed, cols: r.cols, rows: r.rows, steps: r.steps, events: r.events }
+  // A changed game's design rides along so the run plays back the same; the game checks it on load.
+  if (r.design !== undefined) {
+    if (!r.design || typeof r.design !== 'object' || Array.isArray(r.design) || JSON.stringify(r.design).length > 200_000) return 'replay design is invalid'
+    out.design = r.design
+  }
+  return out
 }
+
+/** JSON with keys sorted, so two designs compare equal however their keys were ordered (JSONB reorders them). */
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value && typeof value === 'object')
+    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`
+  return JSON.stringify(value)
+}
+
+/** A shared design: a plain object of reasonable size. The game cleans it again when it loads it. */
+function checkDesign(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return 'design missing'
+  if (JSON.stringify(d).length > 200_000) return 'design is too big'
+  if (!d.global || typeof d.global !== 'object') return 'design has no global settings'
+  return null
+}
+const newSlug = () => randomBytes(5).toString('base64url').replace(/[-_]/g, 'x').slice(0, 7)
 
 function checkEmail(raw) {
   if (raw == null || raw === '') return null
@@ -328,18 +383,28 @@ function api(db) {
       const user = await userFrom(req, false)
       const body = await readJson(req)
       if (!int(body.score, 0, 2_000_000_000)) throw new HttpError(400, 'score must be a whole number')
-      if (!int(body.level, 1, 100)) throw new HttpError(400, 'level must be 1 to 100')
+      if (!int(body.level, 1, 100_000)) throw new HttpError(400, 'level must be a whole number from 1')
       const replay = checkReplay(body.replay)
       if (typeof replay === 'string') throw new HttpError(400, replay)
       const mode = body.mode ?? replay.mode
       if (!MODES.has(mode) || mode !== replay.mode) throw new HttpError(400, 'mode must be normal or hardcore, as in the replay')
+      // A run on a shared design counts on that design's board when it used no cheats and played the design as published.
+      let designId = null
+      let clean = false
+      if (typeof body.design === 'string') {
+        const { rows } = await db.query('SELECT id, design FROM designs WHERE slug = $1 AND NOT removed', [body.design])
+        if (rows[0]) {
+          designId = rows[0].id
+          clean = body.cheats === false && !!replay.design && canonical(replay.design) === canonical(rows[0].design)
+        }
+      }
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = newGameCode()
         try {
           await db.query(
-            `INSERT INTO games (code, user_id, score, level, steps, cheated, mode, replay, ip_hash)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [code, user?.id ?? null, body.score, body.level, replay.steps, body.cheated === true, mode, replay, ipHash(clientIp(req))],
+            `INSERT INTO games (code, user_id, score, level, steps, cheated, mode, replay, ip_hash, design_id, design_clean)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [code, user?.id ?? null, body.score, body.level, replay.steps, body.cheated === true, mode, replay, ipHash(clientIp(req)), designId, clean],
           )
           return { status: 201, body: { code } }
         } catch (err) {
@@ -445,8 +510,117 @@ function api(db) {
         throw err
       }
     },
+
+    /* ─── Explore: shared designs ─── */
+
+    async listDesigns(req, params) {
+      const me = await userFrom(req, false).catch(() => null)
+      const sort = params.get('sort')
+      const order = sort === 'played' ? 'd.plays DESC' : sort === 'liked' ? 'd.likes DESC' : 'd.created_at DESC'
+      const q = String(params.get('q') ?? '').trim().slice(0, 40)
+      const mine = params.get('mine') === '1' && me
+      const { rows } = await db.query(
+        `SELECT d.slug, d.name, d.about, d.plays, d.likes, d.created_at, u.name AS author,
+                jsonb_array_length(COALESCE(d.design->'levels', '[]'::jsonb)) AS levels,
+                jsonb_array_length(COALESCE(d.design->'custom', '[]'::jsonb)) AS items,
+                EXISTS (SELECT 1 FROM design_likes l WHERE l.design_id = d.id AND l.user_id = $2) AS liked
+         FROM designs d JOIN users u ON u.id = d.user_id
+         WHERE NOT d.removed
+           AND ($1 = '' OR d.name ILIKE '%' || $1 || '%' OR u.name_key = lower($1))
+           AND ($3::bigint IS NULL OR d.user_id = $3)
+         ORDER BY ${order}, d.created_at DESC LIMIT 40`,
+        [q, me?.id ?? 0, mine ? me.id : null],
+      )
+      return { designs: rows.map(designRow) }
+    },
+
+    async getDesign(req, slug) {
+      const me = await userFrom(req, false).catch(() => null)
+      const { rows } = await db.query(
+        `SELECT d.*, u.name AS author,
+                EXISTS (SELECT 1 FROM design_likes l WHERE l.design_id = d.id AND l.user_id = $2) AS liked
+         FROM designs d JOIN users u ON u.id = d.user_id WHERE d.slug = $1 AND NOT d.removed`,
+        [slug, me?.id ?? 0],
+      )
+      const d = rows[0]
+      if (!d) throw new HttpError(404, 'no such design')
+      const top = await db.query(
+        `SELECT g.code, g.mode, g.score, g.level, g.steps, g.cheated, g.created_at, u.name
+         FROM games g LEFT JOIN users u ON u.id = g.user_id
+         WHERE g.design_id = $1 AND g.design_clean ORDER BY g.score DESC, g.created_at ASC LIMIT 20`,
+        [d.id],
+      )
+      return {
+        ...designRow({ ...d, levels: d.design?.levels?.length ?? 0, items: d.design?.custom?.length ?? 0 }),
+        mine: me != null && Number(d.user_id) === me.id,
+        design: d.design,
+        scores: top.rows.map(gameRow),
+      }
+    },
+
+    async publishDesign(req) {
+      limit(clientIp(req), 'design', 10)
+      const user = await userFrom(req, true)
+      const body = await readJson(req)
+      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 40) : ''
+      if (!name) throw new HttpError(400, 'give it a name')
+      const about = typeof body.about === 'string' ? body.about.trim().slice(0, 400) : ''
+      const problem = checkDesign(body.design)
+      if (problem) throw new HttpError(400, problem)
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const slug = newSlug()
+        try {
+          await db.query('INSERT INTO designs (slug, user_id, name, about, design) VALUES ($1, $2, $3, $4, $5)', [
+            slug, user.id, name, about, body.design,
+          ])
+          return { status: 201, body: { slug } }
+        } catch (err) {
+          if (err.code !== '23505') throw err
+        }
+      }
+      throw new HttpError(503, 'could not find a free name, try again')
+    },
+
+    async likeDesign(req, slug) {
+      limit(clientIp(req), 'like', 60)
+      const user = await userFrom(req, true)
+      const { rows } = await db.query('SELECT id FROM designs WHERE slug = $1 AND NOT removed', [slug])
+      if (!rows[0]) throw new HttpError(404, 'no such design')
+      const id = rows[0].id
+      const gone = await db.query('DELETE FROM design_likes WHERE design_id = $1 AND user_id = $2 RETURNING 1', [id, user.id])
+      if (!gone.rows.length) await db.query('INSERT INTO design_likes (design_id, user_id) VALUES ($1, $2)', [id, user.id])
+      const count = await db.query('SELECT count(*)::int AS n FROM design_likes WHERE design_id = $1', [id])
+      await db.query('UPDATE designs SET likes = $1 WHERE id = $2', [count.rows[0].n, id])
+      return { likes: count.rows[0].n, liked: !gone.rows.length }
+    },
+
+    async playedDesign(req, slug) {
+      limit(clientIp(req), 'play', 30)
+      await db.query('UPDATE designs SET plays = plays + 1 WHERE slug = $1 AND NOT removed', [slug])
+      return { ok: true }
+    },
+
+    async removeDesign(req, slug) {
+      const user = await userFrom(req, true)
+      const { rows } = await db.query('UPDATE designs SET removed = true WHERE slug = $1 AND user_id = $2 RETURNING 1', [slug, user.id])
+      if (!rows.length) throw new HttpError(404, 'no design of yours with that name')
+      return { ok: true }
+    },
   }
 }
+
+const designRow = (r) => ({
+  slug: r.slug,
+  name: r.name,
+  about: r.about,
+  author: r.author,
+  plays: r.plays,
+  likes: r.likes,
+  liked: !!r.liked,
+  levels: Number(r.levels ?? 0),
+  items: Number(r.items ?? 0),
+  created_at: new Date(r.created_at).toISOString(),
+})
 
 /* ─── Routing ─────────────────────────────────────────────────────────── */
 
@@ -473,6 +647,12 @@ async function main() {
       else if (path === '/api/scores' && get) out = await routes.board(url.searchParams.get('limit'), url.searchParams.get('mode'))
       else if (path === '/api/scores' && post) out = await routes.addScore(req)
       else if ((m = path.match(/^\/api\/scores\/(\d+)$/)) && get) out = await routes.boardEntry(Number(m[1]))
+      else if (path === '/api/designs' && get) out = await routes.listDesigns(req, url.searchParams)
+      else if (path === '/api/designs' && post) out = await routes.publishDesign(req)
+      else if ((m = path.match(/^\/api\/designs\/([\w]{1,16})$/)) && get) out = await routes.getDesign(req, m[1])
+      else if ((m = path.match(/^\/api\/designs\/([\w]{1,16})$/)) && req.method === 'DELETE') out = await routes.removeDesign(req, m[1])
+      else if ((m = path.match(/^\/api\/designs\/([\w]{1,16})\/like$/)) && post) out = await routes.likeDesign(req, m[1])
+      else if ((m = path.match(/^\/api\/designs\/([\w]{1,16})\/play$/)) && post) out = await routes.playedDesign(req, m[1])
       else if (path.startsWith('/api/')) throw new HttpError(404, 'not found')
       else if (!get && req.method !== 'HEAD') throw new HttpError(405, 'method not allowed')
       else return serveStatic(res, path)

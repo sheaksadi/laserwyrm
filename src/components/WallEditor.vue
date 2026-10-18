@@ -1,0 +1,281 @@
+<script setup lang="ts">
+/**
+ * Drawing a level's walls on the board, with tools: pen (drag to paint),
+ * line and box (drag from corner to corner, shown before you let go), filled
+ * box, and eraser. Mirrors paint the other side too. The snake's starting
+ * cells stay clear. Full screen gives the board the whole window (Esc or the
+ * button to come back).
+ */
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { GRID } from '../game'
+import { design, packWalls, startCells, unpackWalls } from '../design'
+
+const props = defineProps<{ level: number }>()
+
+const cols = GRID.cols
+const rows = GRID.rows
+const edit = computed(() => design.levels[props.level])
+const walls = computed(() => new Set(unpackWalls(edit.value?.walls, cols * rows)))
+const reserved = new Set(startCells(cols, rows))
+const mirrorX = ref(false)
+const mirrorY = ref(false)
+const full = ref(false)
+
+type Tool = 'pen' | 'line' | 'box' | 'fill' | 'erase'
+const TOOLS: { id: Tool; name: string; key: string }[] = [
+  { id: 'pen', name: 'Pen', key: 'P' },
+  { id: 'line', name: 'Line', key: 'L' },
+  { id: 'box', name: 'Box', key: 'B' },
+  { id: 'fill', name: 'Filled box', key: 'F' },
+  { id: 'erase', name: 'Eraser', key: 'E' },
+]
+const tool = ref<Tool>('pen')
+
+const board = ref<SVGSVGElement | null>(null)
+let drawing: 'paint' | 'erase' | null = null
+let last: [number, number] | null = null
+/** Line and box tools: where the drag started, and the shape so far, shown until let go. */
+let anchor: [number, number] | null = null
+const ghost = ref<number[]>([])
+
+function cellAt(event: PointerEvent): [number, number] {
+  const box = board.value!.getBoundingClientRect()
+  const x = Math.max(0, Math.min(cols - 1, Math.floor(((event.clientX - box.left) / box.width) * cols)))
+  const y = Math.max(0, Math.min(rows - 1, Math.floor(((event.clientY - box.top) / box.height) * rows)))
+  return [x, y]
+}
+
+function save(set: Set<number>) {
+  if (!edit.value) return
+  const packed = packWalls(set, cols, rows)
+  if (packed) edit.value.walls = packed
+  else delete edit.value.walls
+}
+
+/** The cells on a straight line between two cells. */
+function lineCells([x1, y1]: [number, number], [x2, y2]: [number, number]): [number, number][] {
+  const n = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1))
+  return Array.from({ length: n + 1 }, (_, i) => [
+    Math.round(x1 + ((x2 - x1) * i) / (n || 1)),
+    Math.round(y1 + ((y2 - y1) * i) / (n || 1)),
+  ])
+}
+/** The cells of a box between two corners: its outline, or all of it. */
+function boxCells([x1, y1]: [number, number], [x2, y2]: [number, number], filled: boolean): [number, number][] {
+  const out: [number, number][] = []
+  for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++)
+    for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++)
+      if (filled || x === x1 || x === x2 || y === y1 || y === y2) out.push([x, y])
+  return out
+}
+/** Cells with their mirrors, as board indexes, leaving the start clear. */
+function withMirrors(cells: [number, number][]): number[] {
+  const out = new Set<number>()
+  for (const [x, y] of cells) {
+    const xs = mirrorX.value ? [x, cols - 1 - x] : [x]
+    const ys = mirrorY.value ? [y, rows - 1 - y] : [y]
+    for (const mx of xs) for (const my of ys) out.add(my * cols + mx)
+  }
+  return [...out].filter((at) => !reserved.has(at))
+}
+function apply(cells: number[], how: 'paint' | 'erase') {
+  const set = new Set(walls.value)
+  for (const at of cells) {
+    if (how === 'paint') set.add(at)
+    else set.delete(at)
+  }
+  save(set)
+}
+/** The shape the line and box tools would draw from the anchor to here. */
+function shape(to: [number, number]) {
+  if (!anchor) return []
+  if (tool.value === 'line') return withMirrors(lineCells(anchor, to))
+  return withMirrors(boxCells(anchor, to, tool.value === 'fill'))
+}
+
+function down(event: PointerEvent) {
+  board.value!.setPointerCapture(event.pointerId)
+  const at = cellAt(event)
+  if (tool.value === 'pen' || tool.value === 'erase') {
+    drawing = tool.value === 'pen' ? 'paint' : 'erase'
+    last = at
+    apply(withMirrors([at]), drawing)
+    return
+  }
+  anchor = at
+  ghost.value = shape(at)
+}
+function move(event: PointerEvent) {
+  const at = cellAt(event)
+  if (drawing) {
+    apply(withMirrors(lineCells(last ?? at, at)), drawing)
+    last = at
+  } else if (anchor) {
+    ghost.value = shape(at)
+  }
+}
+function up(event: PointerEvent) {
+  if (anchor) apply(shape(cellAt(event)), 'paint')
+  drawing = null
+  last = null
+  anchor = null
+  ghost.value = []
+}
+
+function clearWalls() {
+  save(new Set())
+}
+function border() {
+  const set = new Set(walls.value)
+  for (let x = 0; x < cols; x++) {
+    set.add(x)
+    set.add((rows - 1) * cols + x)
+  }
+  for (let y = 0; y < rows; y++) {
+    set.add(y * cols)
+    set.add(y * cols + cols - 1)
+  }
+  for (const r of reserved) set.delete(r)
+  save(set)
+}
+/** Copy the walls of the level before this one. */
+function copyPrevious() {
+  const before = design.levels[props.level - 1]
+  if (!edit.value || !before) return
+  if (before.walls) edit.value.walls = before.walls
+  else delete edit.value.walls
+}
+
+// Full screen: Esc comes back here, before the menu sees it; tool keys work there too.
+function onKey(event: KeyboardEvent) {
+  const picked = TOOLS.find((t) => t.key === event.key.toUpperCase())
+  if (picked) tool.value = picked.id
+  else if (event.key !== 'Escape') return
+  else full.value = false
+  event.stopImmediatePropagation()
+  event.preventDefault()
+}
+watch(full, (on) => {
+  if (on) window.addEventListener('keydown', onKey, { capture: true })
+  else window.removeEventListener('keydown', onKey, { capture: true })
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: true }))
+</script>
+
+<template>
+  <div class="walls-editor" :class="{ full }">
+    <div class="draw-tools">
+      <div class="tools" role="radiogroup" aria-label="Drawing tool">
+        <button
+          v-for="t in TOOLS"
+          :key="t.id"
+          class="tool pick"
+          role="radio"
+          :aria-checked="tool === t.id"
+          :class="{ on: tool === t.id }"
+          :title="full ? `${t.name} (${t.key})` : t.name"
+          @click="tool = t.id"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path v-if="t.id === 'pen'" d="M11 1l4 4-9 9H2v-4z M10 2l4 4" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <path v-else-if="t.id === 'line'" d="M2 14L14 2" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" />
+            <rect v-else-if="t.id === 'box'" x="2" y="3" width="12" height="10" fill="none" stroke="currentColor" stroke-width="2" />
+            <rect v-else-if="t.id === 'fill'" x="2" y="3" width="12" height="10" fill="currentColor" />
+            <path v-else d="M6 14h8 M2 10l6-7 6 5-5 6H6z" fill="none" stroke="currentColor" stroke-width="1.6" />
+          </svg>
+          <span>{{ t.name }}</span>
+        </button>
+      </div>
+      <button class="tool" role="switch" :aria-checked="mirrorX" :class="{ on: mirrorX }" @click="mirrorX = !mirrorX">Mirror ⇆</button>
+      <button class="tool" role="switch" :aria-checked="mirrorY" :class="{ on: mirrorY }" @click="mirrorY = !mirrorY">Mirror ⇅</button>
+      <button class="tool" @click="border">Border</button>
+      <button class="tool" :disabled="level === 0" title="Copy the walls of the level before" @click="copyPrevious">Copy walls of {{ level ? `level ${level}` : "previous" }}</button>
+      <button class="tool" @click="clearWalls">Clear</button>
+      <span class="count">{{ walls.size }} walls</span>
+      <button class="tool" :aria-pressed="full" @click="full = !full">{{ full ? 'Done' : 'Full screen' }}</button>
+    </div>
+    <svg
+      ref="board"
+      class="wall-board"
+      :viewBox="`0 0 ${cols} ${rows}`"
+      role="img"
+      aria-label="Level walls: drag to draw, start on a wall to erase"
+      @pointerdown="down"
+      @pointermove="move"
+      @pointerup="up"
+      @pointercancel="up"
+    >
+      <defs>
+        <pattern id="editor-dots" width="1" height="1" patternUnits="userSpaceOnUse">
+          <rect x="0.46" y="0.46" width="0.08" height="0.08" fill="var(--border)" />
+        </pattern>
+      </defs>
+      <rect :width="cols" :height="rows" fill="url(#editor-dots)" />
+      <rect
+        v-for="i in reserved"
+        :key="`r${i}`"
+        :x="(i % cols) + 0.2" :y="Math.floor(i / cols) + 0.2" width="0.6" height="0.6"
+        class="start"
+      />
+      <rect
+        v-for="i in walls"
+        :key="i"
+        :x="(i % cols) + 0.04" :y="Math.floor(i / cols) + 0.04" width="0.92" height="0.92"
+        class="wall"
+      />
+      <!-- The line or box being dragged, before it is drawn -->
+      <rect
+        v-for="i in ghost"
+        :key="`g${i}`"
+        :x="(i % cols) + 0.08" :y="Math.floor(i / cols) + 0.08" width="0.84" height="0.84"
+        class="ghost"
+      />
+      <line v-if="mirrorX" :x1="cols / 2" :x2="cols / 2" y1="0" :y2="rows" class="axis" />
+      <line v-if="mirrorY" x1="0" :x2="cols" :y1="rows / 2" :y2="rows / 2" class="axis" />
+    </svg>
+  </div>
+</template>
+
+<style scoped>
+.walls-editor { display: grid; gap: 8px; }
+.walls-editor.full {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  align-content: center;
+  padding: 16px;
+  background: var(--bg);
+}
+.full .wall-board { max-height: calc(100vh - 80px); width: auto; max-width: 100%; justify-self: center; }
+.draw-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.count { margin-left: auto; font-size: 14px; text-transform: uppercase; color: var(--text-muted); }
+.wall-board {
+  display: block;
+  width: 100%;
+  border: 2px solid var(--sky);
+  border-radius: 6px;
+  background: var(--bg-off);
+  touch-action: none;
+  cursor: crosshair;
+}
+.wall { fill: #2A2350; stroke: var(--lavender); stroke-width: 0.08; }
+.start { fill: var(--sage); opacity: 0.3; }
+.ghost { fill: var(--sun); opacity: 0.45; }
+.tools { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--bg-off); }
+.tool.pick { display: flex; align-items: center; gap: 6px; border-color: transparent; }
+.tool.pick.on { border-color: var(--sun); background: var(--bg-warm); color: var(--sun); }
+.axis { stroke: var(--sun); stroke-width: 0.08; stroke-dasharray: 0.4 0.4; opacity: 0.6; }
+.tool {
+  padding: 5px 10px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-off);
+  font-size: 15px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.tool:hover:not(:disabled) { border-color: var(--sage); color: var(--text); }
+.tool:disabled { opacity: 0.4; cursor: default; }
+.tool.on { border-color: var(--sun); color: var(--sun); }
+.tool:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+</style>
