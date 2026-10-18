@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, demo, startDemo, stopDemo, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
 import { canFullscreen, enterFullscreen, fullscreenPending, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
@@ -16,7 +16,6 @@ import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
 import Mascot from './components/Mascot.vue'
-import AttractMode from './components/AttractMode.vue'
 import Leaderboard from './components/Leaderboard.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 // Screens most visits never open load when first opened, keeping the first download small.
@@ -46,7 +45,9 @@ const KEYMAP: Record<string, DirName> = {
 }
 
 /** Three slots, more once a heart drop takes you past three; empty ones show what is lost. */
-const heartSlots = computed(() => Array.from({ length: Math.max(startHearts(), state.hearts) }, (_, i) => i < state.hearts))
+/** The HUD's numbers: the game in play, or (behind the start screen) the fresh one that is ready. */
+const hud = computed(() => (demo.on ? demo.hud : { hearts: state.hearts, score: state.score, mult: multiplier(), level: state.level }))
+const heartSlots = computed(() => Array.from({ length: Math.max(startHearts(), hud.value.hearts) }, (_, i) => i < hud.value.hearts))
 
 function toggleMute() {
   muted.value = !muted.value
@@ -85,6 +86,9 @@ function parseRoute(): Route {
   return { name: 'game' }
 }
 const route = ref<Route>(parseRoute())
+/** Where the game is, as the screens see it: the start screen's backdrop game counts as ready. */
+const status = computed(() => (demo.on ? 'ready' : state.status))
+
 const go = (hash: string) => {
   location.hash = hash
 }
@@ -292,6 +296,19 @@ function openEditor() {
   menuOpen.value = false
   pause()
 }
+/**
+ * Behind the start screen the real game plays itself, faintly, on the board.
+ * Anything that leaves the start screen (a panel, how-to-play, another page)
+ * stops it and leaves a fresh game ready; the hamburger menu keeps it going.
+ */
+watch(
+  () =>
+    route.value.name === 'game' && status.value === 'ready' && !briefing.value &&
+    !customOpen.value && !cheatOpen.value && !settingsOpen.value && !accountOpen.value && !agentOpen.value,
+  (on) => (on ? startDemo() : stopDemo()),
+  { immediate: true },
+)
+
 /** The tab's title follows the game: where you are, and how the run is going. */
 watch(
   () => {
@@ -299,9 +316,9 @@ watch(
     if (customOpen.value) return 'Custom games'
     if (route.value.name === 'scores') return 'High scores'
     if (route.value.name === 'replays' || route.value.name === 'watch') return 'Replays'
-    if (state.status === 'running') return `▶ Level ${state.level + 1} · ${state.score.toLocaleString()}`
-    if (state.status === 'paused') return `❚❚ Paused · ${state.score.toLocaleString()}`
-    if (state.status === 'over') return `Game over · ${state.score.toLocaleString()}`
+    if (status.value === 'running') return `▶ Level ${state.level + 1} · ${state.score.toLocaleString()}`
+    if (status.value === 'paused') return `❚❚ Paused · ${state.score.toLocaleString()}`
+    if (status.value === 'over') return `Game over · ${state.score.toLocaleString()}`
     return custom.on ? 'Custom play' : 'snake to the beat'
   },
   (what) => (document.title = `Laserwyrm · ${what}`),
@@ -320,7 +337,7 @@ const SPLASHES = [
 ]
 const splash = ref(SPLASHES[0]!)
 watch(
-  () => state.status === 'ready' && !briefing.value,
+  () => status.value === 'ready' && !briefing.value,
   (onMenu) => {
     if (onMenu) splash.value = SPLASHES[Math.floor(Math.random() * SPLASHES.length)]!
   },
@@ -378,7 +395,7 @@ function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape' || event.key === 'c' || event.key === 'C') customOpen.value = false
     return
   }
-  if (briefing.value && state.status === 'ready' && !accountOpen.value && !cheatOpen.value) {
+  if (briefing.value && status.value === 'ready' && !accountOpen.value && !cheatOpen.value) {
     event.preventDefault()
     if (event.key === 'Escape') closeBriefing()
     else begin(KEYMAP[event.key])
@@ -398,12 +415,12 @@ function onKey(event: KeyboardEvent) {
   } else if (event.key === ' ') {
     // Mid-game Space uses a held pill; otherwise it starts or resumes.
     event.preventDefault()
-    if (state.status === 'running') useItem()
+    if (status.value === 'running') useItem()
     else toggle()
   } else if (event.key === 'Enter') {
     event.preventDefault()
     toggle()
-  } else if (event.key === 'Escape' && state.status !== 'running' && !menuOpen.value) {
+  } else if (event.key === 'Escape' && status.value !== 'running' && !menuOpen.value) {
     // Mid-game Esc pauses; on the pause screen it leaves full screen.
     leaveFullscreen()
   } else if (event.key === 'Escape' || event.key === 'p' || event.key === 'P') {
@@ -438,8 +455,9 @@ function onTouchMove(event: TouchEvent) {
 function onResize() {
   // The pad moves with the window (turning the phone); the grid only between games.
   fitLayout()
-  if (state.status === 'ready') reset()
-  else if (state.status === 'over') fitGrid()
+  if (demo.on) startDemo()
+  else if (status.value === 'ready') reset()
+  else if (status.value === 'over') fitGrid()
 }
 function onBlur() {
   pause()
@@ -464,7 +482,7 @@ const padHandlers = {
     if (route.value.name === 'watch') return togglePlay()
     if (route.value.name === 'scores' || route.value.name === 'replays') return go('#/')
     if (cheatOpen.value || typing()) return
-    if (state.status === 'running') useItem()
+    if (status.value === 'running') useItem()
     else play()
   },
   start: () => {
@@ -490,9 +508,9 @@ const padHandlers = {
     if (agentOpen.value) return (agentOpen.value = false)
     if (cheatOpen.value) return (cheatOpen.value = false)
     if (briefing.value) return closeBriefing()
-    if (state.status === 'running') pause()
-    else if (state.status === 'paused') play()
-    else if (state.status === 'over') toMainMenu()
+    if (status.value === 'running') pause()
+    else if (status.value === 'paused') play()
+    else if (status.value === 'over') toMainMenu()
   },
 }
 // With a controller, highlight the main button of each screen as it opens; `pad-on` makes the highlight big and bright.
@@ -502,7 +520,7 @@ watch(
   { immediate: true },
 )
 watch(
-  () => [state.status, route.value.name, customOpen.value, cheatOpen.value, settingsOpen.value, accountOpen.value, briefing.value, menuOpen.value, pad.connected],
+  () => [status.value, route.value.name, customOpen.value, cheatOpen.value, settingsOpen.value, accountOpen.value, briefing.value, menuOpen.value, pad.connected],
   () => {
     if (!pad.connected) return
     // After the screen's fade-in has put it in place.
@@ -543,7 +561,7 @@ const tierShown = computed(() => {
 /* ─── Full screen ─── */
 // Playing goes full screen and stays there; the pause screen is the way out.
 watch(
-  () => state.status,
+  () => status.value,
   (status) => {
     if (status === 'running' && !replay.active) enterFullscreen()
   },
@@ -625,22 +643,22 @@ onBeforeUnmount(() => {
           <span class="divider show-wide"></span>
           <!-- Parts: one row on desktop; on phones, two chips in the left gutter (hearts above, numbers below) -->
           <span class="part part-top">
-          <span :key="state.hearts" class="hearts" :class="{ low: state.hearts === 1 }" :aria-label="`${state.hearts} hearts`" role="img">
+          <span :key="hud.hearts" class="hearts" :class="{ low: hud.hearts === 1 }" :aria-label="`${hud.hearts} hearts`" role="img">
             <svg v-for="(full, i) in heartSlots" :key="i" viewBox="-0.5 -0.5 8 7" width="18" height="16">
               <path :d="HEART_PATH" :fill="full ? 'var(--coral)' : 'none'" :stroke="full ? 'var(--ink)' : 'var(--text-muted)'" stroke-width="1" />
             </svg>
-            <svg v-if="state.totem" class="totem-held" viewBox="-0.5 -0.5 1 1" width="18" height="18" :title="TOTEM.name"><PowerIcon kind="totem" /></svg>
+            <svg v-if="state.totem && !demo.on" class="totem-held" viewBox="-0.5 -0.5 1 1" width="18" height="18" :title="TOTEM.name"><PowerIcon kind="totem" /></svg>
           </span>
           </span>
           <span class="divider"></span>
           <span class="part part-bottom">
-          <span class="stat stat-score"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
-          <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') }">×{{ multiplier() }}</b></span>
+          <span class="stat stat-score"><span class="chrome-label">score</span><b class="num score-num">{{ hud.score }}</b></span>
+          <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') && !demo.on }">×{{ hud.mult }}</b></span>
           </span>
           <span v-if="state.cheated" class="cheat-tag" :title="state.usedCheats ? 'Cheats used: this run cannot set a best' : 'A changed game: this run cannot set a best'">{{ state.usedCheats ? 'cheats' : shared.slug ? 'shared' : 'custom' }}</span>
           <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
-        <div class="effects">
+        <div v-if="!demo.on" class="effects">
           <!-- After a wizard cookie: no lasers for a moment -->
           <div v-if="state.wizardUntil > state.step" class="effect" style="--fx: var(--lavender)">
             <span class="text-trim">No lasers</span>
@@ -661,13 +679,13 @@ onBeforeUnmount(() => {
         <div class="chip hide-md">
           <span class="stat"><span class="chrome-label">best</span><b class="num best-num">{{ state.best }}</b></span>
           <span class="divider"></span>
-          <span class="stat"><span class="chrome-label">level</span><b class="num level-num">{{ state.level + 1 }}</b></span>
+          <span class="stat"><span class="chrome-label">level</span><b class="num level-num">{{ hud.level + 1 }}</b></span>
           <span class="bpm" :style="{ '--beat': `${60 / state.bpm}s` }">
-            <span class="bpm-dot" :class="{ live: state.status === 'running' }"></span>{{ state.bpm }} bpm
+            <span class="bpm-dot" :class="{ live: status === 'running' }"></span>{{ state.bpm }} bpm
           </span>
         </div>
-        <button class="round" :aria-label="state.status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
-          <svg v-if="state.status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+        <button class="round" :aria-label="status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
+          <svg v-if="status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
           <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </button>
         <div ref="menu" class="menu-wrap">
@@ -731,7 +749,7 @@ onBeforeUnmount(() => {
     <!-- A new kind of laser: play waits while it is introduced -->
     <!-- A new kind of laser: a notice from the top, like the item notices; play goes on -->
     <div
-      v-if="tierShown && state.status === 'running'"
+      v-if="tierShown && status === 'running'"
       :key="tierShown.key"
       class="notice tier-note"
       :class="{ touch: layout.pad !== 'none' }"
@@ -745,7 +763,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- What was just picked up or used, and what it does -->
-    <div v-if="state.notice && state.status === 'running'" :key="state.notice.id" class="notice" :class="{ touch: layout.pad !== 'none' }">
+    <div v-if="state.notice && status === 'running'" :key="state.notice.id" class="notice" :class="{ touch: layout.pad !== 'none' }">
       <svg viewBox="-0.5 -0.5 1 1" width="30" height="30"><PowerIcon :kind="state.notice.kind" /></svg>
       <span class="notice-text">
         <b>{{ state.notice.title }}</b>
@@ -754,7 +772,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Level up -->
-    <div v-if="state.banner" :key="state.banner.id" class="banner">
+    <div v-if="state.banner && !demo.on" :key="state.banner.id" class="banner">
       <span class="banner-title">{{ state.banner.title }}</span>
       <span class="banner-sub">{{ state.banner.sub }}</span>
     </div>
@@ -808,14 +826,12 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Briefing: how to play, then any key -->
-      <div v-else-if="briefing && state.status === 'ready'" class="overlay" @pointerdown.self="begin()">
+      <div v-else-if="briefing && status === 'ready'" class="overlay" @pointerdown.self="begin()">
         <Briefing :mode="briefing" @start="begin()" @back="closeBriefing()" />
       </div>
 
       <!-- Start -->
-      <div v-else-if="state.status === 'ready'" class="overlay">
-        <!-- Behind the card: a faint snake playing by itself -->
-        <AttractMode />
+      <div v-else-if="status === 'ready'" class="overlay">
         <div class="card card-start">
           <Mascot class="corner-mascot" />
           <header class="hello">
@@ -891,7 +907,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Paused -->
-      <div v-else-if="state.status === 'paused'" class="overlay">
+      <div v-else-if="status === 'paused'" class="overlay">
         <div class="card card-small">
           <p class="chrome-label">paused</p>
           <h2>Take a breath</h2>
@@ -914,7 +930,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Game over: the score big, everything else quiet -->
-      <div v-else-if="state.status === 'over'" class="overlay">
+      <div v-else-if="status === 'over'" class="overlay">
         <div class="card card-over">
           <button class="close card-close" aria-label="Main menu" @click="toMainMenu">✕</button>
           <header class="over-head">
@@ -975,13 +991,13 @@ onBeforeUnmount(() => {
     </Transition>
 
     <!-- Just went full screen: how to get out -->
-    <div v-if="fsHint && state.status === 'running' && layout.pad === 'none'" class="fs-hint">
+    <div v-if="fsHint && status === 'running' && layout.pad === 'none'" class="fs-hint">
       <template v-if="pad.connected"><PadGlyph button="start" /> pause · leave full screen from the pause screen</template>
       <template v-else><kbd>Esc</kbd> pause · <kbd>Esc</kbd> again to leave full screen</template>
     </div>
 
     <!-- Started from a controller before any click: playing, but silent until one -->
-    <div v-if="(soundBlocked || fullscreenPending) && state.status === 'running'" class="pad-toast sound-off">
+    <div v-if="(soundBlocked || fullscreenPending) && status === 'running'" class="pad-toast sound-off">
       <template v-if="soundBlocked">sound is off · tap, click or press any key to turn it on<template v-if="fullscreenPending"> and go full screen</template></template>
       <template v-else>tap, click or press any key for full screen</template>
     </div>

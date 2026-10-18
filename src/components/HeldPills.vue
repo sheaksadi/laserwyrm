@@ -6,29 +6,31 @@
  * chips beside it; names and what they do show in the notice and tooltip.
  */
 import { computed } from 'vue'
-import { heldSlots, itemInfo, state, useItem } from '../game'
+import { demo, heldSlots, itemInfo, state, useItem } from '../game'
 import { pad } from '../gamepad'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
 
+/** What is held: nothing while the start screen's backdrop game plays. */
+const held = computed(() => (demo.on ? [] : state.held))
 const tooltip = computed(
-  () => state.held.map((kind) => `${itemInfo(kind).name}: ${itemInfo(kind).blurb}`).join('\n') || 'Pick up power-ups to hold them here',
+  () => held.value.map((kind) => `${itemInfo(kind).name}: ${itemInfo(kind).blurb}`).join('\n') || 'Pick up power-ups to hold them here',
 )
 </script>
 
 <template>
   <button
     class="held"
-    :disabled="!state.held.length || state.status !== 'running'"
-    :aria-label="state.held.length ? `Use ${itemInfo(state.held[0]!).name}: ${itemInfo(state.held[0]!).blurb} (Space)` : 'No power-ups held'"
+    :disabled="!held.length || state.status !== 'running' || demo.on"
+    :aria-label="held.length ? `Use ${itemInfo(held[0]!).name}: ${itemInfo(held[0]!).blurb} (Space)` : 'No power-ups held'"
     :title="tooltip"
     @pointerdown.prevent="useItem()"
     @touchstart.stop
     @touchmove.stop
     @contextmenu.prevent
   >
-    <span v-for="i in heldSlots()" :key="i" class="slot" :class="{ next: i === 1 && state.held.length }">
-      <svg v-if="state.held[i - 1]" viewBox="-0.5 -0.5 1 1"><PowerIcon :kind="state.held[i - 1]!" /></svg>
+    <span v-for="i in heldSlots()" :key="i" class="slot" :class="{ next: i === 1 && held.length }">
+      <svg v-if="held[i - 1]" viewBox="-0.5 -0.5 1 1"><PowerIcon :kind="held[i - 1]!" /></svg>
     </span>
     <span v-if="pad.connected" class="hint pad"><PadGlyph button="a" /> to use</span>
     <span v-else class="hint">space to use</span>
