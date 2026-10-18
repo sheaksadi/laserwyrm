@@ -437,32 +437,68 @@ export function readShareCode(code: string): Design | null {
   return null
 }
 
-/* ─── This device's design, and the one in play ──────────────────────── */
+/* ─── This device's games, and the one in play ───────────────────────── */
 
-const STORE_KEY = 'laserwyrm-design'
-const OLD_STORE_KEY = 'laserwyrm-rules'
-
-function load(): Design {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (raw) return cleanDesign(JSON.parse(raw))
-    const old = localStorage.getItem(OLD_STORE_KEY)
-    if (old) return fromV1(JSON.parse(old))
-  } catch {
-    /* unreadable: start from stock */
-  }
-  return stockDesign()
+/**
+ * A game made on this device: a name and a design. Its share code, once
+ * shared, is kept with the design it was made from, so sharing it again
+ * unchanged gives the same code.
+ */
+export interface SavedGame {
+  id: string
+  name: string
+  design: Design
+  share?: { slug: string; of: string }
 }
 
-/** The design edited in the cheat menu, kept on this device. */
-export const design = reactive(load())
+const LIBRARY_KEY = 'laserwyrm-games'
+const STORE_KEY = 'laserwyrm-design'
+const OLD_STORE_KEY = 'laserwyrm-rules'
+const newId = () => Math.random().toString(36).slice(2, 10)
+
+function loadLibrary(): { games: SavedGame[]; active: string } {
+  try {
+    const raw = localStorage.getItem(LIBRARY_KEY)
+    if (raw) {
+      const lib = JSON.parse(raw) as { games?: SavedGame[]; active?: string }
+      const games = (lib.games ?? [])
+        .filter((g) => g && typeof g.id === 'string')
+        .slice(0, 50)
+        .map((g) => ({ id: g.id, name: String(g.name ?? 'My game').slice(0, 40), design: cleanDesign(g.design), share: g.share }))
+      if (games.length) return { games, active: games.some((g) => g.id === lib.active) ? lib.active! : games[0]!.id }
+    }
+    // From before there were several games: the one design becomes the first game.
+    const one = localStorage.getItem(STORE_KEY)
+    const old = localStorage.getItem(OLD_STORE_KEY)
+    const first = one ? cleanDesign(JSON.parse(one)) : old ? fromV1(JSON.parse(old)) : stockDesign()
+    const id = newId()
+    return { games: [{ id, name: 'My game', design: first }], active: id }
+  } catch {
+    const id = newId()
+    return { games: [{ id, name: 'My game', design: stockDesign() }], active: id }
+  }
+}
+
+/** Every game made on this device; `active` is the one the editor and custom play use. */
+export const library = reactive(loadLibrary())
+const activeGame = () => library.games.find((g) => g.id === library.active)!
+
+/** The active game's design, edited in the workshop. */
+export const design = reactive(clone(activeGame().design))
 watch(
   design,
   (d) => {
+    activeGame().design = compact(d)
+  },
+  { deep: true },
+)
+watch(
+  library,
+  (lib) => {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(compact(d)))
+      localStorage.setItem(LIBRARY_KEY, JSON.stringify({ games: lib.games.map((g) => ({ ...g, design: compact(g.design) })), active: lib.active }))
     } catch {
-      /* storage blocked: the design still works for this visit */
+      /* storage blocked: the games still work for this visit */
     }
   },
   { deep: true },
@@ -470,6 +506,43 @@ watch(
 
 export function replaceDesign(next: Design) {
   Object.assign(design, clone(next))
+}
+
+/** Edit and play another of this device's games. */
+export function switchGame(id: string) {
+  const game = library.games.find((g) => g.id === id)
+  if (!game || id === library.active) return
+  library.active = id
+  replaceDesign(cleanDesign(game.design))
+}
+/** A new game, starting as the stock one (or from a design), made the active one. */
+export function newGame(name?: string, from?: Design): SavedGame {
+  const n = library.games.length + 1
+  const game: SavedGame = { id: newId(), name: (name ?? `Game ${n}`).slice(0, 40), design: compact(from ?? stockDesign()) }
+  library.games.push(game)
+  switchGame(game.id)
+  return game
+}
+export function renameGame(id: string, name: string) {
+  const game = library.games.find((g) => g.id === id)
+  if (game && name.trim()) game.name = name.trim().slice(0, 40)
+}
+/** Forget a game; there is always at least one. */
+export function deleteGame(id: string) {
+  if (library.games.length <= 1) return
+  const wasActive = id === library.active
+  library.games = library.games.filter((g) => g.id !== id)
+  if (wasActive) {
+    library.active = ''
+    switchGame(library.games[0]!.id)
+  }
+}
+/** A short fingerprint of a design, to tell whether a game changed since it was shared. */
+export const fingerprint = (d: Design) => {
+  const text = JSON.stringify(compact(d))
+  let h = 0
+  for (let i = 0; i < text.length; i++) h = (Math.imul(h, 31) + text.charCodeAt(i)) | 0
+  return `${text.length}:${h >>> 0}`
 }
 
 /**

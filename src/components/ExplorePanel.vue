@@ -8,7 +8,7 @@
 import { computed, ref, watch } from 'vue'
 import { account } from '../account'
 import { codeForUrl, countPlay, fetchDesign, likeDesign, listDesigns, publishDesign, removeDesign, type DesignEntry, type DesignRow, type DesignSort } from '../api'
-import { compact, design, isStock, playShared, replaceDesign, shared, stopShared } from '../design'
+import { compact, design, isStock, library, newGame, playShared, shared, stopShared } from '../design'
 import { reset } from '../game'
 
 const emit = defineEmits<{ close: [] }>()
@@ -85,16 +85,10 @@ async function like(entry: DesignEntry) {
   }
 }
 
-const confirmCopy = ref(false)
+/** Keep a copy among your games, to change it in the editor. */
 function copyIn(entry: DesignEntry) {
-  if (!confirmCopy.value) {
-    confirmCopy.value = true
-    setTimeout(() => (confirmCopy.value = false), 3000)
-    return
-  }
-  confirmCopy.value = false
   stopShared()
-  replaceDesign(compact(JSON.parse(JSON.stringify(entry.design))))
+  newGame(entry.name, compact(JSON.parse(JSON.stringify(entry.design))))
   copied.value = entry.name
 }
 const copied = ref('')
@@ -122,6 +116,7 @@ const publishing = ref(false)
 const pubName = ref('')
 const pubAbout = ref('')
 const pubNote = ref('')
+const activeName = computed(() => library.games.find((g) => g.id === library.active)?.name ?? 'your game')
 const changedLevels = computed(() => design.levels.filter((l) => Object.keys(l).length).length)
 const stock = computed(() => isStock(design))
 async function publish() {
@@ -165,12 +160,10 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
       <div class="actions">
         <button class="tool go" @click="play(open)">Play it</button>
         <button class="tool" :class="{ on: open.liked }" :aria-pressed="open.liked" @click="like(open)">{{ open.liked ? '♥ Liked' : '♡ Like' }}</button>
-        <button class="tool" title="Replace the game on this device with this design, to change it further" @click="copyIn(open)">
-          {{ confirmCopy ? 'Replace yours?' : 'Copy into my game' }}
-        </button>
+        <button class="tool" title="Keep a copy among your games, to change it in the editor" @click="copyIn(open)">Add to my games</button>
         <button v-if="open.mine" class="tool danger" @click="remove(open)">{{ confirmRemove ? 'Sure?' : 'Remove' }}</button>
       </div>
-      <p v-if="copied" class="note">Copied “{{ copied }}” into your game: change it in Global and Levels.</p>
+      <p v-if="copied" class="note">“{{ copied }}” is now one of your games: Edit it from the list above.</p>
       <h4>Its board</h4>
       <p v-if="!open.scores.length" class="empty">No runs yet. Be the first: runs without cheats count here.</p>
       <ol v-else class="board">
@@ -191,14 +184,14 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
           <button v-for="v in VIEWS" :key="v.id" class="view" :class="{ on: view === v.id }" :disabled="v.id === 'mine' && !account.code" @click="view = v.id">{{ v.name }}</button>
         </nav>
         <input v-model="query" class="search" placeholder="Search names or players" aria-label="Search designs" />
-        <button class="tool go" @click="publishing = !publishing">{{ publishing ? 'Cancel' : 'Share mine' }}</button>
+        <button class="tool go" @click="publishing = !publishing">{{ publishing ? 'Cancel' : 'Publish yours' }}</button>
       </div>
 
       <section v-if="publishing" class="publish">
         <p v-if="!account.code" class="note">Sign in first (☰ → Account): shared designs carry your name.</p>
         <p v-else-if="stock" class="note">Your game is the stock game. Change something in Global or Levels first.</p>
         <template v-else>
-          <p class="note">Shares your whole game as it is now: the global feel, {{ changedLevels }} changed level{{ changedLevels === 1 ? '' : 's' }}, {{ design.custom.length }} item{{ design.custom.length === 1 ? '' : 's' }}.</p>
+          <p class="note">Publishes “{{ activeName }}” as it is now: the global feel, {{ changedLevels }} changed level{{ changedLevels === 1 ? '' : 's' }}, {{ design.custom.length }} item{{ design.custom.length === 1 ? '' : 's' }}.</p>
           <input v-model="pubName" class="text" maxlength="40" placeholder="Name it" aria-label="Design name" />
           <textarea v-model="pubAbout" class="text" maxlength="400" rows="2" placeholder="What makes it fun (optional)" aria-label="About"></textarea>
           <div class="actions">

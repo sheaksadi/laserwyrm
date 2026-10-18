@@ -24,7 +24,8 @@
  * items). Each has its own board of clean runs played on it.
  *   GET    /api/designs?sort=new|played|liked&q=…&mine=1
  *   GET    /api/designs/:slug          one design, with its board
- *   POST   /api/designs                { name, about, design } → { slug }
+ *   POST   /api/designs                { name, about, design, listed? } → { slug }
+ *                                      (listed: false makes an unlisted share, no sign-in needed)
  *   POST   /api/designs/:slug/like     like or unlike → { likes, liked }
  *   POST   /api/designs/:slug/play     count a play
  *   DELETE /api/designs/:slug          take down your own
@@ -107,6 +108,8 @@ const SCHEMA = `
     user_id     BIGINT NOT NULL REFERENCES users(id),
     PRIMARY KEY (design_id, user_id)
   );
+  ALTER TABLE designs ALTER COLUMN user_id DROP NOT NULL;
+  ALTER TABLE designs ADD COLUMN IF NOT EXISTS listed BOOLEAN NOT NULL DEFAULT true;
   ALTER TABLE games ADD COLUMN IF NOT EXISTS design_id BIGINT REFERENCES designs(id);
   ALTER TABLE games ADD COLUMN IF NOT EXISTS design_clean BOOLEAN NOT NULL DEFAULT false;
   CREATE INDEX IF NOT EXISTS games_design_idx ON games (design_id, score DESC);
@@ -197,7 +200,8 @@ function checkDesign(d) {
   if (!d.global || typeof d.global !== 'object') return 'design has no global settings'
   return null
 }
-const newSlug = () => randomBytes(5).toString('base64url').replace(/[-_]/g, 'x').slice(0, 7)
+/** A design's share code: six letters and digits, no look-alikes (K7QM2X), easy to read out or type. */
+const newSlug = () => [...randomBytes(6)].map((b) => LOGIN_ALPHABET[b % LOGIN_ALPHABET.length]).join('')
 
 function checkEmail(raw) {
   if (raw == null || raw === '') return null
@@ -525,7 +529,7 @@ function api(db) {
                 jsonb_array_length(COALESCE(d.design->'custom', '[]'::jsonb)) AS items,
                 EXISTS (SELECT 1 FROM design_likes l WHERE l.design_id = d.id AND l.user_id = $2) AS liked
          FROM designs d JOIN users u ON u.id = d.user_id
-         WHERE NOT d.removed
+         WHERE NOT d.removed AND d.listed
            AND ($1 = '' OR d.name ILIKE '%' || $1 || '%' OR u.name_key = lower($1))
            AND ($3::bigint IS NULL OR d.user_id = $3)
          ORDER BY ${order}, d.created_at DESC LIMIT 40`,
@@ -539,7 +543,7 @@ function api(db) {
       const { rows } = await db.query(
         `SELECT d.*, u.name AS author,
                 EXISTS (SELECT 1 FROM design_likes l WHERE l.design_id = d.id AND l.user_id = $2) AS liked
-         FROM designs d JOIN users u ON u.id = d.user_id WHERE d.slug = $1 AND NOT d.removed`,
+         FROM designs d LEFT JOIN users u ON u.id = d.user_id WHERE d.slug = $1 AND NOT d.removed`,
         [slug, me?.id ?? 0],
       )
       const d = rows[0]
@@ -552,16 +556,19 @@ function api(db) {
       )
       return {
         ...designRow({ ...d, levels: d.design?.levels?.length ?? 0, items: d.design?.custom?.length ?? 0 }),
-        mine: me != null && Number(d.user_id) === me.id,
+        mine: me != null && d.user_id != null && Number(d.user_id) === me.id,
+        listed: d.listed,
         design: d.design,
         scores: top.rows.map(gameRow),
       }
     },
 
     async publishDesign(req) {
-      limit(clientIp(req), 'design', 10)
-      const user = await userFrom(req, true)
+      limit(clientIp(req), 'design', 20)
       const body = await readJson(req)
+      // Listed on Explore needs a player; an unlisted share (link, code, QR) does not.
+      const listed = body.listed !== false
+      const user = await userFrom(req, listed)
       const name = typeof body.name === 'string' ? body.name.trim().slice(0, 40) : ''
       if (!name) throw new HttpError(400, 'give it a name')
       const about = typeof body.about === 'string' ? body.about.trim().slice(0, 400) : ''
@@ -570,8 +577,8 @@ function api(db) {
       for (let attempt = 0; attempt < 8; attempt++) {
         const slug = newSlug()
         try {
-          await db.query('INSERT INTO designs (slug, user_id, name, about, design) VALUES ($1, $2, $3, $4, $5)', [
-            slug, user.id, name, about, body.design,
+          await db.query('INSERT INTO designs (slug, user_id, name, about, design, listed) VALUES ($1, $2, $3, $4, $5, $6)', [
+            slug, user?.id ?? null, name, about, body.design, listed,
           ])
           return { status: 201, body: { slug } }
         } catch (err) {
@@ -613,7 +620,7 @@ const designRow = (r) => ({
   slug: r.slug,
   name: r.name,
   about: r.about,
-  author: r.author,
+  author: r.author ?? 'guest',
   plays: r.plays,
   likes: r.likes,
   liked: !!r.liked,

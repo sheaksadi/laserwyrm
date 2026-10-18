@@ -106,6 +106,7 @@ function restart() {
     <header>
       <h2>Workshop</h2>
       <span class="sub">runs with cheats or a changed game never set a best</span>
+      <button class="close" aria-label="Close" @click="emit('close')">✕</button>
     </header>
 
     <nav class="tabs" role="tablist">
@@ -234,7 +235,20 @@ function restart() {
   border: 3px solid var(--sage);
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--coral), 10px 10px 0 6px var(--ink);
 }
-header { display: grid; gap: 4px; margin-bottom: 0.8rem; }
+header { position: relative; display: grid; gap: 4px; margin-bottom: 0.8rem; padding-right: 44px; }
+.close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-off);
+  color: var(--text-dim);
+}
+.close:hover { border-color: var(--sage); color: var(--text); }
+.close:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
 /* Tuning and levels need the room. */
 .cheats.wide { width: min(60rem, 100%); }
 .tabs { display: flex; gap: 6px; margin-bottom: 1rem; border-bottom: 2px solid var(--border); }

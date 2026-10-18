@@ -6,9 +6,9 @@ import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, last
 import { canFullscreen, enterFullscreen, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
-import { ApiError, claimName, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
+import { ApiError, claimName, countPlay, fetchDesign, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
 import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
-import { custom, setCustom, shared, stopShared } from './design'
+import { custom, playShared, setCustom, shared, stopShared } from './design'
 import Briefing from './components/Briefing.vue'
 import CheatMenu from './components/CheatMenu.vue'
 import CustomPanel from './components/CustomPanel.vue'
@@ -86,7 +86,24 @@ const go = (hash: string) => {
 const watchError = ref('')
 /** Bumped on every page change, so a slow load cannot open after the player has moved on. */
 let navigation = 0
+/** A shared game's link (#/d/K7QM2X): load it and set it up to play, then carry on at the start screen. */
+async function playLink(slug: string) {
+  try {
+    const entry = await fetchDesign(slug.length === 6 ? slug.toUpperCase() : slug)
+    playShared({ slug: entry.slug, name: entry.name, author: entry.author }, entry.design)
+    void countPlay(entry.slug).catch(() => {})
+    reset()
+  } catch {
+    customOpen.value = true
+  }
+}
+
 async function onRoute() {
+  const link = location.hash.match(/^#\/d\/(\w+)/)
+  if (link) {
+    history.replaceState(null, '', `${location.pathname}${location.search}#/`)
+    void playLink(link[1]!)
+  }
   const here = ++navigation
   const next = parseRoute()
   const was = route.value
@@ -244,13 +261,6 @@ function openCustom() {
   menuOpen.value = false
   cheatOpen.value = false
   customOpen.value = true
-  pause()
-}
-/** The workshop's cheats tab, from the custom screen. */
-function openCheats() {
-  customOpen.value = false
-  cheatTab.value = 'cheats'
-  cheatOpen.value = true
   pause()
 }
 /** Play this device's own design, from its how-to-play. */
@@ -476,7 +486,7 @@ watch(
 
 onMounted(() => {
   window.addEventListener('hashchange', onRoute)
-  if (route.value.name !== 'game') void onRoute()
+  if (route.value.name !== 'game' || location.hash.startsWith('#/d/')) void onRoute()
   startGamepad(padHandlers)
   stopFullscreenWatch = watchFullscreen(
     () => {
@@ -685,7 +695,7 @@ onBeforeUnmount(() => {
 
       <!-- Custom play: your design, shared ones, sharing yours -->
       <div v-else-if="customOpen" class="overlay">
-        <CustomPanel @close="customOpen = false" @play="playCustom" @editor="openEditor" @cheats="openCheats" @normal="playNormal" />
+        <CustomPanel @close="customOpen = false" @play="playCustom" @editor="openEditor" @normal="playNormal" />
       </div>
 
       <!-- Briefing: how to play, then any key -->

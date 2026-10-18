@@ -55,7 +55,11 @@ rises and more lasers come.
     own fruit and power-ups) and music (Strudel code, starting from the stock
     track written out). A level keeps only what you change; the rest follows
     the curve
-- The custom screen also lists designs other players shared: browse newest,
+- The custom screen lists your games (as many as you like: play, edit, rename,
+  delete, + for a new one). Share any of them for a short code (K7QM2X), a
+  link (`#/d/K7QM2X`) and a QR code; anyone can play it from the code box or
+  the link. No sign-in needed for that (it is unlisted)
+- It also lists designs other players published: browse newest,
   most played or most liked, search, play one (it has its own board), like it,
   or copy it into your game. Signed in, share yours. Normal play is always the
   stock game; custom play is yours or a shared one, and the pause screen offers
@@ -106,7 +110,7 @@ and the API:
 | POST | `/api/scores` | put one of your games on the board: `{ game, email? }` |
 | GET | `/api/designs?sort=new\|played\|liked&q=&mine=1` | shared designs |
 | GET | `/api/designs/:slug` | one design, with its own board |
-| POST | `/api/designs` | share yours (signed in): `{ name, about, design }` → `{ slug }` |
+| POST | `/api/designs` | share: `{ name, about, design, listed? }` → `{ slug }`; listed (on Explore) needs sign-in, `listed: false` makes an unlisted code and link |
 | POST | `/api/designs/:slug/like` | like or unlike (signed in) |
 | POST | `/api/designs/:slug/play` | count a play |
 | DELETE | `/api/designs/:slug` | take down one of yours |

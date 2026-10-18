@@ -130,6 +130,8 @@ export interface DesignRow {
 }
 export interface DesignEntry extends DesignRow {
   mine: boolean
+  /** On Explore, or only reachable by its code and link. */
+  listed: boolean
   design: Design
   /** Its own board: the best clean runs on it. */
   scores: GameRow[]
@@ -139,7 +141,8 @@ export type DesignSort = 'new' | 'played' | 'liked'
 export const listDesigns = (sort: DesignSort, q = '', mine = false) =>
   call<{ designs: DesignRow[] }>(`/api/designs?sort=${sort}&q=${encodeURIComponent(q)}${mine ? '&mine=1' : ''}`).then((r) => r.designs)
 export const fetchDesign = (slug: string) => call<DesignEntry>(`/api/designs/${encodeURIComponent(slug)}`)
-export const publishDesign = (entry: { name: string; about: string; design: Design }) => post<{ slug: string }>('/api/designs', entry)
+/** Share a design: on Explore (signed in), or `listed: false` for a code and link only. */
+export const publishDesign = (entry: { name: string; about: string; design: Design; listed?: boolean }) => post<{ slug: string }>('/api/designs', entry)
 export const likeDesign = (slug: string) => post<{ likes: number; liked: boolean }>(`/api/designs/${encodeURIComponent(slug)}/like`, {})
 export const countPlay = (slug: string) => post<{ ok: true }>(`/api/designs/${encodeURIComponent(slug)}/play`, {})
 export const removeDesign = (slug: string) => call<{ ok: true }>(`/api/designs/${encodeURIComponent(slug)}`, { method: 'DELETE' })
