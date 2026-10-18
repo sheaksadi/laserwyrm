@@ -110,7 +110,14 @@ const TOOLS = [
         laserTraits: { wide: 'three cells wide (stock from level 11)', cross: 'row and column at once (21)', fast: 'half the warning (31)', track: 'follows your head (41)', repeat: 'strikes twice (51)' },
         stockItems: ['apple', 'cherry', 'star', 'heart', 'totem', 'shield', 'double', 'slow', 'dash', 'magnet', 'ghost'],
         itemTweak: { rate: '× chance', life: 'bars on the board', bars: 'effect length', stack: 'extend | refresh | keep', grow: 'cells (fruit)' },
-        customItem: { kind: 'fruit | power', shape: core.SHAPES, color: core.COLORS, fields: 'name, blurb, rate (0–0.5 a bar), from (0-based level), life, grow, points, hearts (fruit); effects (shield, double, slow, dash, magnet, ghost), bars, stack, hold (power)' },
+        customItem: { kind: 'fruit | power', shape: [...core.SHAPES, 'sprite (with sprite: an id from add_sprite)'], color: core.COLORS, fields: 'name, blurb, rate (0–0.5 a bar), from (0-based level), life, grow, points, hearts (fruit); effects (shield, double, slow, dash, magnet, ghost), bars, stack, hold (power)' },
+        stockCookies: { cookie: 'fruit, +2', wizard: 'clears all lasers, none for 2 bars (tweak bars)', starry: 'fruit, +4, rare, stays 6 bars, bursts into stars' },
+        sprites: {
+          size: `${core.SPRITE_SIZE}×${core.SPRITE_SIZE}`,
+          rows: `${core.SPRITE_SIZE} strings of ${core.SPRITE_SIZE} characters; each a palette index (0-9 then a-v) or . for see-through`,
+          colors: '16 (the game\'s own, indexes 0-f) or 32 (0-v)',
+          palette: Object.fromEntries(core.PALETTE.map((hex, i) => [core.PIXEL_CHARS[i], hex])),
+        },
         strudel: 'Synths: sine square triangle sawtooth supersaw pulse; drum: sbd; noise: white pink brown. Example: stack(s("sbd*4"), note("<a2 f2 c3 g2>").s("sawtooth").lpf(800))',
       }),
   },
@@ -343,6 +350,67 @@ const TOOLS = [
       ctx.edit(args.game, (d) => {
         d.custom = d.custom.filter((c) => c.id !== args.id)
         for (const l of d.levels) if (l.items) delete l.items[args.id]
+        return () => ({ ok: true })
+      }),
+  },
+  {
+    name: 'list_sprites',
+    description: "The game's sprites, each as 16 rows of palette characters.",
+    inputSchema: { type: 'object', properties: { game: { type: 'string' } }, required: ['game'] },
+    run: async ({ store }, { game }) => {
+      const d = core.cleanDesign((await store.get(game)).design)
+      const N = core.SPRITE_SIZE
+      return json(d.sprites.map((s) => ({ id: s.id, name: s.name, colors: s.colors, rows: Array.from({ length: N }, (_, y) => s.pixels.slice(y * N, y * N + N)) })))
+    },
+  },
+  {
+    name: 'add_sprite',
+    description: 'Draw a 16×16 sprite (see describe_game_format → sprites for the palette). Use it as a home-made item\'s look with update_item set { shape: "sprite", sprite: id }.',
+    inputSchema: {
+      type: 'object',
+      properties: { game: { type: 'string' }, name: { type: 'string' }, colors: { type: 'integer', enum: [16, 32] }, rows: { type: 'array', items: { type: 'string' } } },
+      required: ['game', 'rows'],
+    },
+    run: (ctx, args) =>
+      ctx.edit(args.game, (d) => {
+        if (d.sprites.length >= 32) throw new ToolError('32 sprites at most')
+        const n = d.sprites.reduce((m, s) => Math.max(m, Number(s.id.slice(1))), 0) + 1
+        const N = core.SPRITE_SIZE
+        const pixels = Array.from({ length: N }, (_, y) => String(args.rows[y] ?? '').padEnd(N, '.').slice(0, N)).join('')
+        d.sprites.push({ id: `s${n}`, name: String(args.name ?? `Sprite ${n}`).slice(0, 24), colors: args.colors === 32 ? 32 : 16, pixels })
+        return () => ({ id: `s${n}` })
+      }),
+  },
+  {
+    name: 'update_sprite',
+    description: "Redraw or rename a sprite (rows replace all its pixels).",
+    inputSchema: {
+      type: 'object',
+      properties: { game: { type: 'string' }, id: { type: 'string' }, name: { type: 'string' }, colors: { type: 'integer', enum: [16, 32] }, rows: { type: 'array', items: { type: 'string' } } },
+      required: ['game', 'id'],
+    },
+    run: (ctx, args) =>
+      ctx.edit(args.game, (d) => {
+        const s = d.sprites.find((x) => x.id === args.id)
+        if (!s) throw new ToolError('no such sprite')
+        const N = core.SPRITE_SIZE
+        if (args.name) s.name = String(args.name).slice(0, 24)
+        if (args.colors) s.colors = args.colors === 32 ? 32 : 16
+        if (Array.isArray(args.rows)) s.pixels = Array.from({ length: N }, (_, y) => String(args.rows[y] ?? '').padEnd(N, '.').slice(0, N)).join('')
+        return () => ({ ok: true })
+      }),
+  },
+  {
+    name: 'remove_sprite',
+    description: 'Delete a sprite (items that used it go back to a plain shape).',
+    inputSchema: { type: 'object', properties: { game: { type: 'string' }, id: { type: 'string' } }, required: ['game', 'id'] },
+    run: (ctx, args) =>
+      ctx.edit(args.game, (d) => {
+        d.sprites = d.sprites.filter((s) => s.id !== args.id)
+        for (const c of d.custom) if (c.sprite === args.id) {
+          c.shape = c.kind === 'fruit' ? 'fruit' : 'gem'
+          delete c.sprite
+        }
         return () => ({ ok: true })
       }),
   },

@@ -20,7 +20,7 @@ rises and more lasers come.
 - Three hearts, refilled one per level up to three in normal mode (heart drops
   go past it, to five): a laser through the head costs one, walls and biting yourself cost all of
   them; rare heart drops give one back (up to five)
-- Fruit grows the snake: apple +1, cherries +3, star +5
+- Fruit grows the snake: apple +1, cookie +2, cherries +3, starry cookie +4 (rare, stays longer, bursts into stars), star +5. A wizard cookie clears every laser and keeps them away for two bars
 - Power-ups: shield, double points, slow-mo, dash, magnet, ghost. Hold up to two
   and press Space (or tap the slots) to use the oldest
 - Totem of Undying: very rare, cheats death once
@@ -59,6 +59,8 @@ rises and more lasers come.
     own fruit and power-ups) and music (Strudel code, starting from the stock
     track written out). A level keeps only what you change; the rest follows
     the curve
+  - Art: draw 16 × 16 sprites in the game's 16 colours or 32 (pen, eraser,
+    fill, picker, mirror) and use them as your items' looks
 - The custom screen lists your games (as many as you like: play, edit, rename,
   delete, + for a new one). Share any of them for a short code (K7QM2X), a
   link (`#/d/K7QM2X`) and a QR code; anyone can play it from the code box or

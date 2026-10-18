@@ -7,9 +7,19 @@
  */
 import { computed } from 'vue'
 import { customItem, isCustom, POWERS, TONE_COLOR, type CustomId, type PowerKind } from '../game'
+import { design, live } from '../design'
+import { spriteUrl } from '../sprites'
 
 const props = defineProps<{ kind: PowerKind | 'totem' | CustomId }>()
-const custom = computed(() => (isCustom(props.kind) ? customItem(props.kind) : undefined))
+/** The item from the game in play, or (in the editor, in normal play) from the game being edited. */
+const custom = computed(() => (isCustom(props.kind) ? (customItem(props.kind) ?? design.custom.find((c) => c.id === props.kind)) : undefined))
+/** A home-made item drawn as a sprite: its picture. */
+const sprite = computed(() => {
+  const c = custom.value
+  if (c?.shape !== 'sprite' || !c.sprite) return null
+  const s = live().sprites.find((x) => x.id === c.sprite) ?? design.sprites.find((x) => x.id === c.sprite)
+  return s ? spriteUrl(s) : null
+})
 const STAR = Array.from({ length: 10 }, (_, i) => {
   const r = i % 2 ? 0.17 : 0.4
   const a = (i * Math.PI) / 5 - Math.PI / 2
@@ -18,8 +28,10 @@ const STAR = Array.from({ length: 10 }, (_, i) => {
 </script>
 
 <template>
+  <!-- A home-made item drawn as a sprite, crisp pixels -->
+  <image v-if="sprite" :href="sprite" x="-0.46" y="-0.46" width="0.92" height="0.92" style="image-rendering: pixelated" />
   <!-- A home-made item: its shape in its colour, outlined like the rest -->
-  <g v-if="isCustom(kind)" :fill="custom?.color ?? '#888'" stroke="var(--ink)" stroke-width="0.06" stroke-linejoin="round">
+  <g v-else-if="isCustom(kind)" :fill="custom?.color ?? '#888'" stroke="var(--ink)" stroke-width="0.06" stroke-linejoin="round">
     <template v-if="custom?.shape === 'fruit'">
       <circle cy="0.06" r="0.34" />
       <path d="M0.02 -0.26 q0.12 -0.18 0.3 -0.14 q-0.06 0.2 -0.3 0.14 z" fill="var(--sage)" />

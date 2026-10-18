@@ -108,15 +108,25 @@ export interface Laser {
 }
 
 export type PowerKind = 'shield' | 'double' | 'slow' | 'dash' | 'magnet' | 'ghost'
-export type FruitKind = 'apple' | 'cherry' | 'star'
+export type FruitKind = 'apple' | 'cherry' | 'star' | 'cookie' | 'starry'
 /** A home-made item, by id: `c` and a number. */
 export type CustomId = `c${number}`
 /** Something that can be held for later: a stock power-up or a home-made one. */
 export type Holdable = PowerKind | CustomId
-export type ItemKind = FruitKind | PowerKind | 'heart' | 'totem' | CustomId
+/** The wizard cookie: eaten, it clears the lasers and keeps new ones off for a moment. */
+export type ItemKind = FruitKind | PowerKind | 'heart' | 'totem' | 'wizard' | CustomId
 export interface Item { id: number; kind: ItemKind; x: number; y: number; until: number | null }
 
-export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star: 5 }
+export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star: 5, cookie: 2, starry: 4 }
+/** Steps the wizard cookie keeps lasers away (two bars). */
+const WIZARD_STEPS = 32
+/**
+ * Which item table a run uses. 1: apple, cherries, star, the pills, hearts,
+ * the totem. 2 adds the cookies (plain, wizard, starry). Replays keep the
+ * table they were played with, so old runs play back the same.
+ */
+const ITEMS_REV = 2
+let itemsRev = ITEMS_REV
 
 /** Every power-up: what it is called, what it does, its colour, and how long it lasts (0: instant). */
 export const POWERS: Record<PowerKind, { name: string; blurb: string; tone: Tone; bars: number }> = {
@@ -243,6 +253,8 @@ export interface Replay {
   events: ReplayEvent[]
   /** The game's design, when the run was not played by the stock one. */
   design?: Design
+  /** The item table it was played with (missing: 1, before cookies). */
+  rev?: number
 }
 const DIR_CODE: Record<DirName, ReplayEvent[1]> = { up: 'u', down: 'd', left: 'l', right: 'r' }
 const CODE_DIR = { u: 'up', d: 'down', l: 'left', r: 'right' } as const
@@ -402,6 +414,10 @@ export const state = reactive({
   lasers: [] as Laser[],
   debris: [] as Debris[],
   popups: [] as Popup[],
+  /** Star bursts from starry cookies, for the board to draw. */
+  bursts: [] as { id: number; x: number; y: number }[],
+  /** Until this step, after a wizard cookie, no lasers. */
+  wizardUntil: 0,
   banner: null as { id: number; title: string; sub: string } | null,
   snipper: {
     x: 0,
@@ -516,7 +532,8 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   const seed = from?.seed ?? (Math.floor(Math.random() * 2 ** 32) >>> 0)
   random = seeded(seed)
   if (from) state.mode = from.mode ?? 'normal'
-  recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [] }
+  itemsRev = from ? ((from as { rev?: number }).rev ?? 1) : ITEMS_REV
+  recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [], rev: itemsRev }
   if (!isStock(live())) recording.design = snapshot(live())
   conductor.setStyle(0, 'play', 0)
   stepsDone = 0
@@ -551,6 +568,8 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     lasers: [],
     debris: [],
     popups: [],
+    bursts: [],
+    wizardUntil: 0,
     banner: null,
     stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0 },
   })
@@ -978,12 +997,27 @@ function eat(item: Item) {
     }
     return
   }
+  if (item.kind === 'wizard') {
+    // Every laser on the board fizzles out, and none come for a moment.
+    state.lasers = state.lasers.filter((l) => l.struck)
+    state.wizardUntil = Math.max(state.wizardUntil, state.step) + (live().items.wizard?.bars ?? 2) * 16
+    sound.bonus()
+    feel('eat', 3)
+    popup(item, 'abracadabra!', 'lavender')
+    state.stats.eaten++
+    return
+  }
   const grow = live().items[item.kind]?.grow ?? FRUIT_GROW[item.kind]
   state.grow += grow
   state.stats.eaten++
-  sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' ? 1 : 2)
+  sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' || item.kind === 'cookie' ? 1 : 2)
   feel('eat', grow)
-  popup(item, `+${grow} ×`, item.kind === 'star' ? 'sun' : 'mint')
+  popup(item, `+${grow} ×`, item.kind === 'star' || item.kind === 'starry' ? 'sun' : 'mint')
+  if (item.kind === 'starry') {
+    const id = ++uid
+    state.bursts.push({ id, x: item.x, y: item.y })
+    later(900, () => (state.bursts = state.bursts.filter((b) => b.id !== id)))
+  }
   if (item.kind === 'apple') addItem('apple', null)
 }
 
@@ -1110,6 +1144,12 @@ function onBar(bar: number) {
     else if (roll < 0.3) addItem('cherry', 48)
     else if (roll < 0.4 && level >= 1) addItem('star', 32)
     else if (roll < 0.62 && level >= 1) addItem(pick(POWER_KINDS), 48)
+    // The cookies (item table 2): plain ones often, the wizard now and then, the starry one rarely but for longer.
+    else if (itemsRev < 2) {
+      /* the first table stops here */
+    } else if (roll < 0.72) addItem('cookie', 48)
+    else if (roll < 0.76 && level >= 1) addItem('wizard', 32)
+    else if (roll < 0.78 && level >= 2) addItem('starry', 96)
   }
   const totemOut = state.items.some((i) => i.kind === 'totem')
   if (level >= 1 && !state.totem && !totemOut && random() < TOTEM_CHANCE * rateOf('totem', level)) addItem('totem', lifeOf('totem', 32))
@@ -1137,6 +1177,11 @@ function dropWeighted(roll: number, level: number) {
   if (level >= 1) {
     options.push(['star', 0.1 * rateOf('star', level), lifeOf('star', 32)])
     for (const kind of POWER_KINDS) options.push([kind, (0.22 / POWER_KINDS.length) * rateOf(kind, level), lifeOf(kind, 48)])
+  }
+  if (itemsRev >= 2) {
+    options.push(['cookie', 0.1 * rateOf('cookie', level), lifeOf('cookie', 48)])
+    if (level >= 1) options.push(['wizard', 0.04 * rateOf('wizard', level), lifeOf('wizard', 32)])
+    if (level >= 2) options.push(['starry', 0.02 * rateOf('starry', level), lifeOf('starry', 96)])
   }
   for (const c of live().custom) if (level >= c.from) options.push([c.id as CustomId, c.rate * rateOf(c.id, level), c.life * 16])
   const total = options.reduce((sum, [, w]) => sum + w, 0)
@@ -1183,6 +1228,7 @@ function startIntro(tier: number) {
     if (state.effects[key] > state.step) state.effects[key] += INTRO_STEPS
   }
   for (const item of state.items) if (item.until !== null) item.until += INTRO_STEPS
+  if (state.wizardUntil > state.step) state.wizardUntil += INTRO_STEPS
   state.snipper.until += INTRO_STEPS
   state.hearts += heal
   conductor.setStyle(tier, 'intro', state.step)
@@ -1206,6 +1252,8 @@ function onBeat(step: number) {
   trackLasers()
 
   // More lasers per bar, and more armed at once, as the intensity climbs.
+  // A wizard cookie keeps the lasers away for a moment.
+  if (step < state.wizardUntil) return
   const i = intensity(state.level)
   const perBar = lasersFor(state.level)
   const armedCap = armedFor(state.level)

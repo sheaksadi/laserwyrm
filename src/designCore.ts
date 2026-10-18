@@ -166,8 +166,35 @@ export interface ItemTweak {
 }
 
 export type Effect = PowerKind
-export type Shape = 'fruit' | 'gem' | 'pill' | 'orb' | 'bolt' | 'star'
+export type Shape = 'fruit' | 'gem' | 'pill' | 'orb' | 'bolt' | 'star' | 'sprite'
 export const SHAPES: Shape[] = ['fruit', 'gem', 'pill', 'orb', 'bolt', 'star']
+
+/* ─── Sprites: pixel art for home-made items ─────────────────────────── */
+
+/**
+ * The colours sprites are drawn in. The first 16 are the game's own (its
+ * neon, its greys, black and white); the next 16 add darker shades and a
+ * few in-betweens. A sprite uses the first 16 or all 32.
+ */
+export const PALETTE = [
+  '#000000', '#F4F4F4', '#6A6A90', '#B4B4CC', '#FF3355', '#FF5FB0', '#FF9966', '#FFE14D',
+  '#5CFF5C', '#00F0C8', '#3FA9FF', '#B26BFF', '#26264A', '#0B0B1A', '#C98A4B', '#4A2A12',
+  '#8A1A2E', '#8A2A5E', '#8A4A2A', '#8A7A1A', '#2A7A2A', '#007A66', '#1A4A8A', '#5A2A8A',
+  '#1C2466', '#F2C7A0', '#7A5A3A', '#3A3A5A', '#FFB0C8', '#B0FFD8', '#B0D8FF', '#FFF0A0',
+] as const
+/** One character per colour: 0–9 then a–v; `.` is see-through. */
+export const PIXEL_CHARS = '0123456789abcdefghijklmnopqrstuv'
+export const SPRITE_SIZE = 16
+
+/** A drawing: SPRITE_SIZE² characters, row by row. */
+export interface Sprite {
+  id: string
+  name: string
+  /** How many palette colours it may use: the game's 16, or all 32. */
+  colors: 16 | 32
+  pixels: string
+}
+export const blankSprite = (id: string, n: number): Sprite => ({ id, name: `Sprite ${n}`, colors: 16, pixels: '.'.repeat(SPRITE_SIZE * SPRITE_SIZE) })
 export const COLORS = ['#FF3355', '#FF9966', '#FFE14D', '#5CFF5C', '#00F0C8', '#3FA9FF', '#B26BFF', '#FF5FB0', '#E8E8FF'] as const
 
 /** A home-made item: a fruit to eat, or a power-up to hold and use. */
@@ -195,6 +222,8 @@ export interface CustomItem {
   stack: Stack
   /** Held for later (like stock power-ups), or used the moment it is eaten. */
   hold: boolean
+  /** With shape 'sprite': which of the design's sprites it looks like. */
+  sprite?: string
 }
 
 export const ITEM_RANGE = {
@@ -245,6 +274,8 @@ export interface Design {
   custom: CustomItem[]
   /** The next home-made item's number. */
   nextItem: number
+  /** Pixel art, for home-made items. */
+  sprites: Sprite[]
 }
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
@@ -256,6 +287,7 @@ export const stockDesign = (): Design => ({
   items: {},
   custom: [],
   nextItem: 1,
+  sprites: [],
 })
 
 const isEmpty = (o: object) => Object.keys(o).length === 0
@@ -269,7 +301,8 @@ export function isStock(d: Design): boolean {
     !d.background &&
     d.levels.every(isEmpty) &&
     Object.values(d.items).every(isEmpty) &&
-    d.custom.length === 0
+    d.custom.length === 0 &&
+    d.sprites.length === 0
   )
 }
 /** Items are stock: then the stock spawning runs, number for number. */
@@ -318,7 +351,7 @@ const num = (v: unknown, [min, max]: readonly [number, number, ...unknown[]]) =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : undefined
 const POWER_EFFECTS: Effect[] = ['shield', 'double', 'slow', 'dash', 'magnet', 'ghost']
 const STACKS: Stack[] = ['extend', 'refresh', 'keep']
-const ITEM_KINDS = ['apple', 'cherry', 'star', 'heart', 'totem', ...POWER_EFFECTS]
+const ITEM_KINDS = ['apple', 'cherry', 'star', 'cookie', 'wizard', 'starry', 'heart', 'totem', ...POWER_EFFECTS]
 const MUSIC_MAX = 6000
 
 function cleanLevel(raw: unknown): LevelEdit {
@@ -373,7 +406,8 @@ function cleanItem(raw: unknown): CustomItem | null {
     ...base,
     name: typeof c.name === 'string' && c.name.trim() ? c.name.slice(0, 18) : base.name,
     blurb: typeof c.blurb === 'string' ? c.blurb.slice(0, 60) : base.blurb,
-    shape: SHAPES.includes(c.shape as Shape) ? (c.shape as Shape) : base.shape,
+    shape: SHAPES.includes(c.shape as Shape) || c.shape === 'sprite' ? (c.shape as Shape) : base.shape,
+    ...(typeof c.sprite === 'string' && /^s\d{1,4}$/.test(c.sprite) ? { sprite: c.sprite } : {}),
     color: typeof c.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(c.color) ? c.color : base.color,
     rate: num(c.rate, r.customRate) ?? base.rate,
     from: num(c.from, r.from) ?? base.from,
@@ -386,6 +420,17 @@ function cleanItem(raw: unknown): CustomItem | null {
     stack: STACKS.includes(c.stack as Stack) ? (c.stack as Stack) : base.stack,
     hold: typeof c.hold === 'boolean' ? c.hold : base.hold,
   }
+}
+
+function cleanSprite(raw: unknown): Sprite | null {
+  const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (typeof s.id !== 'string' || !/^s\d{1,4}$/.test(s.id)) return null
+  const colors = s.colors === 32 ? 32 : 16
+  const allowed = PIXEL_CHARS.slice(0, colors)
+  const raw_ = typeof s.pixels === 'string' ? s.pixels : ''
+  let pixels = ''
+  for (let i = 0; i < SPRITE_SIZE * SPRITE_SIZE; i++) pixels += allowed.includes(raw_[i] ?? '.') ? raw_[i]! : '.'
+  return { id: s.id, name: typeof s.name === 'string' && s.name.trim() ? s.name.slice(0, 24) : 'Sprite', colors, pixels }
 }
 
 export function cleanDesign(raw: unknown): Design {
@@ -411,6 +456,7 @@ export function cleanDesign(raw: unknown): Design {
     }
   }
   if (Array.isArray(d.custom)) out.custom = d.custom.slice(0, 24).map(cleanItem).filter((c): c is CustomItem => !!c)
+  if (Array.isArray(d.sprites)) out.sprites = d.sprites.slice(0, 32).map(cleanSprite).filter((s): s is Sprite => !!s)
   const highest = out.custom.reduce((n, c) => Math.max(n, Number(c.id.slice(1))), 0)
   out.nextItem = Math.max(highest + 1, num(d.nextItem, [1, 9999, 1]) ?? 1)
   return out

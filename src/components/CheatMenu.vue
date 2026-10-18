@@ -16,8 +16,9 @@ import GlobalPanel from './GlobalPanel.vue'
 import MusicPanel from './MusicPanel.vue'
 import LevelsPanel from './LevelsPanel.vue'
 import RulesPanel from './RulesPanel.vue'
+import SpritePanel from './SpritePanel.vue'
 
-export type WorkshopTab = 'cheats' | 'global' | 'levels' | 'music'
+export type WorkshopTab = 'cheats' | 'global' | 'levels' | 'music' | 'art'
 const props = defineProps<{ start?: WorkshopTab }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -26,6 +27,7 @@ const VIEWS: { id: WorkshopTab; name: string; icon: string }[] = [
   { id: 'global', name: 'Global', icon: 'M3 20V14M8 20V9M13 20V12M18 20V5' },
   { id: 'levels', name: 'Levels', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z' },
   { id: 'music', name: 'Music', icon: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z' },
+  { id: 'art', name: 'Art', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h3v3h-3zM17 17h3v3h-3z' },
 ]
 const view = ref<WorkshopTab>(props.start ?? 'levels')
 const changed = computed<Record<WorkshopTab, boolean>>(() => ({
@@ -33,6 +35,7 @@ const changed = computed<Record<WorkshopTab, boolean>>(() => ({
   global: JSON.stringify(design.global) !== JSON.stringify(STOCK_GLOBAL) || design.levels.some((l) => l.difficulty !== undefined),
   levels: design.levels.some((l) => Object.keys(l).some((k) => k !== 'difficulty')) || design.custom.length > 0,
   music: !!design.music || !!design.background || design.levels.some((l) => l.music || l.background),
+  art: design.sprites.length > 0,
 }))
 
 /* ─── Undo: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y); text boxes keep their own ─── */
@@ -101,7 +104,8 @@ function start() {
         <RulesPanel v-if="view === 'cheats'" />
         <GlobalPanel v-else-if="view === 'global'" />
         <LevelsPanel v-else-if="view === 'levels'" @close="emit('close')" />
-        <MusicPanel v-else />
+        <MusicPanel v-else-if="view === 'music'" />
+        <SpritePanel v-else />
       </main>
       <div id="ws-bottom" class="ws-bottom"></div>
     </div>

@@ -617,6 +617,11 @@ onBeforeUnmount(() => {
           <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
         <div class="effects">
+          <!-- After a wizard cookie: no lasers for a moment -->
+          <div v-if="state.wizardUntil > state.step" class="effect" style="--fx: var(--lavender)">
+            <span class="text-trim">No lasers</span>
+            <span class="effect-bar" :style="{ transform: `scaleX(${Math.min(1, (state.wizardUntil - state.step) / 32)})` }"></span>
+          </div>
           <template v-for="effect in EFFECTS" :key="effect.key">
             <div v-if="isActive(effect.key)" class="effect" :style="{ '--fx': effect.color }">
               <span class="text-trim">{{ effect.label }}</span>

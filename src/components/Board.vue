@@ -45,6 +45,23 @@ const eyes = computed(() => {
 
 const snipperAngle = computed(() => (Math.atan2(state.snipper.facing.y, state.snipper.facing.x) * 180) / Math.PI)
 
+/** Where a cookie's chips (or a starry cookie's stars) sit. */
+const CHIPS: [number, number][] = [[-0.14, -0.12], [0.13, -0.06], [-0.04, 0.14], [0.17, 0.17], [-0.2, 0.08]]
+/** A small five-pointed star at (x, y). */
+function tinyStar(x: number, y: number, r = 0.09) {
+  return Array.from({ length: 10 }, (_, i) => {
+    const rr = i % 2 ? r * 0.45 : r
+    const a = (i * Math.PI) / 5 - Math.PI / 2
+    return `${(x + Math.cos(a) * rr).toFixed(3)},${(y + Math.sin(a) * rr).toFixed(3)}`
+  }).join(' ')
+}
+/** Directions (in board units, drawn as px of a 1-unit cell) the burst's stars fly, and how much they spin. */
+const BURST: [number, number, number][] = Array.from({ length: 10 }, (_, i) => {
+  const a = (i / 10) * Math.PI * 2
+  const d = 1.3 + (i % 3) * 0.45
+  return [Math.cos(a) * d, Math.sin(a) * d, (i % 2 ? 1 : -1) * 220]
+})
+
 /** Each laser colour; prism lasers are a rainbow gradient. */
 const LASER_COLOR: Record<LaserKind, string> = {
   red: 'var(--coral)',
@@ -220,8 +237,35 @@ watch(
             <path :d="HEART_PATH" transform="scale(0.12) translate(-3.5 -3)" fill="var(--coral)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
           </g>
         </template>
+        <!-- Cookies: plain with chips; the wizard's wears a hat; the starry one is night-blue with stars, and twinkles -->
+        <template v-else-if="item.kind === 'cookie'">
+          <circle r="0.36" fill="#C98A4B" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+          <circle v-for="(c, i) in CHIPS" :key="i" :cx="c[0]" :cy="c[1]" r="0.055" fill="#4A2A12" />
+        </template>
+        <template v-else-if="item.kind === 'wizard'">
+          <g class="beat-throb">
+            <circle cy="0.08" r="0.32" fill="#C98A4B" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+            <circle v-for="(c, i) in CHIPS.slice(0, 3)" :key="i" :cx="c[0]" :cy="c[1] + 0.1" r="0.05" fill="#4A2A12" />
+            <path d="M -0.26 -0.1 L 0.02 -0.5 L 0.24 -0.12 Z" fill="var(--lavender)" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+            <path d="M -0.32 -0.1 H 0.3" stroke="var(--lavender)" stroke-width="0.07" />
+            <circle cx="0.04" cy="-0.28" r="0.035" fill="var(--sun)" />
+          </g>
+        </template>
+        <template v-else-if="item.kind === 'starry'">
+          <circle r="0.37" fill="#1C2466" stroke="var(--sun)" stroke-width="2" vector-effect="non-scaling-stroke" />
+          <g class="twinkle">
+            <polygon v-for="(c, i) in CHIPS" :key="i" :points="tinyStar(c[0], c[1])" fill="var(--sun)" />
+          </g>
+        </template>
         <!-- Power-ups and the totem -->
         <g v-else :class="{ 'beat-throb': item.kind === 'totem' }"><PowerIcon :kind="item.kind" /></g>
+      </g>
+    </g>
+
+    <!-- A starry cookie bursts into stars -->
+    <g v-for="b in state.bursts" :key="`burst${b.id}`" :transform="`translate(${b.x + 0.5} ${b.y + 0.5})`">
+      <g v-for="(d, i) in BURST" :key="i" class="burst-star" :style="{ '--dx': `${d[0]}px`, '--dy': `${d[1]}px`, '--spin': `${d[2]}deg` }">
+        <polygon :points="tinyStar(0, 0, 0.22)" fill="var(--sun)" />
       </g>
     </g>
 
@@ -510,5 +554,13 @@ watch(
   from { transform: translateY(0.2px); opacity: 0; }
   20% { opacity: 1; }
   to { transform: translateY(-1.2px); opacity: 0; }
+}
+/* The starry cookie's stars twinkle; its burst flies out and fades. */
+.twinkle { animation: twinkle 0.9s ease-in-out infinite alternate; }
+@keyframes twinkle { from { opacity: 0.45; } to { opacity: 1; } }
+.burst-star { animation: burst-star 0.9s var(--ease-out) both; }
+@keyframes burst-star {
+  from { transform: translate(0, 0) rotate(0deg) scale(1.2); opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) rotate(var(--spin)) scale(0.3); opacity: 0; }
 }
 </style>

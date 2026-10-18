@@ -197,6 +197,8 @@ function checkReplay(r) {
   }
   const mode = r.mode === 'hardcore' ? 'hardcore' : 'normal'
   const out = { v: 1, mode, seed: r.seed, cols: r.cols, rows: r.rows, steps: r.steps, events: r.events }
+  // Which item table the run used (2 has the cookies); missing means 1.
+  if (int(r.rev, 1, 9)) out.rev = r.rev
   // A changed game's design rides along so the run plays back the same; the game checks it on load.
   if (r.design !== undefined) {
     if (!r.design || typeof r.design !== 'object' || Array.isArray(r.design) || JSON.stringify(r.design).length > 200_000) return 'replay design is invalid'

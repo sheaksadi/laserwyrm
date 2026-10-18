@@ -15,16 +15,20 @@ import { FRUIT_GROW, HEART_PATH, POWER_KINDS, POWERS, type CustomId } from '../g
 import { COLORS, design, ITEM_RANGE, LEVEL_RANGE, newItem, SHAPES, type CustomItem, type Effect, type ItemTweak, type Stack } from '../design'
 import AutoSlider from './AutoSlider.vue'
 import PowerIcon from './PowerIcon.vue'
+import { spriteUrl } from '../sprites'
 
 const props = defineProps<{ level: number }>()
 const edit = computed(() => design.levels[props.level]!)
 
-type StockId = 'apple' | 'cherry' | 'star' | 'heart' | 'totem' | (typeof POWER_KINDS)[number]
+type StockId = 'apple' | 'cherry' | 'star' | 'cookie' | 'wizard' | 'starry' | 'heart' | 'totem' | (typeof POWER_KINDS)[number]
 interface StockInfo { id: StockId; name: string; fruit: boolean; life: number; bars?: number; dropped: boolean }
 const STOCK: StockInfo[] = [
   { id: 'apple', name: 'Apple', fruit: true, life: 0, dropped: false },
   { id: 'cherry', name: 'Cherries', fruit: true, life: 3, dropped: true },
   { id: 'star', name: 'Star', fruit: true, life: 2, dropped: true },
+  { id: 'cookie', name: 'Cookie', fruit: true, life: 3, dropped: true },
+  { id: 'wizard', name: 'Wizard cookie', fruit: false, life: 2, bars: 2, dropped: true },
+  { id: 'starry', name: 'Starry cookie', fruit: true, life: 6, dropped: true },
   ...POWER_KINDS.map((k) => ({ id: k, name: POWERS[k].name, fruit: false, life: 3, bars: POWERS[k].bars || undefined, dropped: true })),
   { id: 'heart', name: 'Heart', fruit: false, life: 2.5, dropped: true },
   { id: 'totem', name: 'Totem', fruit: false, life: 2, dropped: true },
@@ -83,7 +87,7 @@ function remove(id: string) {
 function toggleEffect(c: CustomItem, e: Effect) {
   c.effects = c.effects.includes(e) ? c.effects.filter((x) => x !== e) : EFFECTS.filter((x) => x === e || c.effects.includes(x))
 }
-const fruitColor: Record<string, string> = { apple: 'var(--coral)', cherry: 'var(--rose)', star: 'var(--sun)' }
+const fruitColor: Record<string, string> = { apple: 'var(--coral)', cherry: 'var(--rose)', star: 'var(--sun)', cookie: '#C98A4B', starry: '#1C2466', wizard: 'var(--lavender)' }
 </script>
 
 <template>
@@ -112,6 +116,7 @@ const fruitColor: Record<string, string> = { apple: 'var(--coral)', cherry: 'var
             <svg viewBox="-0.5 -0.5 1 1" width="22" height="22" aria-hidden="true">
               <path v-if="s.id === 'heart'" :d="HEART_PATH" transform="scale(0.12) translate(-3.5 -3)" fill="var(--coral)" />
               <circle v-else-if="s.fruit" r="0.34" :fill="fruitColor[s.id]" stroke="var(--ink)" stroke-width="0.06" />
+              <circle v-else-if="s.id === 'wizard'" r="0.34" fill="#C98A4B" stroke="var(--lavender)" stroke-width="0.08" />
               <PowerIcon v-else :kind="s.id as 'totem'" />
             </svg>
             <span class="item-name">{{ s.name }}</span>
@@ -149,7 +154,7 @@ const fruitColor: Record<string, string> = { apple: 'var(--coral)', cherry: 'var
                 @set="setTweak(s.id, 'bars', $event)"
               />
             </div>
-            <div v-if="s.bars" class="chips">
+            <div v-if="s.bars && s.id !== 'wizard'" class="chips">
               <span class="label">Second one</span>
               <button
                 v-for="o in STACKS"
@@ -189,6 +194,17 @@ const fruitColor: Record<string, string> = { apple: 'var(--coral)', cherry: 'var
               <span class="label">Look</span>
               <button v-for="sh in SHAPES" :key="sh" class="chip icon" :class="{ on: c.shape === sh }" :aria-label="sh" @click="c.shape = sh">
                 <svg viewBox="-0.5 -0.5 1 1" width="18" height="18"><PowerIcon v-if="c.shape === sh" :kind="c.id as CustomId" /><text v-else x="0" y="0.12" text-anchor="middle" font-size="0.36" fill="currentColor">{{ sh.slice(0, 3) }}</text></svg>
+              </button>
+              <!-- Or one of your sprites (drawn under Art) -->
+              <button
+                v-for="sp in design.sprites"
+                :key="sp.id"
+                class="chip icon"
+                :class="{ on: c.shape === 'sprite' && c.sprite === sp.id }"
+                :title="sp.name"
+                @click="(c.shape = 'sprite'), (c.sprite = sp.id)"
+              >
+                <img :src="spriteUrl(sp)" alt="" width="18" height="18" style="image-rendering: pixelated" />
               </button>
               <button
                 v-for="col in COLORS"
