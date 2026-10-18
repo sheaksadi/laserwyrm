@@ -92,12 +92,13 @@ function setName(value: string) {
 
 /* ─── The tabs under the board ─── */
 
-type Tab = 'pacing' | 'feel' | 'items' | 'music'
+type Tab = 'pacing' | 'feel' | 'items' | 'music' | 'background'
 const TABS: { id: Tab; name: string }[] = [
   { id: 'pacing', name: 'Pacing' },
   { id: 'feel', name: 'Feel' },
   { id: 'items', name: 'Items' },
   { id: 'music', name: 'Music' },
+  { id: 'background', name: 'Backing' },
 ]
 const tab = ref<Tab>('pacing')
 /** The wall editor, whose tools float beside the card. */
@@ -107,7 +108,7 @@ const tabChanged = (t: Tab) => {
   if (t === 'pacing') return ['difficulty', 'bpm', 'lasers', 'armed', 'warn', 'bars', 'traits'].some((k) => k in e)
   if (t === 'feel') return ['edges', 'snipper', 'heal', 'intro', 'calm', 'score'].some((k) => k in e)
   if (t === 'items') return 'items' in e
-  return 'music' in e
+  return t === 'music' ? 'music' in e : 'background' in e
 }
 </script>
 
@@ -157,11 +158,11 @@ const tabChanged = (t: Tab) => {
   </Teleport>
 
   <!-- In the middle: the board (or the level's music) -->
-  <LevelMusic v-if="tab === 'music'" :level="selected" />
+  <LevelMusic v-if="tab === 'music' || tab === 'background'" :level="selected" :track="tab === 'music' ? 'main' : 'background'" />
   <WallEditor v-else ref="walls" :level="selected" />
 
   <!-- Below: the picked tab's settings -->
-  <Teleport v-if="tab !== 'music'" defer to="#ws-bottom">
+  <Teleport v-if="tab !== 'music' && tab !== 'background'" defer to="#ws-bottom">
     <LevelRules v-if="tab === 'pacing' || tab === 'feel'" :level="selected" :section="tab" />
     <LevelItems v-else :level="selected" />
   </Teleport>
@@ -179,7 +180,7 @@ const tabChanged = (t: Tab) => {
     >
       {{ t.name }}<i v-if="tabChanged(t.id)" class="dot"></i>
     </button>
-    <template v-if="tab !== 'music' && walls">
+    <template v-if="tab !== 'music' && tab !== 'background' && walls">
       <span class="side-gap"></span>
       <button
         v-for="tl in walls.TOOLS"

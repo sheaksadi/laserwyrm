@@ -11,9 +11,9 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { play, reset, state } from '../game'
-import { design, history, redo, STOCK_GLOBAL, STOCK_RULES, undo } from '../design'
+import { custom, design, history, redo, setCustom, shared, STOCK_GLOBAL, STOCK_RULES, stopShared, undo } from '../design'
 import GlobalPanel from './GlobalPanel.vue'
-import LevelMusic from './LevelMusic.vue'
+import MusicPanel from './MusicPanel.vue'
 import LevelsPanel from './LevelsPanel.vue'
 import RulesPanel from './RulesPanel.vue'
 
@@ -32,11 +32,19 @@ const changed = computed<Record<WorkshopTab, boolean>>(() => ({
   cheats: JSON.stringify(design.rules) !== JSON.stringify(STOCK_RULES),
   global: JSON.stringify(design.global) !== JSON.stringify(STOCK_GLOBAL) || design.levels.some((l) => l.difficulty !== undefined),
   levels: design.levels.some((l) => Object.keys(l).some((k) => k !== 'difficulty')) || design.custom.length > 0,
-  music: !!design.music,
+  music: !!design.music || !!design.background || design.levels.some((l) => l.music || l.background),
 }))
 
 /* ─── Undo: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y); text boxes keep their own ─── */
 function onKey(event: KeyboardEvent) {
+  // Esc in a text box leaves the box; a second Esc closes the workshop.
+  const typing = document.activeElement?.matches('input:not([type=range]), textarea')
+  if (event.key === 'Escape' && typing) {
+    ;(document.activeElement as HTMLElement).blur()
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    return
+  }
   if (!(event.ctrlKey || event.metaKey) || document.activeElement?.matches('input:not([type=range]), textarea')) return
   const key = event.key.toLowerCase()
   if (key === 'z' && !event.shiftKey) undo()
@@ -48,9 +56,13 @@ function onKey(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey, { capture: true }))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: true }))
 
-/** Play on (or start, from game over). */
+/** Play the game being edited: on from the pause if it is already in play, else a fresh run of it. */
 function start() {
-  if (state.status === 'over') reset()
+  if (!custom.on || shared.slug) {
+    stopShared()
+    setCustom(true)
+    reset()
+  } else if (state.status === 'over') reset()
   emit('close')
   play()
 }
@@ -81,14 +93,15 @@ function start() {
     </nav>
 
     <!-- The card: a strip on top, the view's main thing, sliders below -->
+    <!-- Off the card's top right corner -->
+    <button class="close" aria-label="Close" @click="emit('close')">✕</button>
     <div class="workshop">
-      <button class="close" aria-label="Close" @click="emit('close')">✕</button>
       <div id="ws-top" class="ws-top"></div>
       <main class="ws-main">
         <RulesPanel v-if="view === 'cheats'" />
         <GlobalPanel v-else-if="view === 'global'" />
         <LevelsPanel v-else-if="view === 'levels'" @close="emit('close')" />
-        <LevelMusic v-else level="game" />
+        <MusicPanel v-else />
       </main>
       <div id="ws-bottom" class="ws-bottom"></div>
     </div>
@@ -118,7 +131,7 @@ function start() {
   background: var(--bg);
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--coral), 10px 10px 0 6px var(--ink);
 }
-.ws-top { flex: none; min-width: 0; padding-right: 44px; }
+.ws-top { flex: none; min-width: 0; }
 .ws-main { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 /* As tall as its sliders need, up to a share of the card; past that it scrolls on its own. */
 .ws-bottom { flex: 0 1 auto; min-width: 0; min-height: 0; max-height: 42%; overflow: auto; }
@@ -136,7 +149,8 @@ function start() {
   overflow: auto;
 }
 .ws-nav { right: calc(100% + 12px); }
-.ws-side { left: calc(100% + 12px); }
+/* The side's buttons start under the ✕. */
+.ws-side { left: calc(100% + 12px); top: 64px; }
 .gap { height: 10px; flex: none; }
 .view {
   position: relative;
@@ -160,17 +174,17 @@ function start() {
 .dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--sun); }
 .close {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-  width: 34px;
-  height: 34px;
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-off);
+  top: 12px;
+  left: calc(100% + 12px);
+  width: 40px;
+  height: 36px;
+  border: 3px solid var(--ink);
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--border), 4px 4px 0 2px var(--ink);
+  font-size: 16px;
   color: var(--text-dim);
 }
-.close:hover { border-color: var(--sage); color: var(--text); }
+.close:hover { color: var(--text); box-shadow: 0 0 0 2px var(--coral), 4px 4px 0 2px var(--ink); }
 .view:focus-visible, .close:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
 
 /* Phones and short screens: narrower tabs, a tighter card. */
@@ -184,8 +198,8 @@ function start() {
   .view { padding: 4px 5px; gap: 4px; font-size: 10px; border-width: 2px; box-shadow: 0 0 0 1px var(--border), 2px 2px 0 1px var(--ink); }
   .view svg { width: 12px; height: 12px; }
   .glyph { width: 12px; font-size: 12px; }
-  .close { top: 4px; right: 4px; width: 28px; height: 28px; }
-  .ws-top { padding-right: 34px; }
+  .close { top: 4px; left: calc(100% + 8px); width: 30px; height: 28px; border-width: 2px; box-shadow: 0 0 0 1px var(--border), 2px 2px 0 1px var(--ink); }
+  .ws-side { top: 44px; }
   /* The strips a size down, so the middle keeps its room. */
   .ws-top { zoom: 0.75; }
   .ws-bottom { max-height: 38%; zoom: 0.7; }

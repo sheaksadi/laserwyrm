@@ -13,7 +13,7 @@
  * music follows pause, replays and tempo exactly, and plays through the
  * game's music volume. Strudel is AGPL-3.0, and so is this game.
  */
-import { musicOutput, setCustomMusic, VARIANTS, type Variant } from './audio'
+import { musicOutput, setBackgroundMusic, setCustomMusic, VARIANTS, type Variant } from './audio'
 import { tierOf } from './game'
 
 /* ─── The stock track, as Strudel code ───────────────────────────────── */
@@ -168,32 +168,43 @@ function asMusic(pattern: Pattern, web: StrudelWeb, from: number) {
 }
 
 let web: StrudelWeb | null = null
-/** The code playing now, to switch only when it changes. */
-let playing: string | null = null
+
+/** One track the game plays from code: the main music, or the background under it. */
+function track(set: (music: ReturnType<typeof asMusic> | null) => void) {
+  /** The code playing now, to switch only when it changes. */
+  let playing: string | null = null
+  return (code: string | undefined, fromStep: number) => {
+    if (!code) {
+      playing = null
+      set(null)
+      return
+    }
+    if (code === playing) return
+    playing = code
+    const ready = compiled.get(code)
+    if (ready && web) {
+      set(ready instanceof Error ? null : asMusic(ready, web, fromStep))
+      return
+    }
+    set(null)
+    void compile(code).then(async (pattern) => {
+      web ??= (await loadStrudel()).web
+      if (playing === code && !(pattern instanceof Error)) set(asMusic(pattern, web, fromStep))
+    })
+  }
+}
+const mainTrack = track(setCustomMusic)
+const backgroundTrack = track(setBackgroundMusic)
 
 /**
  * The game reached a level: play its own music if it has some (from this
- * step, so its bars line up with the level's), or the stock track. Code that
- * is still compiling, or does not compile, leaves the stock track on.
+ * step, so its bars line up with the level's), or the stock track, and its
+ * background track under it. Code still compiling, or that does not
+ * compile, leaves that track out (the stock music plays meanwhile).
  */
-export function musicForLevel(code: string | undefined, fromStep: number) {
-  if (!code) {
-    playing = null
-    setCustomMusic(null)
-    return
-  }
-  if (code === playing) return
-  playing = code
-  const ready = compiled.get(code)
-  if (ready && web) {
-    setCustomMusic(ready instanceof Error ? null : asMusic(ready, web, fromStep))
-    return
-  }
-  setCustomMusic(null)
-  void compile(code).then(async (pattern) => {
-    web ??= (await loadStrudel()).web
-    if (playing === code && !(pattern instanceof Error)) setCustomMusic(asMusic(pattern, web, fromStep))
-  })
+export function musicForLevel(code: string | undefined, fromStep: number, background?: string) {
+  mainTrack(code, fromStep)
+  backgroundTrack(background, fromStep)
 }
 
 /** Get a game's music ready before it is needed. */
@@ -245,6 +256,21 @@ export async function patternBlocks(code: string, cycles = 4): Promise<Block[] |
       })
   } catch (err) {
     return err instanceof Error ? err : new Error(String(err))
+  }
+}
+
+/** The stretches of the code (character offsets) whose notes are sounding at a cycle, for lighting them up. */
+export function soundingAt(code: string, cycle: number): [number, number][] {
+  const pattern = compiled.get(code)
+  if (!pattern || pattern instanceof Error) return []
+  try {
+    const out: [number, number][] = []
+    for (const hap of pattern.queryArc(cycle, cycle + 0.001, { _cps: 0.5 }) as { context?: { locations?: { start: number; end: number }[] } }[]) {
+      for (const loc of hap.context?.locations ?? []) out.push([loc.start, loc.end])
+    }
+    return out
+  } catch {
+    return []
   }
 }
 

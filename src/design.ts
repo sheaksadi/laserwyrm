@@ -138,6 +138,8 @@ export interface LevelEdit {
   // Music
   /** Strudel code; missing plays the stock arrangement. */
   music?: string
+  /** A second Strudel track playing under the music; missing uses the game's (if any). */
+  background?: string
 }
 
 export const LEVEL_RANGE = {
@@ -245,6 +247,8 @@ export interface Design {
   rules: GameRules
   /** Strudel code every level plays unless it has its own; missing plays the stock tracks. */
   music?: string
+  /** A background track under every level's music, unless a level has its own. */
+  background?: string
   /** By level, 0-based; empty objects for untouched levels. */
   levels: LevelEdit[]
   /** Tweaks to stock items, by item kind. */
@@ -273,6 +277,7 @@ export function isStock(d: Design): boolean {
     JSON.stringify(d.global) === JSON.stringify(STOCK_GLOBAL) &&
     JSON.stringify(d.rules) === JSON.stringify(STOCK_RULES) &&
     !d.music &&
+    !d.background &&
     d.levels.every(isEmpty) &&
     Object.values(d.items).every(isEmpty) &&
     d.custom.length === 0
@@ -349,6 +354,7 @@ function cleanLevel(raw: unknown): LevelEdit {
     if (!isEmpty(items)) out.items = items
   }
   if (typeof l.music === 'string' && l.music.trim()) out.music = l.music.slice(0, MUSIC_MAX)
+  if (typeof l.background === 'string' && l.background.trim()) out.background = l.background.slice(0, MUSIC_MAX)
   return out
 }
 
@@ -402,6 +408,7 @@ export function cleanDesign(raw: unknown): Design {
   for (const key of Object.keys(RULES_RANGE) as (keyof GameRules)[]) out.rules[key] = num(r[key], RULES_RANGE[key]) ?? STOCK_RULES[key]
   out.rules.maxHearts = Math.max(out.rules.maxHearts, out.rules.hearts)
   if (typeof d.music === 'string' && d.music.trim()) out.music = d.music.slice(0, MUSIC_MAX)
+  if (typeof d.background === 'string' && d.background.trim()) out.background = d.background.slice(0, MUSIC_MAX)
   if (Array.isArray(d.levels)) {
     const levels = d.levels.slice(0, MAX_LEVELS).map(cleanLevel)
     while (levels.length < STOCK_LEVELS) levels.push({})

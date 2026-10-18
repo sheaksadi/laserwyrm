@@ -8,7 +8,7 @@ import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
 import { ApiError, claimName, countPlay, fetchDesign, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
 import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
-import { custom, playShared, setCustom, shared, stopShared } from './design'
+import { custom, library, playShared, setCustom, shared, stopShared } from './design'
 import { navFocusFirst, navMove, navPress, navScope } from './menuNav'
 import Briefing from './components/Briefing.vue'
 import CheatMenu from './components/CheatMenu.vue'
@@ -280,6 +280,9 @@ function openEditor() {
   menuOpen.value = false
   pause()
 }
+/** The custom game this device plays, for the start card. */
+const activeGameName = computed(() => library.games.find((game) => game.id === library.active)?.name ?? 'yours')
+
 /** Leave the run for the start screen. */
 function toMainMenu() {
   briefing.value = null
@@ -745,13 +748,16 @@ onBeforeUnmount(() => {
           <Mascot class="corner-mascot" />
           <header class="hello">
             <h1>Laserwyrm<span class="brand-dot">.</span></h1>
-            <!-- Custom play is on: your design, or one from Explore -->
-            <p v-if="custom.on" class="shared-note">
-              Custom: <b>{{ shared.slug ? shared.name : 'your game' }}</b><template v-if="shared.slug"> by {{ shared.author }}</template>
-              <button class="shared-leave" @click="playNormal">play normal</button>
-            </p>
+
           </header>
           <div class="start-buttons">
+          <!-- Which game Press start plays: the main one, or a custom one (yours, or shared) -->
+          <div v-if="custom.on" class="game-switch" role="radiogroup" aria-label="Which game">
+            <button class="switch" role="radio" aria-checked="false" @click="playNormal">Main game</button>
+            <button class="switch on" role="radio" aria-checked="true" :title="shared.slug ? `${shared.name} by ${shared.author}` : 'Your custom game'" @click="openCustom">
+              Custom: {{ shared.slug ? shared.name : activeGameName }}
+            </button>
+          </div>
           <button class="btn btn-start" @click="openBriefing('normal')">
             <span class="start-face">
               <svg class="blink" viewBox="-0.5 -0.5 8 7" width="16" height="14" aria-hidden="true"><path :d="HEART_PATH" fill="#FFFFFF" stroke="var(--ink)" stroke-width="0.8" /></svg>
@@ -818,10 +824,11 @@ onBeforeUnmount(() => {
           <!-- Quit the run: back to the start screen (reset leaves the game ready, which shows it) -->
           <button class="btn btn-line" @click="toMainMenu"><span class="text-trim">Main menu</span></button>
           <!-- In custom play: the editor, or back to the stock game -->
-          <template v-if="custom.on">
-            <button class="btn btn-line" @click="openEditor"><span class="text-trim">Editor</span></button>
-            <button class="btn btn-line" @click="playNormal"><span class="text-trim">Play normal</span></button>
-          </template>
+          <!-- In custom play: the editor, or back to the stock game, side by side -->
+          <div v-if="custom.on" class="pause-row">
+            <button class="btn btn-custom" @click="openEditor"><span class="text-trim">Editor</span></button>
+            <button class="btn btn-line" @click="playNormal"><span class="text-trim">Play main</span></button>
+          </div>
           <button class="close card-close" aria-label="Resume" @click="play()">✕</button>
           <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
             <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
@@ -1351,6 +1358,13 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
 .start-buttons .btn-custom,
 .start-buttons .btn-line { padding-block: calc(0.45rem + 0.38em); font-size: 0.6rem; }
 .mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pause-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 0.75rem; }
+.pause-row .btn + .btn { margin-top: 0; }
+/* In custom play: a clear switch back to the main game. */
+.game-switch { display: grid; grid-template-columns: auto 1fr; gap: 0; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 2px var(--mint); }
+.switch { padding: 9px 14px; border: 0; background: var(--bg-off); font-family: var(--font-pixel); font-size: 9px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.switch:hover { color: var(--text); background: var(--bg-warm); }
+.switch.on { background: var(--mint); color: var(--ink); }
 .mode-row .btn + .btn { margin-top: 0; }
 .btn.btn-custom {
   background: var(--bg-off);

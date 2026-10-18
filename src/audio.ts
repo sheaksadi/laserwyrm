@@ -447,6 +447,11 @@ let custom: CustomMusic | null = null
 export function setCustomMusic(music: CustomMusic | null) {
   custom = music
 }
+/** A background track, playing under whatever music plays (stock or custom). */
+let bed: CustomMusic | null = null
+export function setBackgroundMusic(music: CustomMusic | null) {
+  bed = music
+}
 
 /** One step of a level's own music: every note starting in this 16th, at its exact time. */
 function playCustom(music: CustomMusic, step: number, t: number) {
@@ -456,7 +461,8 @@ function playCustom(music: CustomMusic, step: number, t: number) {
     for (const note of music.notes(begin, begin + 1 / 16, cps)) note.play(t + (note.at - begin) / cps, note.length / cps, cps)
   } catch {
     // A pattern that throws while playing goes quiet rather than stopping the game.
-    custom = null
+    if (music === custom) custom = null
+    if (music === bed) bed = null
   }
 }
 
@@ -469,6 +475,7 @@ function schedule() {
     if (ctx && clock === 'audio') {
       if (custom && style.phase !== 'warmup') playCustom(custom, nextStep, nextTime + audioOffset)
       else playStep(nextStep, nextTime + audioOffset, level)
+      if (bed && style.phase !== 'warmup') playCustom(bed, nextStep, nextTime + audioOffset)
     }
     onSchedule(event)
     queue.push(event)

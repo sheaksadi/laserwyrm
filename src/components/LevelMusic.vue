@@ -1,30 +1,42 @@
 <script setup lang="ts">
 /**
- * Music as Strudel code, for one level or for the whole game.
+ * Music as Strudel code, for one level or the whole game, on two tracks:
+ * the main music, and a background track that plays under it.
  *
  * A level opens on what it plays now: the game's music if the game has
  * some, else its stock track written out as code. The game's music opens on
- * the stock track of level 1. Edit it (or write your own) and it is kept
- * once it compiles; back to stock forgets it.
+ * the stock track of level 1; background tracks start silent. Edit it and it
+ * is kept once it compiles; Stock forgets it.
  *
- * The code is coloured as you type (comments, strings, numbers, functions),
- * and under it a block view shows what plays over four bars, one row per
- * sound, with a playhead while the preview runs.
+ * The code is coloured as you type, and while the preview plays the words
+ * whose notes are sounding light up. Below: what plays over four bars, one
+ * row per sound, with a playhead, and the sound itself as a wave.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { levelPlan } from '../game'
 import { design } from '../design'
 import { musicOutput } from '../audio'
-import { compile, patternBlocks, preview, previewNow, stockMusic, type Block } from '../music'
+import { compile, patternBlocks, preview, previewNow, soundingAt, stockMusic, type Block } from '../music'
 
-const props = defineProps<{ level: number | 'game' }>()
+const props = withDefaults(defineProps<{ level: number | 'game'; track?: 'main' | 'background' }>(), { track: 'main' })
 const isGame = computed(() => props.level === 'game')
 const levelNo = computed(() => (props.level === 'game' ? 0 : props.level))
+const field = computed(() => (props.track === 'main' ? 'music' : 'background') as 'music' | 'background')
+
+const SILENT = `// A background track: it plays under this music, all the time.
+// For example, a low drone:
+// note("<a1 f1 c2 g1>").s("sine").gain(0.25)
+silence
+`
 
 /** Where the code lives: the level's edit, or the design itself for the game's music. */
-const target = computed<{ music?: string }>(() => (props.level === 'game' ? design : design.levels[props.level]!))
+const target = computed<{ music?: string; background?: string }>(() => (props.level === 'game' ? design : design.levels[props.level]!))
 /** What plays when nothing is set here. */
-const fallback = computed(() => (isGame.value ? stockMusic(0) : (design.music ?? stockMusic(levelNo.value))))
+const fallback = computed(() => {
+  if (props.track === 'background') return isGame.value ? SILENT : (design.background ?? SILENT)
+  return isGame.value ? stockMusic(0) : (design.music ?? stockMusic(levelNo.value))
+})
+const own = computed(() => target.value[field.value])
 const bpm = computed(() => levelPlan(levelNo.value).bpm)
 
 const draft = ref('')
@@ -36,16 +48,18 @@ const blocks = ref<Block[]>([])
 const BARS = 4
 const head = ref<number | null>(null)
 let frame = 0
+/** Stretches of the code sounding right now. */
+const sounding = ref<[number, number][]>([])
 
-const restingStatus = () => (target.value.music ? 'yours' : !isGame.value && design.music ? 'game' : 'stock')
+const restingStatus = () => (own.value ? 'yours' : !isGame.value && design[field.value] ? 'game' : 'stock')
 
 function load() {
-  draft.value = target.value.music ?? fallback.value
+  draft.value = own.value ?? fallback.value
   status.value = restingStatus()
   error.value = ''
   void drawBlocks(draft.value)
 }
-watch(() => props.level, () => {
+watch([() => props.level, () => props.track], () => {
   stopPreview()
   load()
 }, { immediate: true })
@@ -60,7 +74,7 @@ function typed(value: string) {
 async function check() {
   const code = draft.value
   if (code.trim() === fallback.value.trim() || !code.trim()) {
-    delete target.value.music
+    delete target.value[field.value]
     status.value = restingStatus()
     error.value = ''
     void drawBlocks(fallback.value)
@@ -73,7 +87,7 @@ async function check() {
     error.value = result.message
     return
   }
-  target.value.music = code
+  target.value[field.value] = code
   status.value = 'yours'
   error.value = ''
   void drawBlocks(code)
@@ -81,14 +95,13 @@ async function check() {
 }
 
 function backToStock() {
-  delete target.value.music
+  delete target.value[field.value]
   load()
   if (playing.value) void startPreview()
 }
 
-/* ─── Preview, with a playhead on the blocks ─── */
+/* ─── Preview: playhead, lit-up code, and the wave ─── */
 
-/* The music bus as a wave, drawn while it plays. */
 const scope = ref<HTMLCanvasElement | null>(null)
 let analyser: AnalyserNode | null = null
 let wave: Float32Array<ArrayBuffer> | null = null
@@ -123,6 +136,7 @@ function drawWave() {
 function follow() {
   const now = previewNow()
   head.value = now === null ? null : now % BARS
+  sounding.value = now === null ? [] : soundingAt(draft.value, now)
   drawWave()
   frame = requestAnimationFrame(follow)
 }
@@ -142,6 +156,7 @@ function stopPreview() {
   playing.value = false
   cancelAnimationFrame(frame)
   head.value = null
+  sounding.value = []
 }
 onBeforeUnmount(stopPreview)
 
@@ -165,22 +180,41 @@ function blockY(b: Block, row: number) {
   return row + 0.1 + (1 - (b.pitch - lo) / (hi - lo)) * 0.5
 }
 
-/* ─── Colouring the code ─── */
+/* ─── Colouring the code, and lighting up what sounds ─── */
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const TOKENS = /(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`]*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)(?=\s*\()/g
-/** The code as HTML, coloured; a space at the end keeps a last empty line in view. */
+/** The code as HTML: each character gets its token's colour, and sounding ones a light; runs alike share a span. */
 const coloured = computed(() => {
   const code = draft.value
-  let out = ''
-  let last = 0
+  const kind = new Array<string>(code.length).fill('')
   for (const m of code.matchAll(TOKENS)) {
-    out += escape(code.slice(last, m.index))
-    const kind = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'n' : 'f'
-    out += `<span class="t-${kind}">${escape(m[0])}</span>`
-    last = m.index! + m[0].length
+    const k = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'n' : 'f'
+    for (let i = m.index!; i < m.index! + m[0].length; i++) kind[i] = k
   }
-  return out + escape(code.slice(last)) + ' '
+  const lit = new Uint8Array(code.length)
+  for (const [a, b] of sounding.value) for (let i = Math.max(0, a); i < Math.min(code.length, b); i++) lit[i] = 1
+  let out = ''
+  let run = ''
+  let runKey = ''
+  const flush = () => {
+    if (!run) return
+    const [k, l] = runKey.split('|')
+    const cls = [k ? `t-${k}` : '', l === '1' ? 'lit' : ''].filter(Boolean).join(' ')
+    out += cls ? `<span class="${cls}">${escape(run)}</span>` : escape(run)
+    run = ''
+  }
+  for (let i = 0; i < code.length; i++) {
+    const key = `${kind[i]}|${lit[i]}`
+    if (key !== runKey) {
+      flush()
+      runKey = key
+    }
+    run += code[i]
+  }
+  flush()
+  // A space at the end keeps a last empty line in view.
+  return out + ' '
 })
 const shadow = ref<HTMLElement | null>(null)
 function syncScroll(event: Event) {
@@ -191,31 +225,29 @@ function syncScroll(event: Event) {
   }
 }
 
-/** Tab indents instead of leaving the box. */
+/** Tab indents instead of leaving the box; Esc leaves the box (a second Esc closes the editor). */
 function onKey(event: KeyboardEvent) {
+  const box = event.target as HTMLTextAreaElement
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    box.blur()
+    return
+  }
   if (event.key !== 'Tab') return
   event.preventDefault()
-  const box = event.target as HTMLTextAreaElement
   const { selectionStart: a, selectionEnd: b } = box
   typed(draft.value.slice(0, a) + '  ' + draft.value.slice(b))
   requestAnimationFrame(() => box.setSelectionRange(a + 2, a + 2))
 }
 
-const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your music', checking: 'Checking…', error: 'Does not play' } as const
+const STATUS = { stock: props.track === 'main' ? 'Stock' : 'None', game: "Game's", yours: 'Yours', checking: '…', error: 'Error' } as const
 </script>
 
 <template>
   <div class="music">
-    <div class="head">
-      <span class="status" :class="status">{{ STATUS[status] }}</span>
-      <span class="tempo">
-        <template v-if="isGame">music for every level without its own · tempo per level</template>
-        <template v-else>{{ bpm }} bpm · one cycle = one bar</template>
-      </span>
-    </div>
-
     <!-- The code: a coloured copy underneath, the real text box on top -->
-    <div class="editor">
+    <div class="editor" :class="{ playing }">
       <pre ref="shadow" class="shade" aria-hidden="true" v-html="coloured"></pre>
       <textarea
         class="code"
@@ -223,7 +255,7 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
         autocapitalize="off"
         autocomplete="off"
         :value="draft"
-        :aria-label="isGame ? 'Game music in Strudel' : 'Level music in Strudel'"
+        :aria-label="`${isGame ? 'Game' : `Level ${levelNo + 1}`} ${track === 'main' ? 'music' : 'background track'} in Strudel`"
         @input="typed(($event.target as HTMLTextAreaElement).value)"
         @keydown="onKey"
         @scroll="syncScroll"
@@ -235,12 +267,12 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
   <!-- Below: what plays over four bars, one row per sound, and the sound itself as a wave -->
   <Teleport defer to="#ws-bottom">
     <div class="below">
-      <div v-if="blocks.length" class="blocks">
+      <div class="blocks">
         <div class="labels">
           <span v-for="lane in lanes" :key="lane" :style="{ color: laneColor(lane) }">{{ lane }}</span>
         </div>
-        <svg :viewBox="`0 0 ${BARS} ${lanes.length}`" preserveAspectRatio="none" class="roll" :style="{ height: `${lanes.length * 16}px` }">
-          <line v-for="bar in BARS - 1" :key="`b${bar}`" :x1="bar" :x2="bar" y1="0" :y2="lanes.length" class="bar-line" />
+        <svg :viewBox="`0 0 ${BARS} ${Math.max(1, lanes.length)}`" preserveAspectRatio="none" class="roll" :style="{ height: `${Math.max(1, lanes.length) * 16}px` }">
+          <line v-for="bar in BARS - 1" :key="`b${bar}`" :x1="bar" :x2="bar" y1="0" :y2="Math.max(1, lanes.length)" class="bar-line" />
           <rect
             v-for="(b, i) in blocks"
             :key="i"
@@ -249,18 +281,21 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
             :fill="laneColor(b.lane)"
             :opacity="head !== null && head >= b.begin && head < b.begin + b.length ? 1 : 0.55"
           />
-          <line v-if="head !== null" :x1="head" :x2="head" y1="0" :y2="lanes.length" class="playhead" />
+          <line v-if="head !== null" :x1="head" :x2="head" y1="0" :y2="Math.max(1, lanes.length)" class="playhead" />
         </svg>
       </div>
       <canvas ref="scope" class="scope" aria-hidden="true"></canvas>
     </div>
   </Teleport>
 
-  <!-- Off the card's right side -->
+  <!-- Off the card's right side: play it, and put it back -->
   <Teleport defer to="#ws-side">
     <span class="side-gap"></span>
-    <button class="side" :class="{ on: playing }" @click="playing ? stopPreview() : startPreview()">{{ playing ? '■ Stop' : '▶ Preview' }}</button>
-    <button class="side" :disabled="!target.music" @click="backToStock">{{ isGame || !design.music ? 'Stock' : 'Game music' }}</button>
+    <button class="side preview" :class="{ on: playing }" :aria-pressed="playing" @click="playing ? stopPreview() : startPreview()">
+      <span class="big">{{ playing ? '■' : '▶' }}</span>{{ playing ? 'Stop' : 'Play' }}
+    </button>
+    <span class="state" :class="status">{{ STATUS[status] }}<template v-if="!isGame"> · {{ bpm }} bpm</template></span>
+    <button class="side" :disabled="!own" @click="backToStock">{{ isGame || !design[field] ? (track === 'main' ? 'Stock' : 'Clear') : "Game's" }}</button>
     <a class="side link" href="https://strudel.cc/learn/" target="_blank" rel="noopener">Strudel help</a>
   </Teleport>
 </template>
@@ -315,6 +350,26 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
 .side:hover:not(:disabled) { color: var(--text); box-shadow: 0 0 0 2px var(--sage), 4px 4px 0 2px var(--ink); }
 .side:disabled { opacity: 0.4; cursor: default; }
 .side.on { background: var(--sun); color: var(--ink); }
+/* The preview: big, and plainly a play button. */
+.side.preview {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 4px;
+  background: var(--sage);
+  color: var(--ink);
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--sage), 4px 4px 0 2px var(--ink);
+}
+.side.preview .big { font-size: 22px; line-height: 1; }
+.side.preview.on { background: var(--coral); color: var(--text); box-shadow: 0 0 0 2px var(--coral), 4px 4px 0 2px var(--ink); }
+.state { font-size: 12px; text-transform: uppercase; text-align: center; color: var(--text-muted); }
+.state.yours, .state.game { color: var(--sun); }
+.state.error { color: var(--coral); }
+.editor.playing { border-color: var(--sage); }
+.shade :deep(.lit) { background: rgba(255, 225, 77, 0.35); border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 225, 77, 0.6); color: #FFFFFF; }
 .side.link { font-size: 12px; color: var(--sky); }
 .side-gap { height: 8px; flex: none; }
 @media (max-height: 560px), (max-width: 760px) {

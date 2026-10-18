@@ -326,6 +326,8 @@ export const tempoFor = (level: number) => {
 
 /** A level's own music, else the game's, else none (the stock track). */
 const musicFor = (level: number) => editOf(live(), level).music ?? live().music
+/** A level's background track, else the game's, else none. */
+const backgroundFor = (level: number) => editOf(live(), level).background ?? live().background
 
 const barsFor = (level: number) => editOf(live(), level).bars ?? live().global.barsPerLevel
 
@@ -560,8 +562,9 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   state.walls = []
   wallSet = new Set()
   setWalls(0)
-  warmUp([...live().levels.flatMap((l) => (l.music ? [l.music] : [])), ...(live().music ? [live().music!] : [])])
-  musicForLevel(musicFor(0), 0)
+  const d = live()
+  warmUp([d.music, d.background, ...d.levels.flatMap((l) => [l.music, l.background])].filter((c): c is string => !!c))
+  musicForLevel(musicFor(0), 0, backgroundFor(0))
   // A game that starts further in: its first level's tempo, walls, music and arrangement.
   if (rules.startLevel > 0) {
     state.levelOffset = rules.startLevel
@@ -1347,7 +1350,7 @@ function applyLevel(level: number) {
   state.level = level
   state.bpm = tempoFor(level)
   conductor.setLevel(level, state.bpm)
-  musicForLevel(musicFor(level), state.step)
+  musicForLevel(musicFor(level), state.step, backgroundFor(level))
 }
 
 /* ─── Cheats ─────────────────────────────────────────────────────────── */
