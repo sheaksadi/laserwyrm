@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, demo, startDemo, stopDemo, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, demo, match, startDemo, stopDemo, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
 import { canFullscreen, enterFullscreen, fullscreenPending, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
@@ -12,6 +12,9 @@ import { custom, library, playShared, setCustom, shared, stopShared } from './de
 import { navFocusFirst, navMove, navPress, navScope } from './menuNav'
 import Briefing from './components/Briefing.vue'
 import { sync } from './sync'
+import { createRoom, joinRoom, leaveRoom, mp } from './multiplayer'
+import MpBar from './components/MpBar.vue'
+import MpResults from './components/MpResults.vue'
 import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
@@ -22,6 +25,7 @@ import SettingsPanel from './components/SettingsPanel.vue'
 const CheatMenu = defineAsyncComponent(() => import('./components/CheatMenu.vue'))
 const CustomPanel = defineAsyncComponent(() => import('./components/CustomPanel.vue'))
 const AgentPanel = defineAsyncComponent(() => import('./components/AgentPanel.vue'))
+const MultiplayerPanel = defineAsyncComponent(() => import('./components/MultiplayerPanel.vue'))
 const ReplaysPanel = defineAsyncComponent(() => import('./components/ReplaysPanel.vue'))
 import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
@@ -108,6 +112,12 @@ async function playLink(slug: string) {
 }
 
 async function onRoute() {
+  const room = location.hash.match(/^#\/mp\/(\d{6})/)
+  if (room) {
+    history.replaceState(null, '', `${location.pathname}${location.search}#/`)
+    openMultiplayer()
+    if (mp.phase === 'off') void joinRoom(room[1]!)
+  }
   const link = location.hash.match(/^#\/d\/(\w+)/)
   if (link) {
     history.replaceState(null, '', `${location.pathname}${location.search}#/`)
@@ -165,7 +175,7 @@ const entry = ref<{ phase: 'checking' | 'open' | 'none' | 'sending' | 'saved' | 
 watch(
   () => state.status,
   async (status) => {
-    if (status !== 'over' || replay.active) return
+    if (status !== 'over' || replay.active || match.on) return
     // Every game is saved, signed in or not, so it can be found and shared.
     const run = lastReplay()
     const summary = { score: state.score, level: state.level + 1, steps: run.steps, mode: state.mode }
@@ -272,6 +282,27 @@ function openAgent() {
   pause()
 }
 
+/** Multiplayer: the start screen's button, an invite from the custom screen, or a #/mp/123456 link. */
+const mpOpen = ref(false)
+/** In a match, Esc shows a way out (the game plays on: nobody pauses in multiplayer). */
+const mpMenu = ref(false)
+function openMultiplayer(inviteGame?: string) {
+  menuOpen.value = false
+  customOpen.value = false
+  mpOpen.value = true
+  if (inviteGame && mp.phase === 'off') void createRoom(inviteGame)
+}
+watch(
+  () => mp.phase,
+  (phase) => {
+    if (phase !== 'playing') mpMenu.value = false
+  },
+)
+function leaveMatch() {
+  leaveRoom()
+  mpOpen.value = false
+}
+
 /** Custom play: the start screen's Custom button. */
 const customOpen = ref(false)
 function openCustom() {
@@ -304,7 +335,8 @@ function openEditor() {
 watch(
   () =>
     route.value.name === 'game' && status.value === 'ready' && !briefing.value &&
-    !customOpen.value && !cheatOpen.value && !settingsOpen.value && !accountOpen.value && !agentOpen.value,
+    !customOpen.value && !cheatOpen.value && !settingsOpen.value && !accountOpen.value && !agentOpen.value &&
+    !mpOpen.value && mp.phase === 'off' && !match.on,
   (on) => (on ? startDemo() : stopDemo()),
   { immediate: true },
 )
@@ -314,6 +346,10 @@ watch(
   () => {
     if (cheatOpen.value) return 'Workshop'
     if (customOpen.value) return 'Custom games'
+    if (mp.phase === 'lobby') return `Room ${mp.code}`
+    if (mp.phase === 'playing' || mp.phase === 'countdown') return `Multiplayer · ${state.score.toLocaleString()}`
+    if (mp.phase === 'done' || mp.phase === 'results') return 'Multiplayer results'
+    if (mpOpen.value) return 'Multiplayer'
     if (route.value.name === 'scores') return 'High scores'
     if (route.value.name === 'replays' || route.value.name === 'watch') return 'Replays'
     if (status.value === 'running') return `▶ Level ${state.level + 1} · ${state.score.toLocaleString()}`
@@ -375,6 +411,15 @@ function onKey(event: KeyboardEvent) {
   }
   if (route.value.name === 'scores' || route.value.name === 'replays') {
     if (event.key === 'Escape') go('#/')
+    return
+  }
+  // Multiplayer: Esc leaves the lobby, or in a match shows the way out.
+  if (match.on && mp.phase === 'playing' && event.key === 'Escape') {
+    mpMenu.value = !mpMenu.value
+    return
+  }
+  if (mp.phase !== 'off' && mp.phase !== 'playing' || mpOpen.value && mp.phase === 'off') {
+    if (event.key === 'Escape' && mp.phase === 'off') mpOpen.value = false
     return
   }
   if (accountOpen.value) {
@@ -455,6 +500,7 @@ function onTouchMove(event: TouchEvent) {
 function onResize() {
   // The pad moves with the window (turning the phone); the grid only between games.
   fitLayout()
+  if (match.on) return
   if (demo.on) startDemo()
   else if (status.value === 'ready') reset()
   else if (status.value === 'over') fitGrid()
@@ -486,6 +532,7 @@ const padHandlers = {
     else play()
   },
   start: () => {
+    if (match.on && mp.phase === 'playing') return (mpMenu.value = !mpMenu.value)
     if (briefing.value) return begin()
     if (cheatOpen.value) cheatOpen.value = false
     else toggle()
@@ -502,6 +549,8 @@ const padHandlers = {
     if (r.name === 'watch') return go('code' in r ? '#/replays' : '#/scores')
     if (r.name === 'scores' || r.name === 'replays') return go('#/')
     if (menuOpen.value) return (menuOpen.value = false)
+    if (match.on && mp.phase === 'playing') return (mpMenu.value = !mpMenu.value)
+    if (mpOpen.value && mp.phase === 'off') return (mpOpen.value = false)
     if (accountOpen.value) return (accountOpen.value = false)
     if (settingsOpen.value) return (settingsOpen.value = false)
     if (customOpen.value) return (customOpen.value = false)
@@ -589,7 +638,7 @@ watch(
 
 onMounted(() => {
   window.addEventListener('hashchange', onRoute)
-  if (route.value.name !== 'game' || location.hash.startsWith('#/d/')) void onRoute()
+  if (route.value.name !== 'game' || location.hash.startsWith('#/d/') || location.hash.startsWith('#/mp/')) void onRoute()
   startGamepad(padHandlers)
   stopFullscreenWatch = watchFullscreen(
     () => {
@@ -655,7 +704,7 @@ onBeforeUnmount(() => {
           <span class="stat stat-score"><span class="chrome-label">score</span><b class="num score-num">{{ hud.score }}</b></span>
           <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') && !demo.on }">×{{ hud.mult }}</b></span>
           </span>
-          <span v-if="state.cheated" class="cheat-tag" :title="state.usedCheats ? 'Cheats used: this run cannot set a best' : 'A changed game: this run cannot set a best'">{{ state.usedCheats ? 'cheats' : shared.slug ? 'shared' : 'custom' }}</span>
+          <span v-if="state.cheated && !match.on" class="cheat-tag" :title="state.usedCheats ? 'Cheats used: this run cannot set a best' : 'A changed game: this run cannot set a best'">{{ state.usedCheats ? 'cheats' : shared.slug ? 'shared' : 'custom' }}</span>
           <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
         <div v-if="!demo.on" class="effects">
@@ -684,7 +733,8 @@ onBeforeUnmount(() => {
             <span class="bpm-dot" :class="{ live: status === 'running' }"></span>{{ state.bpm }} bpm
           </span>
         </div>
-        <button class="round" :aria-label="status === 'running' ? 'Pause' : 'Play'" @click="toggle()">
+        <!-- In a match there is no pause: the button offers the way out instead -->
+        <button class="round" :aria-label="status === 'running' ? 'Pause' : 'Play'" @click="match.on && mp.phase === 'playing' ? (mpMenu = !mpMenu) : toggle()">
           <svg v-if="status === 'running'" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
           <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </button>
@@ -772,6 +822,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Level up -->
+ <MpBar v-if="mp.phase === 'countdown' || mp.phase === 'playing'" />
     <div v-if="state.banner && !demo.on" :key="state.banner.id" class="banner">
       <span class="banner-title">{{ state.banner.title }}</span>
       <span class="banner-sub">{{ state.banner.sub }}</span>
@@ -820,9 +871,30 @@ onBeforeUnmount(() => {
         <AgentPanel @close="agentOpen = false" />
       </div>
 
+      <!-- Multiplayer: create or join a room, then its lobby -->
+      <div v-else-if="mp.phase === 'lobby' || (mpOpen && (mp.phase === 'off' || mp.phase === 'connecting'))" class="overlay">
+        <MultiplayerPanel @close="mpOpen = false" />
+      </div>
+      <!-- Multiplayer: waiting for the others, then the standings -->
+      <div v-else-if="mp.phase === 'done' || mp.phase === 'results'" class="overlay">
+        <MpResults @left="mpOpen = false" />
+      </div>
+      <!-- Multiplayer: the count down shows over the board, nothing else -->
+      <div v-else-if="mp.phase === 'countdown'" class="overlay-none"></div>
+      <!-- Multiplayer: the way out, with the game still going behind -->
+      <div v-else-if="mpMenu && mp.phase === 'playing'" class="overlay">
+        <div class="card card-small">
+          <p class="chrome-label">multiplayer · the game goes on</p>
+          <h2>Leave the match?</h2>
+          <button class="btn" @click="mpMenu = false"><span class="text-trim">Keep playing</span></button>
+          <button class="btn btn-line" @click="leaveMatch"><span class="text-trim">Leave room</span></button>
+          <button class="close card-close" aria-label="Keep playing" @click="mpMenu = false">✕</button>
+        </div>
+      </div>
+
       <!-- Custom play: your design, shared ones, sharing yours -->
       <div v-else-if="customOpen" class="overlay">
-        <CustomPanel @close="customOpen = false" @play="playCustom" @editor="openEditor" @normal="playNormal" />
+        <CustomPanel @close="customOpen = false" @play="playCustom" @editor="openEditor" @normal="playNormal" @invite="openMultiplayer" />
       </div>
 
       <!-- Briefing: how to play, then any key -->
@@ -856,6 +928,13 @@ onBeforeUnmount(() => {
               <span class="text-trim">{{ custom.on ? 'Play custom' : 'Press start' }}</span>
             </span>
           </button>
+          <!-- Against friends: a room with a code -->
+          <button class="btn btn-multi" @click="openMultiplayer()">
+            <span class="start-face">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 2h4v4H3zM9 2h4v4H9zM1 8h6v2h1V8h6v6h-2v-4h-1v4H5v-4H4v4H1z" fill="currentColor" /></svg>
+              <span class="text-trim">Multiplayer</span>
+            </span>
+          </button>
           <!-- Hardcore and custom, half each -->
           <div class="mode-row">
             <button
@@ -884,6 +963,7 @@ onBeforeUnmount(() => {
                 <span class="text-trim">Settings</span>
               </span>
             </button>
+            <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
             <button
               class="btn btn-account"
               :class="{ signed: account.name }"
@@ -897,7 +977,6 @@ onBeforeUnmount(() => {
               </svg>
             </button>
           </div>
-          <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">High scores</span></button>
           </div>
           <p v-if="!pad.connected" class="pad-note">
             <svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true"><path d="M5 1h14a4 4 0 0 1 4 4l1 7a3 3 0 0 1-5 2l-3-3H8l-3 3a3 3 0 0 1-5-2l1-7a4 4 0 0 1 4-4Z" fill="currentColor" /><path d="M6 5v4M4 7h4" stroke="var(--bg)" stroke-width="1.6" /><circle cx="17" cy="5.5" r="1.1" fill="var(--bg)" /><circle cx="19" cy="8" r="1.1" fill="var(--bg)" /></svg>
@@ -930,7 +1009,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Game over: the score big, everything else quiet -->
-      <div v-else-if="status === 'over'" class="overlay">
+      <div v-else-if="status === 'over' && !match.on" class="overlay">
         <div class="card card-over">
           <button class="close card-close" aria-label="Main menu" @click="toMainMenu">✕</button>
           <header class="over-head">
@@ -1454,8 +1533,17 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
 }
 .btn.btn-custom:hover, .btn.btn-custom.on { background: var(--mint); color: var(--ink); }
 
-/* Settings, with the square account button on its right. */
-.start-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+/* Settings and high scores, with the square account button on their right. */
+.start-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; }
+.btn.btn-multi {
+  background: var(--bg-off);
+  border-color: var(--sky);
+  color: var(--sky);
+  text-shadow: none;
+}
+.btn.btn-multi:hover { background: var(--sky); color: var(--ink); }
+.start-buttons .btn-multi { padding-block: calc(0.45rem + 0.38em); font-size: 0.7rem; }
+.overlay-none { display: none; }
 .start-row .btn + .btn { margin-top: 0; }
 .btn.btn-account {
   width: 52px;

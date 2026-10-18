@@ -2,7 +2,7 @@
 /**
  * Custom play, from the start screen. Normal play is always the stock game;
  * here you play your own games instead (made in the editor), or ones other
- * players shared. Your games: play, edit, share (code, link, QR), rename,
+ * players shared. Your games: play, edit, invite (a multiplayer room with it), rename,
  * delete, and + for a new one. Play a code: paste a code or link someone
  * sent. Below, Explore: everyone's published games.
  */
@@ -11,9 +11,8 @@ import { countPlay, fetchDesign } from '../api'
 import { custom, deleteGame, isStock, library, STOCK_GLOBAL, newGame, playShared, readShareCode, renameGame, shared, switchGame, type SavedGame } from '../design'
 import { reset } from '../game'
 import ExplorePanel from './ExplorePanel.vue'
-import ShareGame from './ShareGame.vue'
 
-const emit = defineEmits<{ close: []; play: []; editor: []; normal: [] }>()
+const emit = defineEmits<{ close: []; play: []; editor: []; normal: []; invite: [gameId: string] }>()
 
 const activeName = computed(() => library.games.find((g) => g.id === library.active)?.name ?? 'your game')
 const changed = (g: SavedGame) => g.design.levels.filter((l) => Object.keys(l).length).length
@@ -42,7 +41,6 @@ function create() {
   emit('editor')
 }
 
-const sharing = ref<string | null>(null)
 const renaming = ref<string | null>(null)
 function rename(g: SavedGame, value: string) {
   renameGame(g.id, value)
@@ -126,11 +124,10 @@ async function playCode() {
           <div class="game-buttons">
             <button class="act go" :data-nav-first="g.id === library.active ? '' : undefined" @click="play(g)">Play</button>
             <button class="act" @click="edit(g)">Edit</button>
-            <button class="act" :class="{ on: sharing === g.id }" @click="sharing = sharing === g.id ? null : g.id">Share</button>
+            <button class="act invite" title="Open a multiplayer room with this game" @click="emit('invite', g.id)">Invite</button>
             <button v-if="library.games.length > 1" class="act danger" :aria-label="`Delete ${g.name}`" @click="remove(g)">{{ confirmDelete === g.id ? 'Sure?' : '✕' }}</button>
           </div>
         </div>
-        <ShareGame v-if="sharing === g.id" :game="g" @close="sharing = null" />
       </div>
       <button class="add" :disabled="library.games.length >= 50" @click="create"><span class="plus">+</span> New game</button>
     </section>
@@ -208,6 +205,8 @@ h3 { margin: 0 0 8px; font-size: 15px; font-weight: 400; text-transform: upperca
 .act.go { border-color: var(--sage); background: var(--sage); color: var(--ink); }
 .act.go:hover:not(:disabled) { background: #7CFF7C; }
 .act.on { border-color: var(--mint); color: var(--mint); }
+.act.invite { border-color: var(--sky); color: var(--sky); }
+.act.invite:hover { background: var(--sky); color: var(--ink); }
 .act.danger:hover { border-color: var(--coral); color: var(--coral); }
 .add {
   display: flex;

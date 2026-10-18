@@ -38,7 +38,7 @@
 import { reactive, watch } from 'vue'
 import { conductor, now, queue, sound as rawSound, stepSeconds } from './audio'
 import { musicForLevel, warmUp } from './music'
-import { design, editOf, isStock, itemsStock, live, playWith, snapshot, unpackWalls, type CustomItem, type Design, type Edges, type Stack } from './design'
+import { design, editOf, isStock, itemsStock, live, playWith, snapshot, stockDesign, unpackWalls, type CustomItem, type Design, type Edges, type Stack } from './design'
 
 export interface Vec { x: number; y: number }
 export type DirName = 'up' | 'down' | 'left' | 'right'
@@ -626,6 +626,7 @@ function notice(kind: Holdable | 'totem', title: string, sub: string) {
 
 function die(reason: string) {
   if (state.totem) return revive(reason)
+  if (match.respawn && !replay.active) return respawn(reason)
   state.reason = reason
   state.shake++
   if (replay.active) {
@@ -664,6 +665,36 @@ function revive(reason: string) {
   mark('totem')
   banner('Undying!', 'the totem crumbles')
   popup(state.snake[0]!, 'saved', 'sun')
+}
+
+/**
+ * Multiplayer with respawns: the snake starts again from the middle at its
+ * first length, with full hearts and two bars of cover, and keeps its score.
+ */
+function respawn(reason: string) {
+  const rules = gameRules()
+  const lost = state.snake.slice(1)
+  if (lost.length) {
+    const id = ++uid
+    state.debris.push({ id, cells: lost, holdMs: HOLD_MS, gapMs: POP_GAP_MS })
+    later(HOLD_MS + lost.length * POP_GAP_MS + 700, () => (state.debris = state.debris.filter((d) => d.id !== id)))
+  }
+  const cx = Math.floor(state.cols / 2) - 3
+  const cy = Math.floor(state.rows / 2)
+  state.snake = Array.from({ length: rules.length }, (_, i) => ({ x: cx - i, y: cy }))
+  state.direction = { ...DIRS.right }
+  state.queue = []
+  state.grow = 0
+  state.hearts = rules.hearts
+  const cover = state.step + 32
+  state.effects.shield = Math.max(state.effects.shield, cover)
+  state.effects.ghost = Math.max(state.effects.ghost, cover)
+  state.stats.lost += lost.length
+  match.respawns++
+  state.shake++
+  sound.die()
+  feel('die', lost.length + 1)
+  banner('Respawn', `the snake ${reason}`)
 }
 
 /** Slice the snake at `index`: the head side lives, the rest lies there, then pops. */
@@ -1466,7 +1497,7 @@ export function setMode(mode: Mode) {
 
 export function play() {
   stopDemo()
-  if (state.status === 'running' || replay.active) return
+  if (state.status === 'running' || replay.active || (match.on && !match.live)) return
   if (state.status === 'over') reset()
   if (state.status === 'paused') conductor.resume()
   else {
@@ -1478,7 +1509,8 @@ export function play() {
 }
 
 export function pause() {
-  if (state.status !== 'running' || replay.active) return
+  // Nobody waits in multiplayer: the game plays on.
+  if (state.status !== 'running' || replay.active || match.on) return
   state.status = 'paused'
   conductor.pause()
 }
@@ -1490,7 +1522,7 @@ export function toggle() {
 
 export function turn(name: DirName) {
   stopDemo()
-  if (state.status === 'over' || replay.active) return
+  if (state.status === 'over' || replay.active || (match.on && !match.live)) return
   if (!queueTurn(name)) return
   recording.events.push([stepsDone, DIR_CODE[name]])
   sound.turn()
@@ -1576,6 +1608,49 @@ export function stopReplay() {
   replay.sound = false
   conductor.setRate(1)
   Object.assign(cheats, savedCheats)
+  playWith(null)
+  reset()
+}
+
+/* ─── Multiplayer ────────────────────────────────────────────────────── */
+
+/**
+ * A multiplayer match, as far as the game is concerned: every player plays
+ * the same seed and grid on their own; the match module handles the rest.
+ * While one is on there is no pausing; with respawns, dying starts the
+ * snake again instead of ending the run.
+ */
+export const match = reactive({ on: false, live: false, respawn: false, respawns: 0 })
+
+/** Set up a match's game: its design, seed and grid, ready for the go. */
+export function prepareMatch(setup: { seed: number; cols: number; rows: number; design: Design | null; respawn: boolean }) {
+  stopDemo()
+  if (replay.active) stopReplay()
+  playWith(setup.design ?? stockDesign())
+  Object.assign(match, { on: true, live: false, respawn: setup.respawn, respawns: 0 })
+  reset({ seed: setup.seed, cols: setup.cols, rows: setup.rows, mode: 'normal' })
+  // A match never sets a best.
+  state.cheated = true
+}
+
+/** The go: play starts for everyone at once. */
+export function goMatch() {
+  match.live = true
+  play()
+}
+
+/** Time is up (or the race is won): stop where it stands. */
+export function haltMatch() {
+  match.live = false
+  if (state.status !== 'running') return
+  state.status = 'over'
+  state.reason = 'finished'
+  conductor.stop()
+}
+
+/** Out of the match: back to the chosen game, fresh. */
+export function endMatch() {
+  Object.assign(match, { on: false, live: false, respawn: false, respawns: 0 })
   playWith(null)
   reset()
 }

@@ -46,6 +46,7 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WORDS } from './words.mjs'
 import { handleMcp } from './mcp.mjs'
+import { attachRooms } from './rooms.mjs'
 import * as core from '../src/designCore.ts'
 
 const PORT = Number(process.env.PORT) || 8080
@@ -898,6 +899,8 @@ async function main() {
     }
   })
 
+  // Multiplayer rooms: a WebSocket at /mp.
+  attachRooms(server, core)
   server.listen(PORT, () => console.log(`Laserwyrm on :${PORT} (${db.kind})`))
 }
 

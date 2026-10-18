@@ -7,6 +7,7 @@
 import { computed, ref, watch } from 'vue'
 import { HEART_PATH, isActive, state, TONE_COLOR, type Beam, type LaserKind } from '../game'
 import PowerIcon from './PowerIcon.vue'
+import { colorOf, mp } from '../multiplayer'
 
 
 /**
@@ -29,6 +30,26 @@ const runs = computed(() => {
   return out.map((r) => r.join(' '))
 })
 const head = computed(() => state.snake[0]!)
+
+/** In multiplayer: everyone else's snake, as a hologram (broken where it wraps, like this one). */
+const holograms = computed(() =>
+  Object.values(mp.peers)
+    .filter((p) => p.snake.length)
+    .map((p) => {
+      const out: string[] = []
+      let run: string[] = []
+      p.snake.forEach((c, i) => {
+        const prev = p.snake[i - 1]
+        if (prev && Math.abs(prev.x - c.x) + Math.abs(prev.y - c.y) > 1) {
+          out.push(run.join(' '))
+          run = []
+        }
+        run.push(`${c.x + 0.5},${c.y + 0.5}`)
+      })
+      out.push(run.join(' '))
+      return { index: p.index, name: p.name, color: colorOf(p.index), runs: out, head: p.snake[0]!, alive: p.alive }
+    }),
+)
 const shielded = computed(() => isActive('shield'))
 const doubled = computed(() => isActive('double'))
 
@@ -320,6 +341,22 @@ watch(
       </g>
     </g>
 
+    <!-- Multiplayer: the others' snakes, see-through and flickering, their names over their heads -->
+    <g v-for="h in holograms" :key="`h${h.index}`" class="holo" :class="{ out: !h.alive }">
+      <polyline
+        v-for="(run, i) in h.runs" :key="`hb${i}`"
+        :points="run" fill="none" :stroke="h.color" stroke-width="0.7" stroke-opacity="0.28"
+        stroke-linecap="square" stroke-linejoin="miter"
+      />
+      <polyline
+        v-for="(run, i) in h.runs" :key="`hl${i}`"
+        :points="run" fill="none" :stroke="h.color" stroke-width="0.12" stroke-opacity="0.8"
+        stroke-dasharray="0.3 0.2" stroke-linecap="butt"
+      />
+      <rect :x="h.head.x + 0.12" :y="h.head.y + 0.12" width="0.76" height="0.76" fill="none" :stroke="h.color" stroke-width="2" vector-effect="non-scaling-stroke" opacity="0.8" />
+      <text class="holo-name" :x="h.head.x + 0.5" :y="h.head.y - 0.35" :fill="h.color" text-anchor="middle">{{ h.name }}</text>
+    </g>
+
     <!-- The snake: outline tube, body tube, belly dots, head -->
     <polyline
       v-for="(run, i) in runs" :key="`o${i}`"
@@ -417,6 +454,16 @@ watch(
 </template>
 
 <style scoped>
+.holo { animation: holo 3.2s steps(1) infinite; }
+.holo.out { opacity: 0.25; animation: none; }
+.holo-name { font-family: var(--font-pixel); font-size: 0.55px; opacity: 0.9; }
+@keyframes holo {
+  0%, 100% { opacity: 0.85; }
+  43% { opacity: 0.55; }
+  46% { opacity: 0.9; }
+  78% { opacity: 0.7; }
+}
+@media (prefers-reduced-motion: reduce) { .holo { animation: none; } }
 .board-stack { position: relative; width: 100%; height: 100%; }
 .board-back,
 .board {
