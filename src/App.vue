@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
 import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
-import { canFullscreen, enterFullscreen, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
+import { canFullscreen, enterFullscreen, fullscreenPending, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
 import { ApiError, claimName, countPlay, fetchDesign, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
@@ -868,8 +868,9 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Started from a controller before any click: playing, but silent until one -->
-    <div v-if="soundBlocked && state.status === 'running'" class="pad-toast sound-off">
-      sound is off · tap, click or press any key to turn it on
+    <div v-if="(soundBlocked || fullscreenPending) && state.status === 'running'" class="pad-toast sound-off">
+      <template v-if="soundBlocked">sound is off · tap, click or press any key to turn it on<template v-if="fullscreenPending"> and go full screen</template></template>
+      <template v-else>tap, click or press any key for full screen</template>
     </div>
 
     <!-- Controller connected -->

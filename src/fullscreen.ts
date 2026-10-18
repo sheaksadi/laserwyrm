@@ -4,9 +4,10 @@
  * screen (its button, or Esc). In full screen the page asks to keep Esc for
  * itself (Keyboard Lock, Chromium only), so Esc mid-game pauses instead of
  * dropping out; elsewhere the browser takes Esc and the game pauses with it.
- * Browsers only allow full screen right after a click, key or tap, so a start
- * from a controller may stay windowed; that fails quietly. Phones that cannot
- * do it (iPhone Safari) skip it too.
+ * Browsers only allow full screen right after a click, key or the end of a
+ * tap; a game started from a controller, or on a finger going down, is
+ * refused. Then it stays wanted, and the next tap, click or key anywhere
+ * goes full screen. Phones that cannot do it (iPhone Safari) skip it.
  */
 import { ref, watch } from 'vue'
 
@@ -33,6 +34,8 @@ watch(fullscreenOn, (value) => {
 
 /** True while the page is full screen. */
 export const isFullscreen = ref(false)
+/** Full screen was asked for but the browser said not yet: the next tap, click or key will do it. */
+export const fullscreenPending = ref(false)
 
 export const canFullscreen = () => typeof document !== 'undefined' && !!document.documentElement.requestFullscreen
 
@@ -42,11 +45,17 @@ interface KeyboardLock {
 }
 const keyboard = () => (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard
 
+/** A request is on its way: one gesture fires several events, and only one should ask. */
+let asking = false
+
 export function enterFullscreen(force = false) {
-  if ((!fullscreenOn.value && !force) || !canFullscreen() || document.fullscreenElement) return
+  if ((!fullscreenOn.value && !force) || !canFullscreen() || document.fullscreenElement || asking) return
+  asking = true
   document.documentElement
     .requestFullscreen({ navigationUI: 'hide' })
     .then(() => {
+      asking = false
+      fullscreenPending.value = false
       void keyboard()?.lock?.(['Escape'])
       // Phones play sideways; where the browser allows, hold it there.
       if (window.matchMedia('(pointer: coarse)').matches) {
@@ -54,10 +63,22 @@ export function enterFullscreen(force = false) {
         orientation.lock?.('landscape').catch(() => {})
       }
     })
-    .catch(() => {})
+    .catch(() => {
+      asking = false
+      if (!document.fullscreenElement) fullscreenPending.value = true
+    })
+}
+
+// The next gesture the browser counts (a tap ending, a click, a key) takes the pending full screen.
+if (typeof window !== 'undefined') {
+  const retry = () => {
+    if (fullscreenPending.value && fullscreenOn.value && !document.fullscreenElement) enterFullscreen()
+  }
+  for (const type of ['pointerup', 'touchend', 'click', 'keydown']) window.addEventListener(type, retry, true)
 }
 
 export function leaveFullscreen() {
+  fullscreenPending.value = false
   keyboard()?.unlock?.()
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
 }
