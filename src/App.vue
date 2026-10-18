@@ -279,6 +279,11 @@ function openEditor() {
   menuOpen.value = false
   pause()
 }
+/** Leave the run for the start screen. */
+function toMainMenu() {
+  briefing.value = null
+  reset()
+}
 /** Back to the stock game. */
 function playNormal() {
   customOpen.value = false
@@ -791,6 +796,8 @@ onBeforeUnmount(() => {
           <h2>Take a breath</h2>
           <button class="btn" @click="play()"><span class="text-trim">Resume</span></button>
           <button class="btn btn-line" @click="reset()"><span class="text-trim">Restart</span></button>
+          <!-- Quit the run: back to the start screen (reset leaves the game ready, which shows it) -->
+          <button class="btn btn-line" @click="toMainMenu"><span class="text-trim">Main menu</span></button>
           <!-- In custom play: the editor, or back to the stock game -->
           <template v-if="custom.on">
             <button class="btn btn-line" @click="openEditor"><span class="text-trim">Editor</span></button>
