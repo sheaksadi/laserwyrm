@@ -290,6 +290,22 @@ function openEditor() {
   menuOpen.value = false
   pause()
 }
+/** The tab's title follows the game: where you are, and how the run is going. */
+watch(
+  () => {
+    if (cheatOpen.value) return 'Workshop'
+    if (customOpen.value) return 'Custom games'
+    if (route.value.name === 'scores') return 'High scores'
+    if (route.value.name === 'replays' || route.value.name === 'watch') return 'Replays'
+    if (state.status === 'running') return `▶ Level ${state.level + 1} · ${state.score.toLocaleString()}`
+    if (state.status === 'paused') return `❚❚ Paused · ${state.score.toLocaleString()}`
+    if (state.status === 'over') return `Game over · ${state.score.toLocaleString()}`
+    return custom.on ? 'Custom play' : 'snake to the beat'
+  },
+  (what) => (document.title = `Laserwyrm · ${what}`),
+  { immediate: true },
+)
+
 /** The start screen's splash line, Minecraft style: one picked at random each time it shows. */
 const SPLASHES = [
   'Snake-2 Electric Bogaloooo',
