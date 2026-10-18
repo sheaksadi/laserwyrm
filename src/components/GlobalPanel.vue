@@ -10,6 +10,7 @@
 import { computed, ref } from 'vue'
 import { LASER_TIERS, levelPlan, state } from '../game'
 import { design, GLOBAL_RANGE, LEVEL_RANGE, STOCK_GLOBAL, type Global } from '../design'
+import LevelMusic from './LevelMusic.vue'
 
 type Knob = keyof Global
 const KNOBS: { key: Knob; name: string; hint: string; show: (v: number) => string }[] = [
@@ -183,6 +184,11 @@ function resetGlobal() {
         />
       </label>
       <button class="tool wide" @click="resetGlobal">Put the global feel back to stock</button>
+    </section>
+
+    <section>
+      <h3>Music for the whole game</h3>
+      <LevelMusic level="game" />
     </section>
   </div>
 </template>

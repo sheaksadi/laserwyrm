@@ -205,12 +205,67 @@ export function warmUp(codes: string[]) {
   })
 }
 
+/* ─── What a pattern plays, for the editor's block view ──────────────── */
+
+export interface Block {
+  /** Cycle (bar) it starts in, and how long, in cycles. */
+  begin: number
+  length: number
+  /** Which row: the sound it plays. */
+  lane: string
+  /** A pitch for synth notes, to shade them; null for drums and noise. */
+  pitch: number | null
+}
+
+const NOTE_NAMES: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }
+function pitchOf(note: unknown): number | null {
+  if (typeof note === 'number') return note
+  if (typeof note !== 'string') return null
+  const m = note.toLowerCase().match(/^([a-g])(#|b|s)?(-?\d)?$/)
+  if (!m) return null
+  return NOTE_NAMES[m[1]!]! + (m[2] === '#' || m[2] === 's' ? 1 : m[2] === 'b' ? -1 : 0) + 12 * (Number(m[3] ?? 3) + 1)
+}
+
+/** The notes a piece of code plays over its first `cycles` bars, as blocks; or what went wrong. */
+export async function patternBlocks(code: string, cycles = 4): Promise<Block[] | Error> {
+  const pattern = await compile(code)
+  if (pattern instanceof Error) return pattern
+  try {
+    return pattern
+      .queryArc(0, cycles, { _cps: 0.5 })
+      .filter((hap) => hap.hasOnset() && hap.whole)
+      .map((hap) => {
+        const v = (hap.value ?? {}) as Record<string, unknown>
+        return {
+          begin: hap.whole!.begin.valueOf(),
+          length: hap.duration.valueOf(),
+          lane: String(v.s ?? (v.note !== undefined || v.n !== undefined ? 'triangle' : 'sound')),
+          pitch: pitchOf(v.note ?? v.n),
+        }
+      })
+  } catch (err) {
+    return err instanceof Error ? err : new Error(String(err))
+  }
+}
+
 /* ─── Previewing in the editor ───────────────────────────────────────── */
+
+let previewing = false
+/** Where the preview is, in cycles (bars) since it started; null when not playing. */
+export function previewNow(): number | null {
+  if (!previewing || !loading) return null
+  const sched = (lastRepl as (Repl & { scheduler: { now: () => number } }) | null)?.scheduler
+  return sched ? sched.now() : null
+}
+let lastRepl: Repl | null = null
+
 
 /** Play code on its own (the game is paused), at a tempo; null stops. */
 export async function preview(code: string | null, bpm = 120): Promise<Error | null> {
   const { repl } = await loadStrudel()
+  lastRepl = repl
   repl.stop()
+  previewing = false
   if (code === null) return null
   const out = musicOutput()
   if (out?.ctx.state === 'suspended') await out.ctx.resume()
@@ -218,6 +273,7 @@ export async function preview(code: string | null, bpm = 120): Promise<Error | n
     if (!(await repl.evaluate(code, false))) throw repl.state.evalError ?? new Error('the code made no pattern')
     repl.scheduler.setCps(bpm / 240)
     repl.start()
+    previewing = true
     return null
   } catch (err) {
     return err instanceof Error ? err : new Error(String(err))

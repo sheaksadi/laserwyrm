@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, START_HEARTS, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
 import { canFullscreen, enterFullscreen, fullscreenPending, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
@@ -42,7 +42,7 @@ const KEYMAP: Record<string, DirName> = {
 }
 
 /** Three slots, more once a heart drop takes you past three; empty ones show what is lost. */
-const heartSlots = computed(() => Array.from({ length: Math.max(START_HEARTS, state.hearts) }, (_, i) => i < state.hearts))
+const heartSlots = computed(() => Array.from({ length: Math.max(startHearts(), state.hearts) }, (_, i) => i < state.hearts))
 
 function toggleMute() {
   muted.value = !muted.value

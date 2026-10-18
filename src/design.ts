@@ -15,7 +15,7 @@
  * run with anything changed counts as cheated on the main boards, and its
  * replay carries the design so it plays back the same.
  */
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import type { LaserTrait, PowerKind } from './game'
 
 export const STOCK_LEVELS = 100
@@ -67,6 +67,33 @@ export const GLOBAL_RANGE: Record<keyof Global, Range> = {
   warn: [0.5, 2, 0.05],
   lasers: [0, 3, 0.05],
   barsPerLevel: [2, 32, 1],
+}
+
+/* ─── Game rules ─────────────────────────────────────────────────────── */
+
+/** How a run starts and what it allows, for the whole game. */
+export interface GameRules {
+  /** Hearts at the start, and the most you can have. */
+  hearts: number
+  maxHearts: number
+  /** Cells the snake starts with. */
+  length: number
+  /** Power-ups you can hold at once. */
+  slots: number
+  /** The level a run starts on (0-based). */
+  startLevel: number
+  /** Hearts given back each level in normal play, up to the starting count. */
+  refill: number
+}
+
+export const STOCK_RULES: GameRules = { hearts: 3, maxHearts: 5, length: 3, slots: 2, startLevel: 0, refill: 1 }
+export const RULES_RANGE: Record<keyof GameRules, Range> = {
+  hearts: [1, 9, 1],
+  maxHearts: [1, 9, 1],
+  length: [1, 20, 1],
+  slots: [1, 4, 1],
+  startLevel: [0, 99, 1],
+  refill: [0, 3, 1],
 }
 
 /* ─── Levels ─────────────────────────────────────────────────────────── */
@@ -215,6 +242,9 @@ export function newItem(id: string, kind: CustomItem['kind']): CustomItem {
 
 export interface Design {
   global: Global
+  rules: GameRules
+  /** Strudel code every level plays unless it has its own; missing plays the stock tracks. */
+  music?: string
   /** By level, 0-based; empty objects for untouched levels. */
   levels: LevelEdit[]
   /** Tweaks to stock items, by item kind. */
@@ -228,6 +258,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 export const stockDesign = (): Design => ({
   global: clone(STOCK_GLOBAL),
+  rules: clone(STOCK_RULES),
   levels: Array.from({ length: STOCK_LEVELS }, () => ({})),
   items: {},
   custom: [],
@@ -240,6 +271,8 @@ const isEmpty = (o: object) => Object.keys(o).length === 0
 export function isStock(d: Design): boolean {
   return (
     JSON.stringify(d.global) === JSON.stringify(STOCK_GLOBAL) &&
+    JSON.stringify(d.rules) === JSON.stringify(STOCK_RULES) &&
+    !d.music &&
     d.levels.every(isEmpty) &&
     Object.values(d.items).every(isEmpty) &&
     d.custom.length === 0
@@ -365,6 +398,10 @@ export function cleanDesign(raw: unknown): Design {
   const out = stockDesign()
   const g = (d.global && typeof d.global === 'object' ? d.global : {}) as Record<string, unknown>
   for (const key of Object.keys(GLOBAL_RANGE) as (keyof Global)[]) out.global[key] = num(g[key], GLOBAL_RANGE[key]) ?? STOCK_GLOBAL[key]
+  const r = (d.rules && typeof d.rules === 'object' ? d.rules : {}) as Record<string, unknown>
+  for (const key of Object.keys(RULES_RANGE) as (keyof GameRules)[]) out.rules[key] = num(r[key], RULES_RANGE[key]) ?? STOCK_RULES[key]
+  out.rules.maxHearts = Math.max(out.rules.maxHearts, out.rules.hearts)
+  if (typeof d.music === 'string' && d.music.trim()) out.music = d.music.slice(0, MUSIC_MAX)
   if (Array.isArray(d.levels)) {
     const levels = d.levels.slice(0, MAX_LEVELS).map(cleanLevel)
     while (levels.length < STOCK_LEVELS) levels.push({})
@@ -514,6 +551,134 @@ export function switchGame(id: string) {
   if (!game || id === library.active) return
   library.active = id
   replaceDesign(cleanDesign(game.design))
+  clearHistory()
+}
+
+/* ─── Undo ───────────────────────────────────────────────────────────── */
+
+/**
+ * Every change to the design is kept for undo: changes in quick succession
+ * (a drag across the board, a slider sliding) count as one step.
+ */
+const past: string[] = []
+const future: string[] = []
+let lastSnap = JSON.stringify(compact(design))
+let applying = false
+let pending = 0
+export const history = reactive({ canUndo: false, canRedo: false })
+const syncFlags = () => {
+  history.canUndo = past.length > 0
+  history.canRedo = future.length > 0
+}
+function record() {
+  pending = 0
+  const now = JSON.stringify(compact(design))
+  if (now === lastSnap) return
+  past.push(lastSnap)
+  if (past.length > 200) past.shift()
+  future.length = 0
+  lastSnap = now
+  syncFlags()
+}
+watch(
+  design,
+  () => {
+    if (applying) return
+    clearTimeout(pending)
+    pending = window.setTimeout(record, 350)
+  },
+  { deep: true },
+)
+function restore(snap: string) {
+  applying = true
+  replaceDesign(cleanDesign(JSON.parse(snap)))
+  lastSnap = snap
+  syncFlags()
+  // The design's watchers run after this; they should not record the restore.
+  setTimeout(() => (applying = false), 0)
+}
+export function undo() {
+  if (pending) record()
+  const snap = past.pop()
+  if (snap === undefined) return
+  future.push(lastSnap)
+  restore(snap)
+}
+export function redo() {
+  const snap = future.pop()
+  if (snap === undefined) return
+  past.push(lastSnap)
+  restore(snap)
+}
+function clearHistory() {
+  past.length = 0
+  future.length = 0
+  lastSnap = JSON.stringify(compact(design))
+  syncFlags()
+}
+
+/* ─── Wall templates ─────────────────────────────────────────────────── */
+
+/** A wall layout to add to or take away from any level, in any game. */
+export interface WallTemplate {
+  id: string
+  name: string
+  walls: string
+  /** Built in: cannot be deleted. */
+  stock?: boolean
+}
+const TEMPLATE_KEY = 'laserwyrm-wall-templates'
+function loadTemplates(): WallTemplate[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TEMPLATE_KEY) ?? '[]') as WallTemplate[]
+    return raw.filter((t) => t && typeof t.walls === 'string' && typeof t.name === 'string').slice(0, 60)
+  } catch {
+    return []
+  }
+}
+/** Templates saved on this device, shared by every game and level. */
+export const myTemplates = ref<WallTemplate[]>(loadTemplates())
+watch(
+  myTemplates,
+  (list) => {
+    try {
+      localStorage.setItem(TEMPLATE_KEY, JSON.stringify(list))
+    } catch {
+      /* storage blocked */
+    }
+  },
+  { deep: true },
+)
+export function saveTemplate(name: string, walls: string) {
+  myTemplates.value.push({ id: newId(), name: name.trim().slice(0, 24) || 'My walls', walls })
+}
+export function deleteTemplate(id: string) {
+  myTemplates.value = myTemplates.value.filter((t) => t.id !== id)
+}
+
+/** Built-in layouts, drawn for a board of `cols` × `rows`. */
+export function stockTemplates(cols: number, rows: number): WallTemplate[] {
+  const make = (id: string, name: string, test: (x: number, y: number) => boolean): WallTemplate => {
+    const cells: number[] = []
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (test(x, y)) cells.push(y * cols + x)
+    const keep = new Set(startCells(cols, rows))
+    return { id, name, stock: true, walls: packWalls(cells.filter((c) => !keep.has(c)), cols, rows) }
+  }
+  const cx = cols / 2
+  const cy = rows / 2
+  return [
+    make('border', 'Border', (x, y) => x === 0 || y === 0 || x === cols - 1 || y === rows - 1),
+    make('corners', 'Corners', (x, y) => (x < 6 || x >= cols - 6) && (y < 4 || y >= rows - 4) && (x === 0 || y === 0 || x === cols - 1 || y === rows - 1)),
+    make('pillars', 'Pillars', (x, y) => x % 8 >= 3 && x % 8 <= 4 && y % 7 >= 2 && y % 7 <= 3),
+    make('cross', 'Cross', (x, y) => (Math.abs(x - cx + 0.5) < 1 && Math.abs(y - cy + 0.5) > 2) || (Math.abs(y - cy + 0.5) < 1 && Math.abs(x - cx + 0.5) > 3)),
+    make('lanes', 'Lanes', (x, y) => y % 6 === 3 && x % 16 !== 0 && x % 16 !== 1 && y !== Math.floor(cy)),
+    make('arena', 'Arena', (x, y) => {
+      const inner = x === 6 || x === cols - 7 || y === 4 || y === rows - 5
+      const inside = x >= 6 && x <= cols - 7 && y >= 4 && y <= rows - 5
+      const gap = Math.abs(x - cx + 0.5) < 3 || Math.abs(y - cy + 0.5) < 2
+      return inner && inside && !gap
+    }),
+  ]
 }
 /** A new game, starting as the stock one (or from a design), made the active one. */
 export function newGame(name?: string, from?: Design): SavedGame {

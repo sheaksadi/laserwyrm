@@ -6,7 +6,7 @@
  * so you know what a tap will do. Everything here is see-through.
  */
 import { ref } from 'vue'
-import { play, state, useItem } from '../game'
+import { heldSlots, play, state, useItem } from '../game'
 import PowerIcon from './PowerIcon.vue'
 
 const rings = ref<{ id: number; x: number; y: number }[]>([])
@@ -34,7 +34,7 @@ function press(event: PointerEvent) {
     <span v-for="r in rings" :key="r.id" class="ring" :style="{ left: `${r.x}px`, top: `${r.y}px` }"></span>
     <!-- What a tap will use: the next power-up, then the one after -->
     <div class="held" aria-hidden="true">
-      <span v-for="i in 2" :key="i" class="slot" :class="{ next: i === 1 }">
+      <span v-for="i in heldSlots()" :key="i" class="slot" :class="{ next: i === 1 }">
         <svg v-if="state.held[i - 1]" viewBox="-0.5 -0.5 1 1"><PowerIcon :kind="state.held[i - 1]!" /></svg>
       </span>
     </div>

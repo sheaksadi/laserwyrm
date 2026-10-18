@@ -41,14 +41,18 @@ rises and more lasers come.
   pause screen's button, leaves full screen. Turn it off in the ☰ menu
 - C (or ☰ → Custom, or the Custom button) opens custom play: play your own game
   or a shared one, open the editor, or cheats. The editor (workshop) has tabs:
-  - Cheats: pick any of the 100 levels, god mode, no lasers, give yourself
-    items, reset your best score. Runs with cheats never set a best
-  - Global: the whole game's feel at once. Drag a bar per level (harder or
+  - Game rules: your game's hearts (start, most, refill), starting length,
+    power-up slots and starting level; below them the OP switches for one run:
+    any level, god mode, no lasers, items, reset your best (never counted)
+  - Undo and redo cover every change (buttons, or Ctrl+Z / Ctrl+Shift+Z)
+  - Global: the whole game's feel at once, and music for every level that
+    has none of its own. Drag a bar per level (harder or
     easier) and turn the knobs for the climb: overall, start feel, middle
     climb, end feel, lasers, warning time, start and top tempo, level length
   - Levels: every level, 1 to 100 and any you add, in a strip to slide
-    through. Pick one to name it, draw its walls (mirror, border, full
-    screen), and set its pacing (how hard, tempo, lasers, most at once,
+    through. Pick one to name it, draw its walls (pen, line, box, eraser,
+    mirrors, border on/off, full screen, and templates: built in or saved,
+    added to or taken from any level of any game), and set its pacing (how hard, tempo, lasers, most at once,
     warning, length, laser kinds), feel (edges wrap or kill, the snipper,
     hearts back, an intro pause, a calm start, points), items (how often each
     turns up here; stock items' rates, life, effect length and stacking; your

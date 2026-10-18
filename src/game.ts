@@ -156,9 +156,15 @@ export function itemInfo(kind: Holdable | 'totem'): { name: string; blurb: strin
   return POWERS[kind]
 }
 
+/** Stock: power-up slots, hearts at the start, most hearts. A game's rules can change all three. */
 export const MAX_HELD = 2
 export const START_HEARTS = 3
 export const MAX_HEARTS = 5
+/** The rules of the game in play (stock unless a custom game changes them). */
+const gameRules = () => live().rules
+export const heldSlots = () => gameRules().slots
+export const startHearts = () => gameRules().hearts
+const maxHearts = () => gameRules().maxHearts
 /** A pixel heart on a 7 × 6 grid, for the board, the HUD and the rules. */
 export const HEART_PATH =
   'M1 0H3V1H4V0H6V1H7V3H6V4H5V5H4V6H3V5H2V4H1V3H0V1H1Z'
@@ -317,6 +323,9 @@ export const tempoFor = (level: number) => {
   const g = d.global
   return editOf(d, level).bpm ?? Math.round(Math.max(40, Math.min(g.tempoMax, g.tempoStart + intensity(level) * 8)))
 }
+
+/** A level's own music, else the game's, else none (the stock track). */
+const musicFor = (level: number) => editOf(live(), level).music ?? live().music
 
 const barsFor = (level: number) => editOf(live(), level).bars ?? live().global.barsPerLevel
 
@@ -511,14 +520,15 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   stepsDone = 0
   const cx = Math.floor(state.cols / 2) - 3
   const cy = Math.floor(state.rows / 2)
+  const rules = gameRules()
   Object.assign(state, {
-    snake: [{ x: cx, y: cy }, { x: cx - 1, y: cy }, { x: cx - 2, y: cy }],
+    snake: Array.from({ length: rules.length }, (_, i) => ({ x: cx - i, y: cy })),
     direction: { ...DIRS.right },
     queue: [],
     grow: 0,
     score: 0,
-    hearts: START_HEARTS,
-    longest: 3,
+    hearts: rules.hearts,
+    longest: rules.length,
     status: 'ready',
     reason: '',
     level: 0,
@@ -550,8 +560,15 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   state.walls = []
   wallSet = new Set()
   setWalls(0)
-  warmUp(live().levels.flatMap((l) => (l.music ? [l.music] : [])))
-  musicForLevel(editOf(live(), 0).music, 0)
+  warmUp([...live().levels.flatMap((l) => (l.music ? [l.music] : [])), ...(live().music ? [live().music!] : [])])
+  musicForLevel(musicFor(0), 0)
+  // A game that starts further in: its first level's tempo, walls, music and arrangement.
+  if (rules.startLevel > 0) {
+    state.levelOffset = rules.startLevel
+    applyLevel(rules.startLevel)
+    setWalls(rules.startLevel)
+    conductor.setStyle(tierOf(rules.startLevel), 'play', 0)
+  }
   addItem('apple', null)
 }
 
@@ -666,7 +683,7 @@ const edgesFor = (level: number): Edges => editOf(live(), level).edges ?? (state
 const snipperFor = (level: number) => editOf(live(), level).snipper ?? 1
 /** Hearts back on reaching a level: normal play refills one, up to the starting three. */
 const healFor = (level: number) =>
-  editOf(live(), level).heal ?? (state.mode === 'normal' && state.hearts < START_HEARTS ? 1 : 0)
+  editOf(live(), level).heal ?? (state.mode === 'normal' && state.hearts < startHearts() ? gameRules().refill : 0)
 /** Stop to introduce a level: stock does it for each new kind of laser, in normal play. */
 const introFor = (level: number) =>
   editOf(live(), level).intro ?? (state.mode === 'normal' && level > 0 && LASER_TIERS.some((t) => t.level === level))
@@ -687,7 +704,7 @@ export const levelPlan = (level: number) => {
     traits: traitsFor(level),
     edges: edgesFor(level),
     snipper: snipperFor(level),
-    heal: e.heal ?? (state.mode === 'normal' ? 1 : 0),
+    heal: e.heal ?? (state.mode === 'normal' ? gameRules().refill : 0),
     intro: introFor(level),
     calm: e.calm ?? (introFor(level) ? CALM_STEPS / 16 : 0),
     score: e.score ?? 1,
@@ -930,7 +947,7 @@ function eatSnipper() {
 function eat(item: Item) {
   state.items = state.items.filter((i) => i.id !== item.id)
   if (item.kind === 'heart') {
-    state.hearts = Math.min(MAX_HEARTS, state.hearts + 1)
+    state.hearts = Math.min(maxHearts(), state.hearts + 1)
     sound.bonus()
     popup(item, '+1 life', 'coral')
     mark('heal')
@@ -947,7 +964,7 @@ function eat(item: Item) {
   if (isCustom(item.kind)) return eatCustom(item, item.kind)
   if (isPower(item.kind)) {
     const power = POWERS[item.kind]
-    if (state.held.length < MAX_HELD) {
+    if (state.held.length < heldSlots()) {
       state.held.push(item.kind)
       mark('power')
       sound.pill()
@@ -972,7 +989,7 @@ function eatCustom(item: Item, kind: CustomId) {
   const c = customItem(kind)
   if (!c) return
   if (c.kind === 'power') {
-    if (c.hold && state.held.length < MAX_HELD) {
+    if (c.hold && state.held.length < heldSlots()) {
       state.held.push(kind)
       mark('power')
       sound.pill()
@@ -987,7 +1004,7 @@ function eatCustom(item: Item, kind: CustomId) {
   state.score += c.points
   state.stats.eaten++
   if (c.hearts) {
-    state.hearts = Math.min(MAX_HEARTS, state.hearts + c.hearts)
+    state.hearts = Math.min(maxHearts(), state.hearts + c.hearts)
     mark('heal')
   }
   sound.eat(c.grow >= 5 ? 2 : c.grow >= 2 ? 1 : 0)
@@ -1064,7 +1081,7 @@ function enterLevel(level: number): boolean {
   }
   if (tierIndex > 0) conductor.setStyle(tierIndex, 'play', state.step)
   if (e.calm !== undefined) state.calmUntil = state.step + e.calm * 16
-  const heal = Math.min(healFor(level), MAX_HEARTS - state.hearts)
+  const heal = Math.min(healFor(level), maxHearts() - state.hearts)
   if (heal > 0) {
     state.hearts += heal
     popup(state.snake[0]!, `+${heal} ${heal === 1 ? 'life' : 'lives'}`, 'coral')
@@ -1094,7 +1111,7 @@ function onBar(bar: number) {
   const totemOut = state.items.some((i) => i.kind === 'totem')
   if (level >= 1 && !state.totem && !totemOut && random() < TOTEM_CHANCE * rateOf('totem', level)) addItem('totem', lifeOf('totem', 32))
   const heartOut = state.items.some((i) => i.kind === 'heart')
-  if (bar > 0 && !heartOut && state.hearts < MAX_HEARTS && random() < HEART_CHANCE * rateOf('heart', level))
+  if (bar > 0 && !heartOut && state.hearts < maxHearts() && random() < HEART_CHANCE * rateOf('heart', level))
     addItem('heart', lifeOf('heart', 40))
 }
 
@@ -1154,7 +1171,7 @@ const CALM_STEPS = 64
 /** Freeze play and introduce a new kind of laser. Everything timed in steps waits it out. */
 function startIntro(tier: number) {
   const until = state.step + INTRO_STEPS
-  const heal = Math.min(healFor(state.level), MAX_HEARTS - state.hearts)
+  const heal = Math.min(healFor(state.level), maxHearts() - state.hearts)
   const healed = heal > 0
   state.intro = { tier, until, healed }
   state.pausedBars += INTRO_STEPS / 16
@@ -1330,7 +1347,7 @@ function applyLevel(level: number) {
   state.level = level
   state.bpm = tempoFor(level)
   conductor.setLevel(level, state.bpm)
-  musicForLevel(editOf(live(), level).music, state.step)
+  musicForLevel(musicFor(level), state.step)
 }
 
 /* ─── Cheats ─────────────────────────────────────────────────────────── */
@@ -1363,9 +1380,9 @@ export function cheatGive(kind: Holdable | 'totem' | 'heart' | 'grow') {
   state.cheated = true
   state.usedCheats = true
   if (kind === 'totem') state.totem = true
-  else if (kind === 'heart') state.hearts = MAX_HEARTS
+  else if (kind === 'heart') state.hearts = maxHearts()
   else if (kind === 'grow') state.grow += 10
-  else if (state.held.length < MAX_HELD) state.held.push(kind)
+  else if (state.held.length < heldSlots()) state.held.push(kind)
   else state.held = [...state.held.slice(1), kind]
 }
 

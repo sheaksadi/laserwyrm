@@ -6,7 +6,7 @@
  * chips beside it; names and what they do show in the notice and tooltip.
  */
 import { computed } from 'vue'
-import { itemInfo, MAX_HELD, state, useItem } from '../game'
+import { heldSlots, itemInfo, state, useItem } from '../game'
 import { pad } from '../gamepad'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
@@ -27,7 +27,7 @@ const tooltip = computed(
     @touchmove.stop
     @contextmenu.prevent
   >
-    <span v-for="i in MAX_HELD" :key="i" class="slot" :class="{ next: i === 1 && state.held.length }">
+    <span v-for="i in heldSlots()" :key="i" class="slot" :class="{ next: i === 1 && state.held.length }">
       <svg v-if="state.held[i - 1]" viewBox="-0.5 -0.5 1 1"><PowerIcon :kind="state.held[i - 1]!" /></svg>
     </span>
     <span v-if="pad.connected" class="hint pad"><PadGlyph button="a" /> to use</span>

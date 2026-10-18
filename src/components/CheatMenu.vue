@@ -1,15 +1,17 @@
 <script setup lang="ts">
 /**
- * The workshop, behind the C key (cheats, and the custom game's editor). The
- * game is paused while it is open. Three tabs: cheats (pick a level, flip god
- * mode, hand yourself items), global (the whole custom game's feel at once)
- * and levels (edit any level: walls, pacing, feel, items, music). The design
- * travels as one code, to copy out or paste in; it plays in custom mode.
+ * The workshop: the custom game's editor. The game is paused while it is
+ * open. Three tabs: game rules (how a run of your game starts: hearts,
+ * length, slots, starting level; and the OP switches: any level, god mode,
+ * items), global (the whole game's feel and music at once) and levels (edit
+ * any level: walls, pacing, feel, items, music). Undo and redo cover every
+ * change (Ctrl+Z, Ctrl+Shift+Z). The design travels as one code.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, LASER_TIERS, MAX_LEVEL, play, POWER_KINDS, POWERS, reset, resetBest, state, TOTEM, type CustomId } from '../game'
 import { pad } from '../gamepad'
-import { design, isStock, readShareCode, replaceDesign, shareCode, STOCK_GLOBAL, stockDesign } from '../design'
+import { design, history, isStock, readShareCode, redo, replaceDesign, RULES_RANGE, shareCode, STOCK_GLOBAL, STOCK_RULES, stockDesign, undo, type GameRules } from '../design'
+import AutoSlider from './AutoSlider.vue'
 import GlobalPanel from './GlobalPanel.vue'
 import LevelsPanel from './LevelsPanel.vue'
 import PadGlyph from './PadGlyph.vue'
@@ -18,7 +20,7 @@ import PowerIcon from './PowerIcon.vue'
 export type WorkshopTab = 'cheats' | 'global' | 'levels'
 const props = defineProps<{ start?: WorkshopTab }>()
 const TABS: { id: WorkshopTab; name: string }[] = [
-  { id: 'cheats', name: 'Cheats' },
+  { id: 'cheats', name: 'Game rules' },
   { id: 'global', name: 'Global' },
   { id: 'levels', name: 'Levels' },
 ]
@@ -28,6 +30,34 @@ const globalChanged = computed(
 )
 const levelsChanged = computed(() => design.levels.some((l) => Object.keys(l).some((k) => k !== 'difficulty')) || design.custom.length > 0)
 const customPowers = computed(() => design.custom.filter((c) => c.kind === 'power'))
+
+/* ─── Game rules ─── */
+const RULES: { key: keyof GameRules; name: string; hint: string; show: (v: number) => string }[] = [
+  { key: 'hearts', name: 'Hearts', hint: 'at the start', show: (v) => `${v}` },
+  { key: 'maxHearts', name: 'Most hearts', hint: 'with heart drops', show: (v) => `${v}` },
+  { key: 'refill', name: 'Refill', hint: 'hearts back each level', show: (v) => `+${v}` },
+  { key: 'length', name: 'Length', hint: 'the snake starts with', show: (v) => `${v} cells` },
+  { key: 'slots', name: 'Power-up slots', hint: 'held at once', show: (v) => `${v}` },
+  { key: 'startLevel', name: 'Start on', hint: 'the first level of a run', show: (v) => `level ${v + 1}` },
+]
+function setRule(key: keyof GameRules, value: number | undefined) {
+  design.rules[key] = value ?? STOCK_RULES[key]
+  if (key === 'hearts' && design.rules.maxHearts < design.rules.hearts) design.rules.maxHearts = design.rules.hearts
+  if (key === 'maxHearts' && design.rules.hearts > design.rules.maxHearts) design.rules.hearts = design.rules.maxHearts
+}
+
+/* ─── Undo: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y); text boxes keep their own ─── */
+function onKey(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || document.activeElement?.matches('input:not([type=range]), textarea')) return
+  const key = event.key.toLowerCase()
+  if (key === 'z' && !event.shiftKey) undo()
+  else if ((key === 'z' && event.shiftKey) || key === 'y') redo()
+  else return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+}
+onMounted(() => window.addEventListener('keydown', onKey, { capture: true }))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: true }))
 
 /* ─── Share code ─── */
 const pasted = ref('')
@@ -106,6 +136,10 @@ function restart() {
     <header>
       <h2>Workshop</h2>
       <span class="sub">runs with cheats or a changed game never set a best</span>
+      <div class="history">
+        <button class="tool" :disabled="!history.canUndo" title="Undo (Ctrl+Z)" @click="undo">↶ Undo</button>
+        <button class="tool" :disabled="!history.canRedo" title="Redo (Ctrl+Shift+Z)" @click="redo">↷ Redo</button>
+      </div>
       <button class="close" aria-label="Close" @click="emit('close')">✕</button>
     </header>
 
@@ -127,6 +161,24 @@ function restart() {
     <LevelsPanel v-else-if="tab === 'levels'" @close="emit('close')" />
 
     <template v-else>
+    <section>
+      <h3>Your game's rules <span class="h3-note">(custom play)</span></h3>
+      <div class="rules-grid">
+        <AutoSlider
+          v-for="r in RULES"
+          :key="r.key"
+          :name="r.name"
+          :hint="r.hint"
+          :value="design.rules[r.key]"
+          :own="design.rules[r.key] !== STOCK_RULES[r.key]"
+          :range="RULES_RANGE[r.key]"
+          :show="r.show"
+          @set="setRule(r.key, $event)"
+        />
+      </div>
+    </section>
+
+    <h3 class="op">OP <span class="h3-note">for this run only: it will not count</span></h3>
     <section>
       <h3>Level</h3>
       <div class="level-pick">
@@ -236,6 +288,10 @@ function restart() {
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--coral), 10px 10px 0 6px var(--ink);
 }
 header { position: relative; display: grid; gap: 4px; margin-bottom: 0.8rem; padding-right: 44px; }
+.history { position: absolute; top: 0; right: 48px; display: flex; gap: 6px; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 6px; }
+.h3-note { letter-spacing: 0; text-transform: none; font-size: 14px; }
+h3.op { margin-top: 0.4rem; padding-top: 0.8rem; border-top: 2px dashed var(--border); color: var(--coral); }
 .close {
   position: absolute;
   top: 0;

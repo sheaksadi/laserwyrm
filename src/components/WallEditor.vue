@@ -8,7 +8,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { GRID } from '../game'
-import { design, packWalls, startCells, unpackWalls } from '../design'
+import { deleteTemplate, design, history, myTemplates, packWalls, redo, saveTemplate, startCells, stockTemplates, undo, unpackWalls, type WallTemplate } from '../design'
 
 const props = defineProps<{ level: number }>()
 
@@ -125,18 +125,44 @@ function up(event: PointerEvent) {
 function clearWalls() {
   save(new Set())
 }
+/** The border goes on, or, if it is all there already, comes off. */
 function border() {
+  const edge: number[] = []
+  for (let x = 0; x < cols; x++) edge.push(x, (rows - 1) * cols + x)
+  for (let y = 0; y < rows; y++) edge.push(y * cols, y * cols + cols - 1)
+  const cells = edge.filter((c) => !reserved.has(c))
   const set = new Set(walls.value)
-  for (let x = 0; x < cols; x++) {
-    set.add(x)
-    set.add((rows - 1) * cols + x)
+  const on = cells.every((c) => set.has(c))
+  for (const c of cells) {
+    if (on) set.delete(c)
+    else set.add(c)
   }
-  for (let y = 0; y < rows; y++) {
-    set.add(y * cols)
-    set.add(y * cols + cols - 1)
-  }
-  for (const r of reserved) set.delete(r)
   save(set)
+}
+const hasBorder = computed(() => {
+  for (let x = 0; x < cols; x++) if (!walls.value.has(x) && !reserved.has(x)) return false
+  return true
+})
+
+/* ─── Templates: layouts to add to or take from any level ─── */
+const showTemplates = ref(false)
+const templates = computed(() => [...stockTemplates(cols, rows), ...myTemplates.value])
+const templateCells = (t: WallTemplate) => unpackWalls(t.walls, cols * rows)
+function addTemplate(t: WallTemplate) {
+  const set = new Set(walls.value)
+  for (const c of templateCells(t)) if (!reserved.has(c)) set.add(c)
+  save(set)
+}
+function removeTemplate(t: WallTemplate) {
+  const set = new Set(walls.value)
+  for (const c of templateCells(t)) set.delete(c)
+  save(set)
+}
+const newName = ref('')
+function saveCurrent() {
+  if (!walls.value.size) return
+  saveTemplate(newName.value || `Level ${props.level + 1} walls`, packWalls(walls.value, cols, rows))
+  newName.value = ''
 }
 /** Copy the walls of the level before this one. */
 function copyPrevious() {
@@ -188,11 +214,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
       </div>
       <button class="tool" role="switch" :aria-checked="mirrorX" :class="{ on: mirrorX }" @click="mirrorX = !mirrorX">Mirror ⇆</button>
       <button class="tool" role="switch" :aria-checked="mirrorY" :class="{ on: mirrorY }" @click="mirrorY = !mirrorY">Mirror ⇅</button>
-      <button class="tool" @click="border">Border</button>
+      <button class="tool" role="switch" :aria-checked="hasBorder" :class="{ on: hasBorder }" @click="border">Border</button>
+      <button class="tool" :class="{ on: showTemplates }" @click="showTemplates = !showTemplates">Templates</button>
       <button class="tool" :disabled="level === 0" title="Copy the walls of the level before" @click="copyPrevious">Copy walls of {{ level ? `level ${level}` : "previous" }}</button>
       <button class="tool" @click="clearWalls">Clear</button>
       <span class="count">{{ walls.size }} walls</span>
+      <button class="tool" :disabled="!history.canUndo" title="Undo (Ctrl+Z)" aria-label="Undo" @click="undo">↶</button>
+      <button class="tool" :disabled="!history.canRedo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" @click="redo">↷</button>
       <button class="tool" :aria-pressed="full" @click="full = !full">{{ full ? 'Done' : 'Full screen' }}</button>
+    </div>
+    <!-- Templates: built in, or saved from any level; add them to this level's walls or take them away -->
+    <div v-if="showTemplates" class="templates">
+      <div v-for="t in templates" :key="t.id" class="template">
+        <svg :viewBox="`0 0 ${cols} ${rows}`" class="mini" aria-hidden="true">
+          <rect v-for="c in templateCells(t)" :key="c" :x="c % cols" :y="Math.floor(c / cols)" width="1" height="1" />
+        </svg>
+        <span class="t-name">{{ t.name }}</span>
+        <div class="t-buttons">
+          <button class="tool" :title="`Add ${t.name} to these walls`" @click="addTemplate(t)">+ Add</button>
+          <button class="tool" :title="`Take ${t.name} away from these walls`" @click="removeTemplate(t)">− Remove</button>
+          <button v-if="!t.stock" class="tool danger" :aria-label="`Delete template ${t.name}`" @click="deleteTemplate(t.id)">✕</button>
+        </div>
+      </div>
+      <div class="template save">
+        <input v-model="newName" class="t-input" maxlength="24" :placeholder="`Level ${level + 1} walls`" aria-label="Template name" />
+        <button class="tool" :disabled="!walls.size" @click="saveCurrent">Save these walls as a template</button>
+      </div>
     </div>
     <svg
       ref="board"
@@ -261,6 +308,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
 .wall { fill: #2A2350; stroke: var(--lavender); stroke-width: 0.08; }
 .start { fill: var(--sage); opacity: 0.3; }
 .ghost { fill: var(--sun); opacity: 0.45; }
+.templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 6px; }
+.template { display: grid; gap: 4px; padding: 6px; border: 2px solid var(--border); border-radius: 10px; background: var(--bg-off); }
+.template.save { align-content: center; }
+.mini { width: 100%; aspect-ratio: 48 / 26; border-radius: 4px; background: var(--bg); fill: var(--lavender); }
+.t-name { font-size: 15px; text-transform: uppercase; color: var(--text-dim); }
+.t-buttons { display: flex; gap: 4px; }
+.t-buttons .tool { padding: 3px 7px; font-size: 13px; }
+.t-input { padding: 4px 8px; border: 2px solid var(--border); border-radius: 8px; background: var(--bg-warm); color: var(--text); font: inherit; font-size: 15px; }
+.t-input:focus { outline: none; border-color: var(--mint); }
+.tool.danger:hover { border-color: var(--coral); color: var(--coral); }
 .tools { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--bg-off); }
 .tool.pick { display: flex; align-items: center; gap: 6px; border-color: transparent; }
 .tool.pick.on { border-color: var(--sun); background: var(--bg-warm); color: var(--sun); }
