@@ -16,6 +16,7 @@ import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
 import Mascot from './components/Mascot.vue'
+import AttractMode from './components/AttractMode.vue'
 import Leaderboard from './components/Leaderboard.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 // Screens most visits never open load when first opened, keeping the first download small.
@@ -813,6 +814,8 @@ onBeforeUnmount(() => {
 
       <!-- Start -->
       <div v-else-if="state.status === 'ready'" class="overlay">
+        <!-- Behind the card: a faint snake playing by itself -->
+        <AttractMode />
         <div class="card card-start">
           <Mascot class="corner-mascot" />
           <header class="hello">
@@ -893,15 +896,15 @@ onBeforeUnmount(() => {
           <p class="chrome-label">paused</p>
           <h2>Take a breath</h2>
           <button class="btn" @click="play()"><span class="text-trim">Resume</span></button>
+          <!-- In custom play: straight back to the editor, the run kept paused under it -->
+          <button v-if="custom.on" class="btn btn-custom" @click="openEditor"><span class="text-trim">Back to editor</span></button>
           <button class="btn btn-line" @click="reset()"><span class="text-trim">Restart</span></button>
-          <!-- Quit the run: back to the start screen (reset leaves the game ready, which shows it) -->
-          <button class="btn btn-line" @click="toMainMenu"><span class="text-trim">Main menu</span></button>
-          <!-- In custom play: the editor, or back to the stock game -->
-          <!-- In custom play: the editor, or back to the stock game, side by side -->
+          <!-- Quit the run: back to the start screen (reset leaves the game ready, which shows it); in custom play, or the stock game, side by side -->
           <div v-if="custom.on" class="pause-row">
-            <button class="btn btn-custom" @click="openEditor"><span class="text-trim">Editor</span></button>
+            <button class="btn btn-line" @click="toMainMenu"><span class="text-trim">Main menu</span></button>
             <button class="btn btn-line" @click="playNormal"><span class="text-trim">Play main</span></button>
           </div>
+          <button v-else class="btn btn-line" @click="toMainMenu"><span class="text-trim">Main menu</span></button>
           <button class="close card-close" aria-label="Resume" @click="play()">✕</button>
           <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
             <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
@@ -955,8 +958,10 @@ onBeforeUnmount(() => {
             <div><dt>fruit</dt><dd>{{ state.stats.eaten }}</dd></div>
             <div><dt>cuts</dt><dd>{{ state.stats.cuts }}</dd></div>
           </dl>
-          <div class="over-buttons">
+          <div class="over-buttons" :class="{ three: custom.on }">
             <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
+            <!-- In custom play: back to the editor to tweak it, instead of only another go -->
+            <button v-if="custom.on" class="btn btn-custom" @click="openEditor"><span class="text-trim">Editor</span></button>
             <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">Scores</span></button>
           </div>
           <!-- Every game gets a code to share -->
@@ -1417,7 +1422,8 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
 .start-buttons .btn-line { padding-block: calc(0.45rem + 0.38em); font-size: 0.6rem; }
 .mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .pause-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 0.75rem; }
-.pause-row .btn + .btn { margin-top: 0; }
+.card-small .pause-row .btn.btn { margin-top: 0; }
+.pause-row ~ .btn { margin-top: 0.75rem; }
 /* In custom play: a clear switch back to the main game. */
 .game-switch { display: grid; grid-template-columns: auto 1fr; gap: 0; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 2px var(--mint); }
 .switch { padding: 9px 14px; border: 0; background: var(--bg-off); font-family: var(--font-pixel); font-size: 9px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1630,6 +1636,9 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
 
 /* Play again and scores side by side, play the bigger. */
 .over-buttons { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+.over-buttons.three { grid-template-columns: 1.6fr 1fr 1fr; }
+.over-buttons.three .btn { padding-inline: 0.5rem; }
+.over-buttons.three .btn-custom { font-size: 0.6rem; }
 .over-buttons .btn + .btn { margin-top: 0; }
 .over-buttons .btn-line { padding-inline: 0.5rem; font-size: 0.6rem; }
 .game-line {
