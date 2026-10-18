@@ -102,7 +102,7 @@ const STAR = (() => {
 
 
 /** One shake per hit, one pulse per beat. Web Animations, so nothing remounts. */
-const root = ref<SVGSVGElement | null>(null)
+const root = ref<HTMLDivElement | null>(null)
 const pulse = ref<SVGRectElement | null>(null)
 watch(
   () => state.shake,
@@ -129,8 +129,34 @@ watch(
 </script>
 
 <template>
+  <!--
+    Two layers. Behind: the grid and the glowing frame, which never move, so
+    the browser paints them (and their glow) once. In front: everything that
+    moves, with no filter, so a move repaints only the drawing, not a blur
+    over the whole board.
+  -->
+  <div ref="root" class="board-stack">
   <svg
-    ref="root"
+    class="board-back"
+    :viewBox="`-0.25 -0.25 ${state.cols + 0.5} ${state.rows + 0.5}`"
+    preserveAspectRatio="xMidYMid meet"
+    aria-hidden="true"
+  >
+    <defs>
+      <pattern id="dots" width="1" height="1" patternUnits="userSpaceOnUse">
+        <path d="M 1 0 L 0 0 0 1" fill="none" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke" />
+      </pattern>
+    </defs>
+    <rect :width="state.cols" :height="state.rows" fill="url(#dots)" />
+    <!-- The frame's glow: two soft, wider strokes under it (a blur filter would cost a repaint every frame) -->
+    <rect :width="state.cols" :height="state.rows" fill="none" stroke="var(--sky)" stroke-width="10" stroke-opacity="0.08" vector-effect="non-scaling-stroke" />
+    <rect :width="state.cols" :height="state.rows" fill="none" stroke="var(--sky)" stroke-width="6" stroke-opacity="0.16" vector-effect="non-scaling-stroke" />
+    <rect
+      :width="state.cols" :height="state.rows" fill="none"
+      stroke="var(--sky)" stroke-width="3" vector-effect="non-scaling-stroke"
+    />
+  </svg>
+  <svg
     class="board"
     :class="{ paused: state.status === 'paused' }"
     :viewBox="`-0.25 -0.25 ${state.cols + 0.5} ${state.rows + 0.5}`"
@@ -139,9 +165,6 @@ watch(
     :aria-label="`Snake, ${state.snake.length} cells long, score ${state.score}`"
   >
     <defs>
-      <pattern id="dots" width="1" height="1" patternUnits="userSpaceOnUse">
-        <path d="M 1 0 L 0 0 0 1" fill="none" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke" />
-      </pattern>
       <linearGradient id="prism" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#FF3355" />
         <stop offset="0.25" stop-color="#FFE14D" />
@@ -154,16 +177,11 @@ watch(
       </pattern>
     </defs>
 
-    <rect :width="state.cols" :height="state.rows" fill="url(#dots)" />
     <!-- Beat pulse: the frame flashes on every beat, stronger on the one -->
     <rect
       ref="pulse"
       :width="state.cols" :height="state.rows" fill="none" opacity="0"
       stroke="var(--mint)" stroke-width="8" vector-effect="non-scaling-stroke"
-    />
-    <rect
-      :width="state.cols" :height="state.rows" fill="none"
-      stroke="var(--sky)" stroke-width="3" vector-effect="non-scaling-stroke"
     />
 
     <!-- Walls from a home-made level: solid blocks with a lit top edge -->
@@ -395,16 +413,22 @@ watch(
       :fill="TONE_COLOR[p.tone]"
     >{{ p.text }}</text>
   </svg>
+  </div>
 </template>
 
 <style scoped>
+.board-stack { position: relative; width: 100%; height: 100%; }
+.board-back,
 .board {
+  position: absolute;
+  inset: 0;
   display: block;
-  shape-rendering: crispEdges;
-  filter: drop-shadow(0 0 3px rgba(63, 169, 255, 0.35));
   width: 100%;
   height: 100%;
+  shape-rendering: crispEdges;
 }
+/* The still layer gets its own layer, painted once. */
+.board-back { will-change: transform; }
 .board.paused,
 .board.paused * {
   animation-play-state: paused !important;

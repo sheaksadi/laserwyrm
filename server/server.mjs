@@ -40,6 +40,7 @@
  */
 import { createServer } from 'node:http'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
+import { brotliCompressSync, constants as zlib, gzipSync } from 'node:zlib'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -248,15 +249,37 @@ const MIME = {
   '.woff2': 'font/woff2',
 }
 
+/** The best compression the client takes: br, gzip, or none. */
+function encodingFor(req) {
+  const accept = String(req?.headers['accept-encoding'] ?? '')
+  return /\bbr\b/.test(accept) ? 'br' : /\bgzip\b/.test(accept) ? 'gzip' : null
+}
+const compress = (data, enc) =>
+  enc === 'br' ? brotliCompressSync(data, { params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : gzipSync(data, { level: 6 })
+
 function send(res, status, body, headers = {}) {
   const raw = typeof body === 'string' || Buffer.isBuffer(body)
+  if (body === null) {
+    res.writeHead(status, { 'x-content-type-options': 'nosniff', ...headers })
+    return res.end()
+  }
+  let data = Buffer.from(raw ? body : JSON.stringify(body))
+  const extra = {}
+  // Bigger answers (a library, a replay, a design) go compressed; small ones are not worth it.
+  const enc = data.length > 1024 ? encodingFor(res.req) : null
+  if (enc) {
+    data = compress(data, enc)
+    extra['content-encoding'] = enc
+    extra.vary = 'accept-encoding'
+  }
   res.writeHead(status, {
     'content-type': raw ? 'text/plain; charset=utf-8' : 'application/json',
     'x-content-type-options': 'nosniff',
+    'content-length': data.length,
+    ...extra,
     ...headers,
   })
-  if (body === null) return res.end()
-  res.end(raw ? body : JSON.stringify(body))
+  res.end(data)
 }
 
 class HttpError extends Error {
@@ -295,6 +318,11 @@ async function readJson(req) {
 
 /** Per address and kind: at most `max` in a minute. */
 const recent = new Map()
+// Forget addresses quiet for a minute, so the map does not grow forever.
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, times] of recent) if (!times.length || now - times[times.length - 1] > 60_000) recent.delete(key)
+}, 60_000).unref()
 function limit(ip, kind, max) {
   const key = `${kind}:${ip}`
   const now = Date.now()
@@ -321,13 +349,46 @@ async function serveStatic(res, pathname) {
     file = join(DIST, 'index.html')
   }
   try {
-    const data = await readFile(file)
-    // Hashed build assets never change; the page itself always revalidates.
+    const entry = await staticEntry(file)
+    // Hashed build assets never change; the page itself always revalidates (cheaply: its ETag).
     const cache = file.includes(`${DIST}/assets/`) ? 'public, max-age=31536000, immutable' : 'no-cache'
-    send(res, 200, data, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'cache-control': cache })
+    const type = MIME[extname(file)] ?? 'application/octet-stream'
+    if (res.req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, { etag: entry.etag, 'cache-control': cache })
+      return res.end()
+    }
+    const enc = entry.compressible ? encodingFor(res.req) : null
+    const data = enc ? (entry[enc] ??= compress(entry.raw, enc)) : entry.raw
+    res.writeHead(200, {
+      'content-type': type,
+      'cache-control': cache,
+      etag: entry.etag,
+      'content-length': data.length,
+      vary: 'accept-encoding',
+      'x-content-type-options': 'nosniff',
+      ...(enc ? { 'content-encoding': enc } : {}),
+    })
+    res.end(data)
   } catch {
     send(res, 404, 'Not found')
   }
+}
+
+/** Built files, read once and kept with their compressed forms (made the first time they are asked for). */
+const staticCache = new Map()
+async function staticEntry(file) {
+  const mtime = (await stat(file)).mtimeMs
+  const hit = staticCache.get(file)
+  if (hit && hit.mtime === mtime) return hit
+  const raw = await readFile(file)
+  const entry = {
+    mtime,
+    raw,
+    etag: `"${createHash('sha1').update(raw).digest('base64url').slice(0, 16)}"`,
+    compressible: /\.(html|js|css|json|svg|txt|map)$/.test(file) && raw.length > 512,
+  }
+  staticCache.set(file, entry)
+  return entry
 }
 
 /* ─── The API ─────────────────────────────────────────────────────────── */
@@ -487,6 +548,22 @@ function api(db) {
       return { games: rows.map((r) => ({ ...gameRow(r), name: user.name })) }
     },
 
+    /** Where a score would land on a board: whether it places, and at what rank, without sending the board. */
+    async rank(scoreParam, modeParam) {
+      const score = Number(scoreParam)
+      if (!Number.isFinite(score)) throw new HttpError(400, 'score must be a number')
+      const mode = modeParam === 'hardcore' ? 'hardcore' : 'normal'
+      const { rows } = await db.query(
+        `SELECT count(*)::int AS ahead,
+                (SELECT count(*)::int FROM scores s2 LEFT JOIN games g2 ON g2.id = s2.game_id WHERE COALESCE(g2.mode, 'normal') = $2) AS total
+         FROM scores s LEFT JOIN games g ON g.id = s.game_id
+         WHERE s.score > $1 AND COALESCE(g.mode, 'normal') = $2`,
+        [score, mode],
+      )
+      const { ahead, total } = rows[0]
+      return { rank: ahead + 1, places: score > 0 && (total < BOARD_MAX || ahead < BOARD_MAX) }
+    },
+
     async board(limitParam, modeParam) {
       const n = Math.min(BOARD_MAX, Math.max(1, Number(limitParam) || 50))
       const mode = modeParam === 'hardcore' ? 'hardcore' : 'normal'
@@ -544,13 +621,24 @@ function api(db) {
 
     /* ─── The player's games, synced (the game and AI agents share them) ─── */
 
-    async library(req) {
+    /** The player's games; with ?since=<time>, only those changed after it (the game polls this way). */
+    async library(req, since) {
       const user = await userFrom(req, true)
+      const after = Number.isFinite(Date.parse(since)) ? new Date(since) : null
+      // Taken before reading, so a change made meanwhile is caught next time.
+      const now = new Date().toISOString()
       const { rows } = await db.query(
-        `SELECT gid, name, design, deleted, updated_at FROM user_games WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 100`,
-        [user.id],
+        `SELECT gid, name, design, deleted, updated_at FROM user_games
+         WHERE user_id = $1 AND ($2::timestamptz IS NULL OR updated_at > $2) ORDER BY updated_at DESC LIMIT 100`,
+        [user.id, after],
       )
-      return { games: rows.map((r) => ({ id: r.gid, name: r.name, design: r.design, deleted: r.deleted, updated_at: new Date(r.updated_at).toISOString() })) }
+      const { rows: all } = after ? await db.query('SELECT gid FROM user_games WHERE user_id = $1', [user.id]) : { rows }
+      return {
+        games: rows.map((r) => ({ id: r.gid, name: r.name, design: r.design, deleted: r.deleted, updated_at: new Date(r.updated_at).toISOString() })),
+        // Every game the server knows (changed or not), so the game can tell which of its own to send up.
+        ids: all.map((r) => r.gid),
+        now,
+      }
     },
 
     async putGame(req, gid) {
@@ -780,12 +868,13 @@ async function main() {
       else if (path === '/api/games' && post) out = await routes.saveGame(req)
       else if (path === '/api/games' && get) out = await routes.searchGames(url.searchParams.get('q'))
       else if ((m = path.match(/^\/api\/games\/([^/]+)$/)) && get) out = await routes.getGame(decodeURIComponent(m[1]))
+      else if (path === '/api/scores/rank' && get) out = await routes.rank(url.searchParams.get('score'), url.searchParams.get('mode'))
       else if (path === '/api/scores' && get) out = await routes.board(url.searchParams.get('limit'), url.searchParams.get('mode'))
       else if (path === '/api/scores' && post) out = await routes.addScore(req)
       else if ((m = path.match(/^\/api\/scores\/(\d+)$/)) && get) out = await routes.boardEntry(Number(m[1]))
       else if (path === '/mcp' && post) out = await routes.mcp(req)
       else if (path === '/mcp') throw new HttpError(405, 'POST MCP messages here (Streamable HTTP, JSON replies)')
-      else if (path === '/api/me/library' && get) out = await routes.library(req)
+      else if (path === '/api/me/library' && get) out = await routes.library(req, url.searchParams.get('since'))
       else if ((m = path.match(/^\/api\/me\/library\/([\w-]{1,16})$/)) && req.method === 'PUT') out = await routes.putGame(req, m[1])
       else if ((m = path.match(/^\/api\/me\/library\/([\w-]{1,16})$/)) && req.method === 'DELETE') out = await routes.deleteGame(req, m[1])
       else if (path === '/api/me/agent-keys' && get) out = await routes.agentKeys(req)

@@ -40,7 +40,16 @@ watch(
     } catch {
       /* storage blocked: on for this visit */
     }
+    cursor = null
     if (on) void pull()
+  },
+)
+// Signed in as someone else: start from everything again.
+watch(
+  () => account.code,
+  () => {
+    cursor = null
+    inStep.clear()
   },
 )
 
@@ -64,11 +73,19 @@ async function push(game: SavedGame) {
   inStep.set(game.id, stamp(game))
 }
 
+/** The server's time at the last pull: the next asks only for games changed since (null: everything). */
+let cursor: string | null = null
+
 /** Bring server changes in, and send up what the server lacks. */
 async function pull() {
   if (!active() || document.visibilityState === 'hidden') return
   try {
-    const { games } = (await call('/api/me/library')) as { games: { id: string; name: string; design: Design; deleted: boolean; updated_at: string }[] }
+    const { games, ids, now } = (await call(`/api/me/library${cursor ? `?since=${encodeURIComponent(cursor)}` : ''}`)) as {
+      games: { id: string; name: string; design: Design; deleted: boolean; updated_at: string }[]
+      ids: string[]
+      now: string
+    }
+    cursor = now
     for (const remote of games) {
       const at = Date.parse(remote.updated_at)
       const local = library.games.find((g) => g.id === remote.id)
@@ -99,7 +116,7 @@ async function pull() {
       }
     }
     // Games the server has never seen.
-    for (const g of library.games) if (!games.some((r) => r.id === g.id)) await push(g)
+    for (const g of library.games) if (!ids.includes(g.id)) await push(g)
     sync.lastAt = Date.now()
     sync.error = ''
   } catch (err) {

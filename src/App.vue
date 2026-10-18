@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
 import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
@@ -11,17 +11,18 @@ import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './r
 import { custom, library, playShared, setCustom, shared, stopShared } from './design'
 import { navFocusFirst, navMove, navPress, navScope } from './menuNav'
 import Briefing from './components/Briefing.vue'
-import CheatMenu from './components/CheatMenu.vue'
-import CustomPanel from './components/CustomPanel.vue'
-import AgentPanel from './components/AgentPanel.vue'
 import { sync } from './sync'
 import AccountPanel from './components/AccountPanel.vue'
 import GameCode from './components/GameCode.vue'
 import HeldPills from './components/HeldPills.vue'
 import Mascot from './components/Mascot.vue'
-import ReplaysPanel from './components/ReplaysPanel.vue'
 import Leaderboard from './components/Leaderboard.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+// Screens most visits never open load when first opened, keeping the first download small.
+const CheatMenu = defineAsyncComponent(() => import('./components/CheatMenu.vue'))
+const CustomPanel = defineAsyncComponent(() => import('./components/CustomPanel.vue'))
+const AgentPanel = defineAsyncComponent(() => import('./components/AgentPanel.vue'))
+const ReplaysPanel = defineAsyncComponent(() => import('./components/ReplaysPanel.vue'))
 import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
 import PowerIcon from './components/PowerIcon.vue'

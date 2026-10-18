@@ -101,12 +101,11 @@ export const fetchScore = (id: number) => call<ScoreEntry>(`/api/scores/${id}`)
 export const submitScore = (entry: { game: string; email: string }) =>
   post<{ id: number; rank: number }>('/api/scores', entry)
 
-/** Would this score make the board? True when the board cannot be reached, so nobody loses a run. */
+/** Would this score make the board? The server says, without sending the board. True when it cannot be reached, so nobody loses a run. */
 export async function placesOnBoard(score: number, mode: Mode): Promise<boolean> {
   if (score <= 0) return false
   try {
-    const board = await fetchScores(BOARD_SIZE, mode)
-    return board.length < BOARD_SIZE || score > board[board.length - 1]!.score
+    return (await call<{ places: boolean }>(`/api/scores/rank?score=${score}&mode=${mode}`)).places
   } catch {
     return true
   }
