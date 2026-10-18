@@ -290,6 +290,25 @@ function openEditor() {
   menuOpen.value = false
   pause()
 }
+/** The start screen's splash line, Minecraft style: one picked at random each time it shows. */
+const SPLASHES = [
+  'Snake-2 Electric Bogaloooo',
+  'Snake Jazz! Ba-dum tss-ss-ss',
+  'Runs on a Nokia 3310. Probably.',
+  'Now with 100% more lasers!',
+  'Hiss to the beat!',
+  "Don't bite yourself!",
+  'Sssssynthwave!',
+]
+const splash = ref(SPLASHES[0]!)
+watch(
+  () => state.status === 'ready' && !briefing.value,
+  (onMenu) => {
+    if (onMenu) splash.value = SPLASHES[Math.floor(Math.random() * SPLASHES.length)]!
+  },
+  { immediate: true },
+)
+
 /** The custom game this device plays, for the start card. */
 const activeGameName = computed(() => library.games.find((game) => game.id === library.active)?.name ?? 'yours')
 
@@ -771,7 +790,11 @@ onBeforeUnmount(() => {
         <div class="card card-start">
           <Mascot class="corner-mascot" />
           <header class="hello">
-            <h1>Laserwyrm<span class="brand-dot">.</span></h1>
+            <h1 class="title">
+              Laserwyrm<span class="brand-dot">.</span>
+              <!-- A yellow splash, tilted and pulsing, a new one each time the menu comes back -->
+              <span :key="splash" class="splash" aria-hidden="true">{{ splash }}</span>
+            </h1>
 
           </header>
           <div class="start-buttons">
@@ -1334,6 +1357,34 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
   justify-items: center;
   margin: 0.4rem 0 1.4rem;
   text-align: center;
+}
+/* The splash hangs off the title's bottom right, like Minecraft's. */
+.title { position: relative; }
+.splash {
+  position: absolute;
+  right: -1.4rem;
+  bottom: -1.3rem;
+  width: max-content;
+  max-width: 10rem;
+  font-family: var(--font-pixel);
+  font-size: 0.5rem;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: none;
+  color: var(--sun);
+  text-shadow: 2px 2px 0 #3F3A00;
+  rotate: -12deg;
+  transform-origin: center;
+  pointer-events: none;
+  animation: splash 0.6s ease-in-out infinite alternate;
+}
+@keyframes splash {
+  from { scale: 0.92; }
+  to { scale: 1.06; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash { animation: none; }
 }
 .card-start h1 {
   margin: 0.3rem 0 0;
