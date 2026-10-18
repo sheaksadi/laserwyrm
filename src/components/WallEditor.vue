@@ -38,10 +38,15 @@ let last: [number, number] | null = null
 let anchor: [number, number] | null = null
 const ghost = ref<number[]>([])
 
+/** The cell under the pointer. The board is scaled to fit its box and centred, so the drawn part may be smaller than the box. */
 function cellAt(event: PointerEvent): [number, number] {
   const box = board.value!.getBoundingClientRect()
-  const x = Math.max(0, Math.min(cols - 1, Math.floor(((event.clientX - box.left) / box.width) * cols)))
-  const y = Math.max(0, Math.min(rows - 1, Math.floor(((event.clientY - box.top) / box.height) * rows)))
+  // The drawing has a 0.2-cell margin all round, for the frame.
+  const scale = Math.min(box.width / (cols + 0.4), box.height / (rows + 0.4))
+  const left = box.left + (box.width - (cols + 0.4) * scale) / 2 + 0.2 * scale
+  const top = box.top + (box.height - (rows + 0.4) * scale) / 2 + 0.2 * scale
+  const x = Math.max(0, Math.min(cols - 1, Math.floor((event.clientX - left) / scale)))
+  const y = Math.max(0, Math.min(rows - 1, Math.floor((event.clientY - top) / scale)))
   return [x, y]
 }
 
@@ -186,11 +191,15 @@ watch(full, (on) => {
   else window.removeEventListener('keydown', onKey, { capture: true })
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: true }))
+
+// The tools live outside the card (the workshop's right side); they work this editor through these.
+defineExpose({ TOOLS, tool, mirrorX, mirrorY, showTemplates, full, hasBorder, count: computed(() => walls.value.size), border, clearWalls, copyPrevious })
 </script>
 
 <template>
   <div class="walls-editor" :class="{ full }">
-    <div class="draw-tools">
+    <!-- Full screen only: the tools come along (normally they float beside the card) -->
+    <div v-if="full" class="draw-tools">
       <div class="tools" role="radiogroup" aria-label="Drawing tool">
         <button
           v-for="t in TOOLS"
@@ -224,7 +233,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
       <button class="tool" :aria-pressed="full" @click="full = !full">{{ full ? 'Done' : 'Full screen' }}</button>
     </div>
     <!-- Templates: built in, or saved from any level; add them to this level's walls or take them away -->
-    <div v-if="showTemplates" class="templates">
+    <div v-if="showTemplates && !full" class="templates">
       <div v-for="t in templates" :key="t.id" class="template">
         <svg :viewBox="`0 0 ${cols} ${rows}`" class="mini" aria-hidden="true">
           <rect v-for="c in templateCells(t)" :key="c" :x="c % cols" :y="Math.floor(c / cols)" width="1" height="1" />
@@ -242,9 +251,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
       </div>
     </div>
     <svg
+      v-show="!showTemplates || full"
       ref="board"
       class="wall-board"
-      :viewBox="`0 0 ${cols} ${rows}`"
+      :viewBox="`-0.2 -0.2 ${cols + 0.4} ${rows + 0.4}`"
       role="img"
       aria-label="Level walls: drag to draw, start on a wall to erase"
       @pointerdown="down"
@@ -257,6 +267,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
           <rect x="0.46" y="0.46" width="0.08" height="0.08" fill="var(--border)" />
         </pattern>
       </defs>
+      <rect class="frame" x="-0.06" y="-0.06" :width="cols + 0.12" :height="rows + 0.12" rx="0.3" />
       <rect :width="cols" :height="rows" fill="url(#editor-dots)" />
       <rect
         v-for="i in reserved"
@@ -284,7 +295,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
 </template>
 
 <style scoped>
-.walls-editor { display: grid; gap: 8px; }
+.walls-editor { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .walls-editor.full {
   position: fixed;
   inset: 0;
@@ -293,22 +304,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, { capture: tr
   padding: 16px;
   background: var(--bg);
 }
-.full .wall-board { max-height: calc(100vh - 80px); width: auto; max-width: 100%; justify-self: center; }
+.full .wall-board { max-height: calc(100vh - 80px); }
 .draw-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .count { margin-left: auto; font-size: 14px; text-transform: uppercase; color: var(--text-muted); }
 .wall-board {
+  flex: 1;
   display: block;
   width: 100%;
-  border: 2px solid var(--sky);
-  border-radius: 6px;
-  background: var(--bg-off);
+  min-height: 0;
   touch-action: none;
   cursor: crosshair;
 }
+.frame { fill: var(--bg-off); stroke: var(--sky); stroke-width: 0.12; }
 .wall { fill: #2A2350; stroke: var(--lavender); stroke-width: 0.08; }
 .start { fill: var(--sage); opacity: 0.3; }
 .ghost { fill: var(--sun); opacity: 0.45; }
-.templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 6px; }
+.templates { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); align-content: start; gap: 6px; }
 .template { display: grid; gap: 4px; padding: 6px; border: 2px solid var(--border); border-radius: 10px; background: var(--bg-off); }
 .template.save { align-content: center; }
 .mini { width: 100%; aspect-ratio: 48 / 26; border-radius: 4px; background: var(--bg); fill: var(--lavender); }

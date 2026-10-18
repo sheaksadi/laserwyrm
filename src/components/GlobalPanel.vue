@@ -10,7 +10,6 @@
 import { computed, ref } from 'vue'
 import { LASER_TIERS, levelPlan, state } from '../game'
 import { design, GLOBAL_RANGE, LEVEL_RANGE, STOCK_GLOBAL, type Global } from '../design'
-import LevelMusic from './LevelMusic.vue'
 
 type Knob = keyof Global
 const KNOBS: { key: Knob; name: string; hint: string; show: (v: number) => string }[] = [
@@ -113,41 +112,10 @@ function resetGlobal() {
 </script>
 
 <template>
-  <div class="tuning">
-    <section>
-      <div class="chart-head">
-        <h3>Every level, harder or easier</h3>
-        <span class="legend"><i class="sw tuned"></i>yours <i class="sw stock"></i>stock</span>
-      </div>
-      <svg
-        ref="chart"
-        class="chart"
-        :viewBox="`0 0 ${LEVELS} ${H}`"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="Difficulty of each level: drag up for harder, down for easier"
-        @pointerdown="down"
-        @pointermove="move"
-        @pointerup="up"
-        @pointercancel="up"
-      >
-        <line x1="0" :x2="LEVELS" :y1="H / 2" :y2="H / 2" class="mid" />
-        <line
-          v-for="tier in LASER_TIERS.slice(1)"
-          :key="tier.level"
-          :x1="tier.level" :x2="tier.level" y1="0" :y2="H"
-          :stroke="TIER_COLOR[tier.kind]" class="tier-line"
-        />
-        <rect
-          v-for="l in LEVELS"
-          :key="l"
-          :x="l - 1 + 0.12" :y="H - (difficulty(l - 1) / 2) * H" width="0.76" :height="(difficulty(l - 1) / 2) * H"
-          :class="{ off: difficulty(l - 1) !== 1, focus: l - 1 === focus }"
-          class="bar"
-        />
-        <polyline :points="line(STOCK)" class="curve stock" />
-        <polyline :points="line(tuned)" class="curve tuned" />
-      </svg>
+  <Teleport defer to="#ws-top">
+    <div class="top">
+      <h2>Global feel</h2>
+      <span class="legend"><i class="sw tuned"></i>yours <i class="sw stock"></i>stock</span>
       <p class="readout">
         <b>Level {{ focus + 1 }}</b>
         <span>×{{ difficulty(focus).toFixed(2) }}</span>
@@ -156,14 +124,43 @@ function resetGlobal() {
         <span>{{ (feel.warn / 4).toFixed(1) }} beats warning</span>
         <span v-if="state.level === focus" class="now">playing</span>
       </p>
-      <div class="chart-tools">
-        <button class="tool" @click="smooth">Smooth</button>
-        <button class="tool" @click="flatten">Flatten</button>
-      </div>
-    </section>
+    </div>
+  </Teleport>
 
-    <section>
-      <h3>The whole game</h3>
+  <!-- Every level, harder or easier: drag the bars -->
+  <svg
+    ref="chart"
+    class="chart"
+    :viewBox="`0 0 ${LEVELS} ${H}`"
+    preserveAspectRatio="none"
+    role="img"
+    aria-label="Difficulty of each level: drag up for harder, down for easier"
+    @pointerdown="down"
+    @pointermove="move"
+    @pointerup="up"
+    @pointercancel="up"
+  >
+    <line x1="0" :x2="LEVELS" :y1="H / 2" :y2="H / 2" class="mid" />
+    <line
+      v-for="tier in LASER_TIERS.slice(1)"
+      :key="tier.level"
+      :x1="tier.level" :x2="tier.level" y1="0" :y2="H"
+      :stroke="TIER_COLOR[tier.kind]" class="tier-line"
+    />
+    <rect
+      v-for="l in LEVELS"
+      :key="l"
+      :x="l - 1 + 0.12" :y="H - (difficulty(l - 1) / 2) * H" width="0.76" :height="(difficulty(l - 1) / 2) * H"
+      :class="{ off: difficulty(l - 1) !== 1, focus: l - 1 === focus }"
+      class="bar"
+    />
+    <polyline :points="line(STOCK)" class="curve stock" />
+    <polyline :points="line(tuned)" class="curve tuned" />
+  </svg>
+
+  <!-- The knobs for the whole game -->
+  <Teleport defer to="#ws-bottom">
+    <div class="knobs">
       <label v-for="k in KNOBS" :key="k.key" class="knob">
         <span class="knob-name"><b>{{ k.name }}</b> {{ k.hint }}</span>
         <button
@@ -183,19 +180,49 @@ function resetGlobal() {
           :aria-label="k.name"
         />
       </label>
-      <button class="tool wide" @click="resetGlobal">Put the global feel back to stock</button>
-    </section>
+    </div>
+  </Teleport>
 
-    <section>
-      <h3>Music for the whole game</h3>
-      <LevelMusic level="game" />
-    </section>
-  </div>
+  <Teleport defer to="#ws-side">
+    <button class="side" @click="smooth">Smooth</button>
+    <button class="side" @click="flatten">Flatten</button>
+    <button class="side danger" @click="resetGlobal">Stock feel</button>
+  </Teleport>
 </template>
 
 <style scoped>
-.tuning { display: grid; gap: 1.1rem; }
-section { display: grid; gap: 8px; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+h2 {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 1rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  color: var(--sage);
+  text-shadow: 3px 3px 0 var(--ink);
+}
+.knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 6px; }
+.knobs .knob { padding: 4px 10px 5px; }
+.knobs .knob-name { font-size: 13px; }
+/* Buttons floating off the card's right side. */
+.side {
+  padding: 8px;
+  border: 3px solid var(--ink);
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--border), 4px 4px 0 2px var(--ink);
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: left;
+}
+.side:hover { color: var(--text); box-shadow: 0 0 0 2px var(--sage), 4px 4px 0 2px var(--ink); }
+.side.danger:hover { box-shadow: 0 0 0 2px var(--coral), 4px 4px 0 2px var(--ink); }
+@media (max-height: 560px), (max-width: 760px) {
+  .side { padding: 4px 5px; font-size: 10px; border-width: 2px; box-shadow: 0 0 0 1px var(--border), 2px 2px 0 1px var(--ink); }
+  .knobs { grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 4px; }
+  .knob { padding: 3px 8px 4px; }
+  .knob-name { font-size: 12px; }
+}
 h3 {
   margin: 0;
   font-size: 16px;
@@ -210,8 +237,9 @@ h3 {
 .sw.tuned { background: var(--mint); }
 .sw.stock { background: var(--text-muted); }
 .chart {
+  flex: 1;
   width: 100%;
-  height: 150px;
+  min-height: 80px;
   border: 2px solid var(--border);
   border-radius: 10px;
   background: var(--bg-off);

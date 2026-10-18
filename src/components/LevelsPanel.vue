@@ -100,6 +100,8 @@ const TABS: { id: Tab; name: string }[] = [
   { id: 'music', name: 'Music' },
 ]
 const tab = ref<Tab>('pacing')
+/** The wall editor, whose tools float beside the card. */
+const walls = ref<InstanceType<typeof WallEditor> | null>(null)
 const tabChanged = (t: Tab) => {
   const e = edit.value
   if (t === 'pacing') return ['difficulty', 'bpm', 'lasers', 'armed', 'warn', 'bars', 'traits'].some((k) => k in e)
@@ -110,60 +112,129 @@ const tabChanged = (t: Tab) => {
 </script>
 
 <template>
-  <div class="levels">
+  <!-- On top: every level, to slide through, and the one picked -->
+  <Teleport defer to="#ws-top">
+    <div class="levels">
     <!-- Every level, to slide through -->
-    <div class="strip-row">
-      <button class="arrow" :disabled="atStart" aria-label="Earlier levels" @click="slide(-1)">‹</button>
-      <div ref="strip" class="strip" @scroll.passive="onScroll">
-        <button
-          v-for="(l, i) in design.levels"
-          :key="i"
-          class="chip"
-          :class="{ on: i === selected, edited: edited(i), added: i >= STOCK_LEVELS, now: i === state.level }"
-          :title="l.name ?? `Level ${i + 1}`"
-          @click="pick(i)"
-        >
-          <i class="tier" :style="{ background: tierColor(i) }"></i>
-          <span class="n">{{ i + 1 }}</span>
-          <span v-if="l.name" class="name">{{ l.name }}</span>
-        </button>
-        <button class="chip add" :disabled="design.levels.length >= MAX_LEVELS" title="Add a level after the last" @click="addLevel">+</button>
+      <div class="strip-row">
+        <button class="arrow" :disabled="atStart" aria-label="Earlier levels" @click="slide(-1)">‹</button>
+        <div ref="strip" class="strip" @scroll.passive="onScroll">
+          <button
+            v-for="(l, i) in design.levels"
+            :key="i"
+            class="chip"
+            :class="{ on: i === selected, edited: edited(i), added: i >= STOCK_LEVELS, now: i === state.level }"
+            :title="l.name ?? `Level ${i + 1}`"
+            @click="pick(i)"
+          >
+            <i class="tier" :style="{ background: tierColor(i) }"></i>
+            <span class="n">{{ i + 1 }}</span>
+            <span v-if="l.name" class="name">{{ l.name }}</span>
+          </button>
+          <button class="chip add" :disabled="design.levels.length >= MAX_LEVELS" title="Add a level after the last" @click="addLevel">+</button>
+        </div>
+        <button class="arrow" :disabled="atEnd" aria-label="Later levels" @click="slide(1)">›</button>
       </div>
-      <button class="arrow" :disabled="atEnd" aria-label="Later levels" @click="slide(1)">›</button>
-    </div>
 
-    <div class="level-head">
-      <b class="level-n">Level {{ selected + 1 }}</b>
-      <input
-        class="name"
-        maxlength="24"
-        :value="edit.name ?? ''"
-        :placeholder="LASER_TIERS.find((t) => t.level === selected)?.name ?? 'Name this level'"
-        aria-label="Level name"
-        @input="setName(($event.target as HTMLInputElement).value)"
-      />
-      <div class="actions">
-        <button class="tool" @click="playHere">Play from here</button>
-        <button class="tool danger" :disabled="!edited(selected)" @click="ask('reset', resetLevel)">{{ confirm === 'reset' ? 'Sure?' : 'Reset' }}</button>
-        <button v-if="selected >= STOCK_LEVELS" class="tool danger" @click="ask('remove', removeLevel)">{{ confirm === 'remove' ? 'Sure?' : 'Remove' }}</button>
+      <div class="level-head">
+        <b class="level-n">Level {{ selected + 1 }}</b>
+        <input
+          class="name"
+          maxlength="24"
+          :value="edit.name ?? ''"
+          :placeholder="LASER_TIERS.find((t) => t.level === selected)?.name ?? 'Name this level'"
+          aria-label="Level name"
+          @input="setName(($event.target as HTMLInputElement).value)"
+        />
+        <div class="actions">
+          <button class="tool" @click="playHere">Play from here</button>
+          <button class="tool danger" :disabled="!edited(selected)" @click="ask('reset', resetLevel)">{{ confirm === 'reset' ? 'Sure?' : 'Reset' }}</button>
+          <button v-if="selected >= STOCK_LEVELS" class="tool danger" @click="ask('remove', removeLevel)">{{ confirm === 'remove' ? 'Sure?' : 'Remove' }}</button>
+        </div>
       </div>
+
     </div>
+  </Teleport>
 
-    <WallEditor :level="selected" />
+  <!-- In the middle: the board (or the level's music) -->
+  <LevelMusic v-if="tab === 'music'" :level="selected" />
+  <WallEditor v-else ref="walls" :level="selected" />
 
-    <nav class="subtabs" role="tablist">
-      <button v-for="t in TABS" :key="t.id" class="subtab" role="tab" :aria-selected="tab === t.id" :class="{ on: tab === t.id }" @click="tab = t.id">
-        {{ t.name }}<span v-if="tabChanged(t.id)" class="dot"></span>
-      </button>
-    </nav>
+  <!-- Below: the picked tab's settings -->
+  <Teleport v-if="tab !== 'music'" defer to="#ws-bottom">
     <LevelRules v-if="tab === 'pacing' || tab === 'feel'" :level="selected" :section="tab" />
-    <LevelItems v-else-if="tab === 'items'" :level="selected" />
-    <LevelMusic v-else :level="selected" />
-  </div>
+    <LevelItems v-else :level="selected" />
+  </Teleport>
+
+  <!-- Off the card's right side: the level's tabs, then the drawing tools -->
+  <Teleport defer to="#ws-side">
+    <button
+      v-for="t in TABS"
+      :key="t.id"
+      class="side"
+      role="tab"
+      :aria-selected="tab === t.id"
+      :class="{ on: tab === t.id }"
+      @click="tab = t.id"
+    >
+      {{ t.name }}<i v-if="tabChanged(t.id)" class="dot"></i>
+    </button>
+    <template v-if="tab !== 'music' && walls">
+      <span class="side-gap"></span>
+      <button
+        v-for="tl in walls.TOOLS"
+        :key="tl.id"
+        class="side tool-pick"
+        role="radio"
+        :aria-checked="walls.tool === tl.id"
+        :class="{ on: walls.tool === tl.id }"
+        :title="tl.name"
+        @click="walls.tool = tl.id"
+      >{{ tl.name }}</button>
+      <span class="side-gap"></span>
+      <button class="side" :class="{ on: walls.mirrorX }" @click="walls.mirrorX = !walls.mirrorX">Mirror ⇆</button>
+      <button class="side" :class="{ on: walls.mirrorY }" @click="walls.mirrorY = !walls.mirrorY">Mirror ⇅</button>
+      <button class="side" :class="{ on: walls.hasBorder }" @click="walls.border()">Border</button>
+      <button class="side" :class="{ on: walls.showTemplates }" @click="walls.showTemplates = !walls.showTemplates">Templates</button>
+      <button class="side" :disabled="selected === 0" title="Copy the walls of the level before" @click="walls.copyPrevious()">Copy prev</button>
+      <button class="side" @click="walls.clearWalls()">Clear</button>
+      <button class="side" @click="walls.full = true">Full screen</button>
+      <span class="count">{{ walls.count }} walls</span>
+    </template>
+  </Teleport>
 </template>
 
 <style scoped>
-.levels { display: grid; gap: 10px; }
+.levels { display: grid; gap: 8px; }
+/* Buttons floating off the card's right side. */
+.side {
+  position: relative;
+  padding: 7px 8px;
+  border: 3px solid var(--ink);
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--border), 4px 4px 0 2px var(--ink);
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: left;
+}
+.side:hover:not(:disabled) { color: var(--text); box-shadow: 0 0 0 2px var(--sage), 4px 4px 0 2px var(--ink); }
+.side:disabled { opacity: 0.4; cursor: default; }
+.side.on { background: var(--sage); color: var(--ink); box-shadow: 0 0 0 2px var(--sage), 4px 4px 0 2px var(--ink); }
+.side.tool-pick.on { background: var(--sun); box-shadow: 0 0 0 2px var(--sun), 4px 4px 0 2px var(--ink); }
+.side .dot { position: absolute; top: 4px; right: 4px; }
+.side-gap { height: 8px; flex: none; }
+.count { font-size: 13px; text-transform: uppercase; color: var(--text-muted); text-align: center; }
+@media (max-height: 560px), (max-width: 760px) {
+  .side { padding: 4px 5px; font-size: 10px; border-width: 2px; box-shadow: 0 0 0 1px var(--border), 2px 2px 0 1px var(--ink); }
+  .side-gap { height: 4px; }
+  .levels { gap: 4px; }
+  .chip { height: 28px; font-size: 12px; }
+  .arrow { height: 30px; }
+  .name { padding: 3px 8px; font-size: 14px; }
+  .level-n { font-size: 10px; }
+  .tool { padding: 3px 7px; font-size: 12px; }
+}
 .strip-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; }
 .arrow {
   width: 30px;

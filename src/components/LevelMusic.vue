@@ -14,6 +14,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { levelPlan } from '../game'
 import { design } from '../design'
+import { musicOutput } from '../audio'
 import { compile, patternBlocks, preview, previewNow, stockMusic, type Block } from '../music'
 
 const props = defineProps<{ level: number | 'game' }>()
@@ -87,9 +88,42 @@ function backToStock() {
 
 /* ─── Preview, with a playhead on the blocks ─── */
 
+/* The music bus as a wave, drawn while it plays. */
+const scope = ref<HTMLCanvasElement | null>(null)
+let analyser: AnalyserNode | null = null
+let wave: Float32Array<ArrayBuffer> | null = null
+function drawWave() {
+  const canvas = scope.value
+  if (!canvas) return
+  if (!analyser) {
+    const out = musicOutput()
+    if (!out) return
+    analyser = out.ctx.createAnalyser()
+    analyser.fftSize = 1024
+    out.bus.connect(analyser)
+    wave = new Float32Array(analyser.fftSize)
+  }
+  const g = canvas.getContext('2d')!
+  const w = (canvas.width = canvas.clientWidth * devicePixelRatio)
+  const h = (canvas.height = canvas.clientHeight * devicePixelRatio)
+  analyser.getFloatTimeDomainData(wave!)
+  g.clearRect(0, 0, w, h)
+  g.strokeStyle = '#00F0C8'
+  g.lineWidth = 2 * devicePixelRatio
+  g.beginPath()
+  wave!.forEach((v, i) => {
+    const x = (i / (wave!.length - 1)) * w
+    const y = h / 2 - v * h * 1.6
+    if (i) g.lineTo(x, y)
+    else g.moveTo(x, y)
+  })
+  g.stroke()
+}
+
 function follow() {
   const now = previewNow()
   head.value = now === null ? null : now % BARS
+  drawWave()
   frame = requestAnimationFrame(follow)
 }
 async function startPreview() {
@@ -175,11 +209,9 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
     <div class="head">
       <span class="status" :class="status">{{ STATUS[status] }}</span>
       <span class="tempo">
-        <template v-if="isGame">every level without its own music · tempo per level</template>
+        <template v-if="isGame">music for every level without its own · tempo per level</template>
         <template v-else>{{ bpm }} bpm · one cycle = one bar</template>
       </span>
-      <button class="tool" :class="{ on: playing }" @click="playing ? stopPreview() : startPreview()">{{ playing ? '■ Stop' : '▶ Preview' }}</button>
-      <button class="tool" :disabled="!target.music" @click="backToStock">{{ isGame || !design.music ? 'Back to stock' : "Back to the game's" }}</button>
     </div>
 
     <!-- The code: a coloured copy underneath, the real text box on top -->
@@ -198,43 +230,49 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
       ></textarea>
     </div>
     <p v-if="error" class="error">{{ error }}</p>
-
-    <!-- What plays over four bars, one row per sound -->
-    <div v-if="blocks.length" class="blocks">
-      <div class="labels">
-        <span v-for="lane in lanes" :key="lane" :style="{ color: laneColor(lane) }">{{ lane }}</span>
-      </div>
-      <svg :viewBox="`0 0 ${BARS} ${lanes.length}`" preserveAspectRatio="none" class="roll" :style="{ height: `${lanes.length * 18}px` }">
-        <line v-for="bar in BARS - 1" :key="`b${bar}`" :x1="bar" :x2="bar" y1="0" :y2="lanes.length" class="bar-line" />
-        <rect
-          v-for="(b, i) in blocks"
-          :key="i"
-          :x="b.begin" :y="blockY(b, lanes.indexOf(b.lane))"
-          :width="Math.max(0.012, b.length - 0.006)" :height="b.pitch === null ? 0.7 : 0.3"
-          :fill="laneColor(b.lane)"
-          :opacity="head !== null && head >= b.begin && head < b.begin + b.length ? 1 : 0.55"
-        />
-        <line v-if="head !== null" :x1="head" :x2="head" y1="0" :y2="lanes.length" class="playhead" />
-      </svg>
-    </div>
-
-    <p class="hint">
-      Written in <a href="https://strudel.cc/learn/" target="_blank" rel="noopener">Strudel</a>. Synths: sine, square, triangle,
-      sawtooth, supersaw, pulse; drum: sbd; noise: white, pink, brown.
-      <template v-if="isGame">Each level can still have its own, under Levels → Music.</template>
-      <template v-else>Tempo comes from the level (Pacing). Music for every level at once is under Global.</template>
-    </p>
   </div>
+
+  <!-- Below: what plays over four bars, one row per sound, and the sound itself as a wave -->
+  <Teleport defer to="#ws-bottom">
+    <div class="below">
+      <div v-if="blocks.length" class="blocks">
+        <div class="labels">
+          <span v-for="lane in lanes" :key="lane" :style="{ color: laneColor(lane) }">{{ lane }}</span>
+        </div>
+        <svg :viewBox="`0 0 ${BARS} ${lanes.length}`" preserveAspectRatio="none" class="roll" :style="{ height: `${lanes.length * 16}px` }">
+          <line v-for="bar in BARS - 1" :key="`b${bar}`" :x1="bar" :x2="bar" y1="0" :y2="lanes.length" class="bar-line" />
+          <rect
+            v-for="(b, i) in blocks"
+            :key="i"
+            :x="b.begin" :y="blockY(b, lanes.indexOf(b.lane))"
+            :width="Math.max(0.012, b.length - 0.006)" :height="b.pitch === null ? 0.7 : 0.3"
+            :fill="laneColor(b.lane)"
+            :opacity="head !== null && head >= b.begin && head < b.begin + b.length ? 1 : 0.55"
+          />
+          <line v-if="head !== null" :x1="head" :x2="head" y1="0" :y2="lanes.length" class="playhead" />
+        </svg>
+      </div>
+      <canvas ref="scope" class="scope" aria-hidden="true"></canvas>
+    </div>
+  </Teleport>
+
+  <!-- Off the card's right side -->
+  <Teleport defer to="#ws-side">
+    <span class="side-gap"></span>
+    <button class="side" :class="{ on: playing }" @click="playing ? stopPreview() : startPreview()">{{ playing ? '■ Stop' : '▶ Preview' }}</button>
+    <button class="side" :disabled="!target.music" @click="backToStock">{{ isGame || !design.music ? 'Stock' : 'Game music' }}</button>
+    <a class="side link" href="https://strudel.cc/learn/" target="_blank" rel="noopener">Strudel help</a>
+  </Teleport>
 </template>
 
 <style scoped>
-.music { display: grid; gap: 8px; }
+.music { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .status { font-family: var(--font-pixel); font-size: 9px; text-transform: uppercase; color: var(--text-muted); }
 .status.yours, .status.game { color: var(--sun); }
 .status.error { color: var(--coral); }
 .tempo { flex: 1; font-size: 15px; text-transform: uppercase; color: var(--text-muted); }
-.editor { position: relative; height: 18rem; resize: vertical; overflow: hidden; border: 2px solid var(--border); border-radius: 10px; background: var(--bg-off); }
+.editor { position: relative; flex: 1; min-height: 4rem; overflow: hidden; border: 2px solid var(--border); border-radius: 10px; background: var(--bg-off); }
 .editor:focus-within { border-color: var(--mint); }
 .shade,
 .code {
@@ -259,8 +297,33 @@ const STATUS = { stock: 'Stock track', game: "The game's music", yours: 'Your mu
 .shade :deep(.t-n) { color: #FF9966; }
 .shade :deep(.t-f) { color: #3FA9FF; }
 .error { margin: 0; padding: 6px 10px; border-radius: 8px; background: #2A0F16; font-size: 15px; color: var(--coral); white-space: pre-wrap; }
+.below { display: grid; grid-template-columns: 1fr minmax(8rem, 22%); gap: 8px; }
 .blocks { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: stretch; padding: 8px; border-radius: 10px; background: var(--bg-off); }
-.labels { display: grid; grid-auto-rows: 18px; font-size: 13px; text-transform: uppercase; line-height: 18px; }
+.scope { width: 100%; height: 100%; min-height: 48px; border-radius: 10px; background: var(--bg-off); }
+/* Buttons floating off the card's right side. */
+.side {
+  padding: 7px 8px;
+  border: 3px solid var(--ink);
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--border), 4px 4px 0 2px var(--ink);
+  font-size: 14px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: left;
+  text-decoration: none;
+}
+.side:hover:not(:disabled) { color: var(--text); box-shadow: 0 0 0 2px var(--sage), 4px 4px 0 2px var(--ink); }
+.side:disabled { opacity: 0.4; cursor: default; }
+.side.on { background: var(--sun); color: var(--ink); }
+.side.link { font-size: 12px; color: var(--sky); }
+.side-gap { height: 8px; flex: none; }
+@media (max-height: 560px), (max-width: 760px) {
+  .side { padding: 4px 5px; font-size: 10px; border-width: 2px; box-shadow: 0 0 0 1px var(--border), 2px 2px 0 1px var(--ink); }
+  .side.link { font-size: 9px; }
+  .shade, .code { font-size: 11px; padding: 6px 8px; }
+  .labels { grid-auto-rows: 12px; font-size: 10px; line-height: 12px; }
+}
+.labels { display: grid; grid-auto-rows: 16px; font-size: 12px; text-transform: uppercase; line-height: 16px; }
 .roll { display: block; width: 100%; }
 .bar-line { stroke: var(--border); stroke-width: 0.01; }
 .playhead { stroke: #FFFFFF; stroke-width: 0.015; }
