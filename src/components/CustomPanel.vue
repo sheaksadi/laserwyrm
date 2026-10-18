@@ -124,7 +124,7 @@ async function playCode() {
             <span class="sum">{{ summary(g) }}</span>
           </div>
           <div class="game-buttons">
-            <button class="act go" @click="play(g)">Play</button>
+            <button class="act go" :data-nav-first="g.id === library.active ? '' : undefined" @click="play(g)">Play</button>
             <button class="act" @click="edit(g)">Edit</button>
             <button class="act" :class="{ on: sharing === g.id }" @click="sharing = sharing === g.id ? null : g.id">Share</button>
             <button v-if="library.games.length > 1" class="act danger" :aria-label="`Delete ${g.name}`" @click="remove(g)">{{ confirmDelete === g.id ? 'Sure?' : '✕' }}</button>

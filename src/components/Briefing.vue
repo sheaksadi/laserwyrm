@@ -13,13 +13,14 @@ import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
 
 const props = defineProps<{ mode: Mode }>()
-const emit = defineEmits<{ start: [] }>()
+const emit = defineEmits<{ start: []; back: [] }>()
 
 const touch = computed(() => isTouch() && !pad.connected)
 </script>
 
 <template>
   <div class="briefing" role="dialog" aria-label="How to play" @pointerdown.prevent="emit('start')">
+    <button class="close" aria-label="Back" @pointerdown.stop @click.stop="emit('back')">✕</button>
     <header>
       <p class="mode" :class="props.mode">{{ props.mode === 'hardcore' ? 'Hardcore' : 'Normal' }}</p>
       <h2>How to play</h2>
@@ -82,7 +83,20 @@ const touch = computed(() => isTouch() && !pad.connected)
 </template>
 
 <style scoped>
+.close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-off);
+  color: var(--text-dim);
+}
+.close:hover { border-color: var(--sage); color: var(--text); }
 .briefing {
+  position: relative;
   width: min(46rem, 100%);
   max-height: 100%;
   overflow: auto;

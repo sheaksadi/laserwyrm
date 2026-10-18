@@ -135,3 +135,32 @@ kbd {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* A controller is in use: whatever is highlighted stands out, so the D-pad
+   and stick can find their way round every screen. */
+html.pad-on :is(button, a, input, textarea, select, [tabindex]):focus {
+  outline: 3px solid var(--sun);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 225, 77, 0.16), 0 0 22px rgba(255, 225, 77, 0.45);
+}
+
+/* Every ✕ says how else to get out: Esc on a keyboard, B on a controller. */
+.close { position: relative; overflow: visible; }
+.close::after {
+  content: 'esc';
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  translate: -50% 0;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+html.pad-on .close::after { content: 'B'; font-family: var(--font-pixel); font-size: 8px; color: var(--coral); }
+@media (pointer: coarse) {
+  html:not(.pad-on) .close::after { content: none; }
+}

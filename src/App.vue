@@ -9,6 +9,7 @@ import { account, localGames, rememberGame, signOut } from './account'
 import { ApiError, claimName, countPlay, fetchDesign, fetchGame, fetchScore, placesOnBoard, saveGame, submitScore as sendScore } from './api'
 import { player, seekBy, stopWatching, togglePlay, watch as watchRun } from './replayPlayer'
 import { custom, playShared, setCustom, shared, stopShared } from './design'
+import { navFocusFirst, navMove, navPress, navScope } from './menuNav'
 import Briefing from './components/Briefing.vue'
 import CheatMenu from './components/CheatMenu.vue'
 import CustomPanel from './components/CustomPanel.vue'
@@ -399,10 +400,13 @@ const padHandlers = {
   turn: (dir: DirName) => {
     if (briefing.value) return begin(dir)
     if (route.value.name === 'watch' && (dir === 'left' || dir === 'right')) seekBy(dir === 'left' ? -36 : 36)
+    // On a screen with buttons, the pad moves the highlight between them.
+    else if (navScope()) navMove(dir)
     else if (route.value.name === 'game' && !cheatOpen.value) turn(dir)
   },
   primary: () => {
     if (briefing.value) return begin()
+    if (navPress()) return
     if (route.value.name === 'watch') return togglePlay()
     if (route.value.name === 'scores' || route.value.name === 'replays') return go('#/')
     if (cheatOpen.value || typing()) return
@@ -433,8 +437,23 @@ const padHandlers = {
     if (briefing.value) return closeBriefing()
     if (state.status === 'running') pause()
     else if (state.status === 'paused') play()
+    else if (state.status === 'over') toMainMenu()
   },
 }
+// With a controller, highlight the main button of each screen as it opens; `pad-on` makes the highlight big and bright.
+watch(
+  () => pad.connected,
+  (on) => document.documentElement.classList.toggle('pad-on', on),
+  { immediate: true },
+)
+watch(
+  () => [state.status, route.value.name, customOpen.value, cheatOpen.value, settingsOpen.value, accountOpen.value, briefing.value, menuOpen.value, pad.connected],
+  () => {
+    if (!pad.connected) return
+    // After the screen's fade-in has put it in place.
+    setTimeout(navFocusFirst, 220)
+  },
+)
 // Cuts, hits, game over and the rest rumble the controller, as hard as they land.
 onFeel((kind, amount) => {
   if (pad.connected) rumbleFor(kind, amount)
@@ -717,7 +736,7 @@ onBeforeUnmount(() => {
 
       <!-- Briefing: how to play, then any key -->
       <div v-else-if="briefing && state.status === 'ready'" class="overlay" @pointerdown.self="begin()">
-        <Briefing :mode="briefing" @start="begin()" />
+        <Briefing :mode="briefing" @start="begin()" @back="closeBriefing()" />
       </div>
 
       <!-- Start -->
@@ -803,6 +822,7 @@ onBeforeUnmount(() => {
             <button class="btn btn-line" @click="openEditor"><span class="text-trim">Editor</span></button>
             <button class="btn btn-line" @click="playNormal"><span class="text-trim">Play normal</span></button>
           </template>
+          <button class="close card-close" aria-label="Resume" @click="play()">✕</button>
           <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
             <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
           </button>
@@ -813,6 +833,7 @@ onBeforeUnmount(() => {
       <!-- Game over: the score big, everything else quiet -->
       <div v-else-if="state.status === 'over'" class="overlay">
         <div class="card card-over">
+          <button class="close card-close" aria-label="Main menu" @click="toMainMenu">✕</button>
           <header class="over-head">
             <p class="over-label">Game over · the snake {{ state.reason }}<template v-if="state.mode === 'hardcore'"> · hardcore</template></p>
             <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
@@ -1239,6 +1260,25 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--lavender), 10px 10px 0 6px var(--ink);
 }
 .card-small { width: min(24rem, 100%); }
+
+/* A ✕ in a card's top right corner: back out (resume, or the main menu). */
+.card { position: relative; }
+.card-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-off);
+  color: var(--text-dim);
+}
+.card-close:hover { border-color: var(--sage); color: var(--text); }
+
+/* Controller in use: the start card's bright colour follows the highlight down the buttons. */
+html.pad-on .card-start:focus-within .btn:not(:focus) { background: var(--bg-off); border-color: var(--border); color: var(--text-muted); text-shadow: none; }
+html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var(--ink); color: var(--text); text-shadow: 2px 2px 0 var(--ink); }
 
 /* ─── Start card: the same neon, softer: rounded corners, pink and mint, a mascot ─── */
 .card-start {
