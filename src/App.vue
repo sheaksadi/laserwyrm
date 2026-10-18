@@ -538,15 +538,20 @@ onBeforeUnmount(() => {
         <div class="chip">
           <span class="brand show-wide">Laserwyrm<span class="brand-dot">.</span></span>
           <span class="divider show-wide"></span>
+          <!-- Parts: one row on desktop; on phones, two chips in the left gutter (hearts above, numbers below) -->
+          <span class="part part-top">
           <span :key="state.hearts" class="hearts" :class="{ low: state.hearts === 1 }" :aria-label="`${state.hearts} hearts`" role="img">
             <svg v-for="(full, i) in heartSlots" :key="i" viewBox="-0.5 -0.5 8 7" width="18" height="16">
               <path :d="HEART_PATH" :fill="full ? 'var(--coral)' : 'none'" :stroke="full ? 'var(--ink)' : 'var(--text-muted)'" stroke-width="1" />
             </svg>
             <svg v-if="state.totem" class="totem-held" viewBox="-0.5 -0.5 1 1" width="18" height="18" :title="TOTEM.name"><PowerIcon kind="totem" /></svg>
           </span>
+          </span>
           <span class="divider"></span>
+          <span class="part part-bottom">
           <span class="stat stat-score"><span class="chrome-label">score</span><b class="num score-num">{{ state.score }}</b></span>
           <span class="stat"><span class="chrome-label">mult</span><b class="num mult-num mult" :class="{ doubled: isActive('double') }">×{{ multiplier() }}</b></span>
+          </span>
           <span v-if="state.cheated" class="cheat-tag" :title="state.usedCheats ? 'Cheats used: this run cannot set a best' : 'A changed game: this run cannot set a best'">{{ state.usedCheats ? 'cheats' : shared.slug ? 'shared' : 'custom' }}</span>
           <span v-if="state.mode === 'hardcore'" class="hc-tag" title="Hardcore: walls kill, no hearts back, no pauses">hardcore</span>
         </div>
@@ -934,8 +939,9 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr auto 1fr;
   align-items: start;
 }
-/* Desktop: effect tags are just more items in the row. */
-.effects { display: contents; }
+/* Desktop: effect tags and the chip's parts are just more items in the row. */
+.effects,
+.part { display: contents; }
 .hud-left,
 .hud-right {
   display: flex;
@@ -1714,8 +1720,9 @@ onBeforeUnmount(() => {
 }
 
 /* ─── Phones (sideways): the board fills the height; the HUD lives in the
-   side gutters. Left: hearts at the top, score and multiplier at the bottom.
-   Right: pause and the menu, one above the other. Everything a size down. ─── */
+   side gutters, in the desktop's chips turned on end. Left: hearts at the
+   top, score and multiplier at the bottom. Right: pause and the menu, one
+   above the other. Everything a size down. ─── */
 .hud-phone {
   top: calc(6px + env(safe-area-inset-top));
   bottom: calc(6px + env(safe-area-inset-bottom));
@@ -1725,24 +1732,35 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 .hud-phone .hud-left { flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: 54px; height: 100%; }
+.hud-phone .hud-left { pointer-events: none; }
+/* The chip itself is just a column; its two parts are the chips. */
 .hud-phone .chip {
   flex: 1;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 2px;
-  border-width: 2px;
-  border-radius: 10px;
-  background: rgba(11, 11, 26, 0.8);
+  justify-content: space-between;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: none;
   box-shadow: none;
 }
 .hud-phone .chip .divider { display: none; }
+.hud-phone .part {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border: 3px solid var(--sky);
+  background: var(--bg);
+  box-shadow: 4px 4px 0 var(--border);
+  pointer-events: auto;
+}
 .hud-phone .hearts { flex-direction: column; align-items: center; gap: 3px; }
 .hud-phone .hearts svg { width: 14px; height: 13px; }
 .hud-phone .cheat-tag,
-.hud-phone .hc-tag { order: 1; padding: 1px 3px; font-size: 10px; writing-mode: vertical-rl; }
-.hud-phone .stat { order: 2; flex-direction: column; gap: 3px; }
-.hud-phone .stat-score { margin-top: auto; }
+.hud-phone .hc-tag { align-self: center; margin: 6px 0; padding: 4px 2px; font-size: 10px; writing-mode: vertical-rl; pointer-events: auto; }
+.hud-phone .stat { flex-direction: column; gap: 3px; }
 .hud-phone .num { text-align: center; }
 .hud-phone .stat .chrome-label { display: block; font-size: 11px; }
 .hud-phone .stat b { font-size: 9px; }
@@ -1758,7 +1776,7 @@ onBeforeUnmount(() => {
   zoom: 0.8;
 }
 .hud-phone .hud-right { flex-direction: column; align-items: center; width: 54px; gap: 8px; }
-.hud-phone .round { width: 40px; height: 40px; border-width: 2px; border-radius: 10px; box-shadow: none; background: rgba(11, 11, 26, 0.8); }
+.hud-phone .round { width: 40px; height: 40px; }
 /* The menu opens to the left of the buttons, a size down, and scrolls if the screen is short. */
 .hud-phone .menu {
   top: 0;
