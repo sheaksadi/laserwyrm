@@ -83,7 +83,7 @@ const ARROWS: { dir: DirName; d: string }[] = [
 .dpad {
   position: fixed;
   /* Just inside the board, clear of the HUD's gutter. */
-  left: calc(74px + env(safe-area-inset-left));
+  left: calc(58px + env(safe-area-inset-left));
   bottom: calc(14px + env(safe-area-inset-bottom));
   z-index: 4;
   width: clamp(110px, 34vh, 150px);

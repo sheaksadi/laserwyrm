@@ -1727,12 +1727,13 @@ onBeforeUnmount(() => {
 .hud-phone {
   top: calc(6px + env(safe-area-inset-top));
   bottom: calc(6px + env(safe-area-inset-bottom));
-  left: calc(4px + env(safe-area-inset-left));
-  right: calc(4px + env(safe-area-inset-right));
+  /* Right against the screen's edges. */
+  left: env(safe-area-inset-left);
+  right: env(safe-area-inset-right);
   display: flex;
   justify-content: space-between;
 }
-.hud-phone .hud-left { flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: 54px; height: 100%; }
+.hud-phone .hud-left { flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: 40px; height: 100%; }
 .hud-phone .hud-left { pointer-events: none; }
 /* The chip itself is just a column; its two parts are the chips. */
 .hud-phone .chip {
@@ -1750,34 +1751,34 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 8px 4px;
-  border: 3px solid var(--sky);
+  gap: 6px;
+  padding: 6px 2px;
+  border: 2px solid var(--sky);
   background: var(--bg);
-  box-shadow: 4px 4px 0 var(--border);
+  box-shadow: 3px 3px 0 var(--border);
   pointer-events: auto;
 }
 .hud-phone .hearts { flex-direction: column; align-items: center; gap: 3px; }
-.hud-phone .hearts svg { width: 14px; height: 13px; }
+.hud-phone .hearts svg { width: 12px; height: 11px; }
 .hud-phone .cheat-tag,
 .hud-phone .hc-tag { align-self: center; margin: 6px 0; padding: 4px 2px; font-size: 10px; writing-mode: vertical-rl; pointer-events: auto; }
 .hud-phone .stat { flex-direction: column; gap: 3px; }
 .hud-phone .num { text-align: center; }
-.hud-phone .stat .chrome-label { display: block; font-size: 11px; }
-.hud-phone .stat b { font-size: 9px; }
+.hud-phone .stat .chrome-label { display: block; font-size: 10px; }
+.hud-phone .stat b { font-size: 8px; }
 .hud-phone .score-num { min-width: 0; }
 .hud-phone .effects {
   position: fixed;
   top: calc(8px + env(safe-area-inset-top));
-  left: calc(66px + env(safe-area-inset-left));
+  left: calc(52px + env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
   zoom: 0.8;
 }
-.hud-phone .hud-right { flex-direction: column; align-items: center; width: 54px; gap: 8px; }
-.hud-phone .round { width: 40px; height: 40px; }
+.hud-phone .hud-right { flex-direction: column; align-items: flex-end; width: 40px; gap: 6px; }
+.hud-phone .round { width: 36px; height: 36px; border-width: 2px; box-shadow: 3px 3px 0 var(--border); }
 /* The menu opens to the left of the buttons, a size down, and scrolls if the screen is short. */
 .hud-phone .menu {
   top: 0;
@@ -1789,7 +1790,7 @@ onBeforeUnmount(() => {
 .hud-phone .menu-item { padding-block: 6px; }
 @media (pointer: coarse) and (max-height: 560px) {
   /* Cards sit between the HUD columns, a size down. */
-  .overlay { padding: 8px 64px; }
+  .overlay { padding: 8px 50px; }
   .overlay > * { zoom: 0.8; }
   .notice.touch, .tier-intro.touch { top: calc(8px + env(safe-area-inset-top)); }
   .tier-intro { zoom: 0.85; }
