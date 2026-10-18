@@ -121,11 +121,12 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
 /** Steps the wizard cookie keeps lasers away (two bars). */
 const WIZARD_STEPS = 32
 /**
- * Which item table a run uses. 1: apple, cherries, star, the pills, hearts,
- * the totem. 2 adds the cookies (plain, wizard, starry). Replays keep the
- * table they were played with, so old runs play back the same.
+ * Which rules of play a run uses. 1: the first item table. 2 adds the
+ * cookies (plain, wizard, starry). 3: a new kind of laser no longer stops
+ * play for two bars; it is announced and play goes on. Replays keep the
+ * revision they were played with, so old runs play back the same.
  */
-const ITEMS_REV = 2
+const ITEMS_REV = 3
 let itemsRev = ITEMS_REV
 
 /** Every power-up: what it is called, what it does, its colour, and how long it lasts (0: instant). */
@@ -202,6 +203,8 @@ const DASH_CELLS = 4
 /** Chance per bar that a totem drops, from level 2 on. */
 const TOTEM_CHANCE = 0.012
 const NOTICE_MS = 1800
+/** How long a new kind of laser's notice stays. */
+export const TIER_NOTE_MS = 3200
 
 /** v2: scores are length × beats now, so old fruit-count bests do not compare. */
 const BEST_KEY = 'snake-best-v2'
@@ -418,6 +421,8 @@ export const state = reactive({
   bursts: [] as { id: number; x: number; y: number }[],
   /** Until this step, after a wizard cookie, no lasers. */
   wizardUntil: 0,
+  /** A new kind of laser just arrived (without stopping play): the notice saying so. */
+  tierNote: null as { id: number; tier: number; healed: boolean } | null,
   banner: null as { id: number; title: string; sub: string } | null,
   snipper: {
     x: 0,
@@ -570,6 +575,7 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     popups: [],
     bursts: [],
     wizardUntil: 0,
+    tierNote: null,
     banner: null,
     stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0 },
   })
@@ -707,8 +713,10 @@ const snipperFor = (level: number) => editOf(live(), level).snipper ?? 1
 const healFor = (level: number) =>
   editOf(live(), level).heal ?? (state.mode === 'normal' && state.hearts < startHearts() ? gameRules().refill : 0)
 /** Stop to introduce a level: stock does it for each new kind of laser, in normal play. */
+const isTierLevel = (level: number) => level > 0 && LASER_TIERS.some((t) => t.level === level)
+/** Stop to introduce a level: a level that asks for it; before revision 3, each new kind of laser in normal play. */
 const introFor = (level: number) =>
-  editOf(live(), level).intro ?? (state.mode === 'normal' && level > 0 && LASER_TIERS.some((t) => t.level === level))
+  editOf(live(), level).intro ?? (itemsRev < 3 && state.mode === 'normal' && isTierLevel(level))
 
 /**
  * How a level plays by the current design, for the editor: every value, and
@@ -1116,7 +1124,10 @@ function enterLevel(level: number): boolean {
     startIntro(tierIndex > 0 ? tierIndex : tierOf(level))
     return true
   }
-  if (tierIndex > 0) conductor.setStyle(tierIndex, 'play', state.step)
+  // A new kind of laser, without stopping: in normal play the new arrangement builds in and the lasers ease in.
+  const easeIn = tierIndex > 0 && state.mode === 'normal'
+  if (tierIndex > 0) conductor.setStyle(tierIndex, easeIn ? 'build' : 'play', state.step)
+  if (easeIn) state.calmUntil = state.step + CALM_STEPS
   if (e.calm !== undefined) state.calmUntil = state.step + e.calm * 16
   const heal = Math.min(healFor(level), maxHearts() - state.hearts)
   if (heal > 0) {
@@ -1125,6 +1136,14 @@ function enterLevel(level: number): boolean {
     mark('heal')
   }
   const tier = LASER_TIERS.find((t) => t.level === level && level > 0)
+  if (tierIndex > 0) {
+    // Announce it the way items are announced: a notice from the top.
+    const id = ++uid
+    state.tierNote = { id, tier: tierIndex, healed: heal > 0 }
+    later(TIER_NOTE_MS, () => {
+      if (state.tierNote?.id === id) state.tierNote = null
+    })
+  }
   const sub = e.name ?? (tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`)
   banner(`Level ${level + 1}`, heal > 0 ? `${sub} · +${heal} heart${heal === 1 ? '' : 's'}` : sub)
   return false

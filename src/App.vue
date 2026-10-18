@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
 import { canFullscreen, enterFullscreen, fullscreenPending, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
@@ -515,6 +515,12 @@ const INTRO_COLOR = {
 } as const
 /** The intro lasts two bars at the current tempo. */
 const introSeconds = computed(() => (60 / state.bpm) * 8)
+/** The new kind of laser to announce: from an intro pause (old runs, or a level that asks), or the notice that plays on. */
+const tierShown = computed(() => {
+  if (state.intro) return { key: `i${state.intro.until}`, tier: state.intro.tier, healed: state.intro.healed, seconds: introSeconds.value }
+  if (state.tierNote) return { key: `n${state.tierNote.id}`, tier: state.tierNote.tier, healed: state.tierNote.healed, seconds: TIER_NOTE_MS / 1000 }
+  return null
+})
 
 /* ─── Full screen ─── */
 // Playing goes full screen and stays there; the pause screen is the way out.
@@ -705,21 +711,19 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- A new kind of laser: play waits while it is introduced -->
-    <!-- A new kind of laser: a popup from the top, like the item notices, a size up -->
+    <!-- A new kind of laser: a notice from the top, like the item notices; play goes on -->
     <div
-      v-if="state.intro && state.status === 'running'"
-      :key="state.intro.until"
-      class="tier-intro"
+      v-if="tierShown && state.status === 'running'"
+      :key="tierShown.key"
+      class="notice tier-note"
       :class="{ touch: layout.pad !== 'none' }"
-      :style="{ '--laser': INTRO_COLOR[LASER_TIERS[state.intro.tier]!.kind], '--intro': `${introSeconds}s` }"
+      :style="{ '--laser': INTRO_COLOR[LASER_TIERS[tierShown.tier]!.kind], '--note': `${tierShown.seconds}s` }"
     >
       <span class="tier-swatch" aria-hidden="true"></span>
-      <span class="tier-text">
-        <b class="tier-name">{{ LASER_TIERS[state.intro.tier]!.name }} <span class="tier-level">level {{ state.level + 1 }}</span></b>
-        <span class="tier-blurb">{{ LASER_TIERS[state.intro.tier]!.blurb }}</span>
-        <span class="tier-heart"><template v-if="state.intro.healed">+1 heart · </template>lasers ease in for a moment</span>
+      <span class="notice-text">
+        <b>{{ LASER_TIERS[tierShown.tier]!.name }} · level {{ state.level + 1 }}</b>
+        <span>{{ LASER_TIERS[tierShown.tier]!.blurb }}<template v-if="tierShown.healed"> · +1 heart</template></span>
       </span>
-      <div class="tier-beam" aria-hidden="true"><span></span></div>
     </div>
 
     <!-- What was just picked up or used, and what it does -->
@@ -1108,52 +1112,9 @@ onBeforeUnmount(() => {
   color: var(--sun);
 }
 .rotate-sub { margin: 0; max-width: 18rem; font-size: 18px; color: var(--text-dim); }
-.tier-intro {
-  position: absolute;
-  /* Where the item notices drop in, below the power-up slots. */
-  top: 98px;
-  left: 50%;
-  z-index: 6;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 8px 14px;
-  width: min(31rem, calc(100% - 32px));
-  padding: 11px 17px 12px;
-  border: 3px solid var(--text-dim);
-  border-radius: 12px;
-  background: var(--bg);
-  box-shadow: 5px 5px 0 var(--border);
-  pointer-events: none;
-  translate: -50% 0;
-  animation: intro-drop var(--intro) var(--ease-out) both;
-}
-.tier-intro.touch { top: 70px; }
-.tier-swatch { width: 26px; height: 26px; border: 3px solid var(--ink); border-radius: 6px; background: var(--laser); }
-.tier-text { display: grid; gap: 3px; }
-.tier-name {
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.5;
-  text-transform: uppercase;
-  color: var(--text);
-}
-.tier-level { margin-left: 6px; font-family: var(--font-code); font-size: 17px; letter-spacing: 0.06em; color: var(--text-muted); }
-.tier-blurb { font-size: 20px; line-height: 1.1; color: var(--text-dim); }
-.tier-heart { font-size: 15px; text-transform: uppercase; color: var(--rose); }
-/* A sample beam in the laser's colour, firing across. */
-.tier-beam { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--bg-off); overflow: hidden; }
-.tier-beam span { display: block; height: 100%; background: var(--laser); animation: beam-fire 0.8s var(--ease-out) infinite; transform-origin: left; }
-@keyframes beam-fire {
-  0% { transform: scaleX(0); }
-  60%, 100% { transform: scaleX(1); }
-}
-@keyframes intro-drop {
-  0% { opacity: 0; transform: translateY(-22px); }
-  8%, 88% { opacity: 1; transform: none; }
-  100% { opacity: 0; transform: translateY(-10px); }
-}
+/* A new kind of laser's notice: the item notice, with its laser colour and a longer stay. */
+.notice.tier-note { animation-duration: var(--note); border-color: var(--laser); }
+.tier-swatch { flex: none; width: 22px; height: 22px; border: 3px solid var(--ink); background: var(--laser); }
 .pad-toast.sound-off { animation: none; border-color: var(--sun); font-size: 16px; }
 .pad-toast {
   position: absolute;
@@ -1933,8 +1894,7 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
   /* Cards sit between the HUD columns, a size down. */
   .overlay { padding: 8px 50px; }
   .overlay > * { zoom: 0.8; }
-  .notice.touch, .tier-intro.touch { top: calc(8px + env(safe-area-inset-top)); }
-  .tier-intro { zoom: 0.85; }
+  .notice.touch { top: calc(8px + env(safe-area-inset-top)); }
   .notice { zoom: 0.85; }
 }
 </style>

@@ -13,8 +13,9 @@ rises and more lasers come.
   keyboard, controller or touch) over a warm-up beat; any key, click, tap or A
   starts, and the game's music fades in from it
 - Normal mode: walls wrap you to the other side. Each new kind of laser
-  (levels 11, 21, … 81) pauses play for two bars to introduce it: the music
-  slides to a stop and comes back in a new arrangement, then lasers ease in
+  (levels 11, 21, … 81) is announced with a notice from the top while play
+  goes on: the music builds into a new arrangement and the lasers ease in
+  (replays from before keep the old two-bar pause)
 - Hardcore (the small square button next to Press start): walls kill, no hearts
   back on level up, no pauses, no easing in; it has its own high scores
 - Three hearts, refilled one per level up to three in normal mode (heart drops
