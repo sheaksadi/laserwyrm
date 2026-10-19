@@ -37,6 +37,8 @@ const MultiplayerPanel = defineAsyncComponent(() => import('./components/Multipl
 const ReplaysPanel = defineAsyncComponent(() => import('./components/ReplaysPanel.vue'))
 import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
+import FpsMeter from './components/FpsMeter.vue'
+import { showFps } from './perf'
 import ActionButton from './components/ActionButton.vue'
 import Joystick from './components/Joystick.vue'
 import DPad from './components/DPad.vue'
@@ -319,6 +321,9 @@ onBeforeUnmount(() => {
       <p class="rotate-title">Turn your phone sideways</p>
       <p class="rotate-sub">Laserwyrm plays in landscape: stick on the left, button on the right.</p>
     </div>
+
+    <!-- Frame rate, when switched on in Settings -->
+    <FpsMeter v-if="showFps" />
 
     <!-- CRT glass: scanlines and a dark vignette over the whole screen -->
     <div class="crt" aria-hidden="true"></div>

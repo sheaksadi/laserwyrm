@@ -8,6 +8,7 @@ import { canFullscreen, fullscreenOn } from '../fullscreen'
 import { pad, rumbleFor, vibrationOn, vibrationStrength } from '../gamepad'
 import { touchControls } from '../controls'
 import { isTouch } from '../game'
+import { showFps, showGraph, showLow } from '../perf'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -83,11 +84,24 @@ function setStrength(e: Event) {
       </button>
     </section>
 
-    <section v-if="canFullscreen()">
+    <section>
       <h3>Screen</h3>
-      <button class="row" role="switch" :aria-checked="fullscreenOn" @click="fullscreenOn = !fullscreenOn">
+      <button v-if="canFullscreen()" class="row" role="switch" :aria-checked="fullscreenOn" @click="fullscreenOn = !fullscreenOn">
         <span><b>Full screen</b> while playing</span>
         <span class="state" :class="{ on: fullscreenOn }">{{ fullscreenOn ? 'on' : 'off' }}</span>
+      </button>
+      <button class="row" role="switch" :aria-checked="showFps" @click="showFps = !showFps">
+        <span><b>Show FPS</b> frames per second, in the corner</span>
+        <span class="state" :class="{ on: showFps }">{{ showFps ? 'on' : 'off' }}</span>
+      </button>
+      <!-- Extras for the meter: only with it on -->
+      <button class="row sub" :class="{ off: !showFps }" role="switch" :aria-checked="showLow" :disabled="!showFps" @click="showLow = !showLow">
+        <span><b>1% low</b> the slowest frames: shows stutter</span>
+        <span class="state" :class="{ on: showLow }">{{ showLow ? 'on' : 'off' }}</span>
+      </button>
+      <button class="row sub" :class="{ off: !showFps }" role="switch" :aria-checked="showGraph" :disabled="!showFps" @click="showGraph = !showGraph">
+        <span><b>Graph</b> recent frame times</span>
+        <span class="state" :class="{ on: showGraph }">{{ showGraph ? 'on' : 'off' }}</span>
       </button>
     </section>
 
@@ -156,6 +170,10 @@ h3 {
   color: var(--text-dim);
 }
 .row:hover { border-color: var(--sky); }
+/* The FPS meter's extras sit under it, stepped in. */
+.row.sub { width: calc(100% - 22px); margin-left: 22px; }
+.row.off { opacity: 0.5; }
+.row:disabled:hover { border-color: var(--border); }
 .row b, .slider-row b { font-weight: 400; color: var(--text); margin-right: 6px; text-transform: uppercase; }
 .state {
   flex: none;
