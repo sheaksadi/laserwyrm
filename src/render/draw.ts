@@ -309,7 +309,7 @@ function text(f: Frame, str: string, x: number, y: number, size: number, fill: s
 }
 
 function drawWarning(f: Frame, laser: Laser, keep: Set<string>) {
-  const { ctx, s, now } = f
+  const { ctx, s } = f
   const { cols, rows } = state
   const key = `w${laser.id}`
   keep.add(key)
