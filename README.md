@@ -22,7 +22,7 @@ rises and more lasers come.
   go past it, to five): a laser through the head costs one, walls and biting yourself cost all of
   them; rare heart drops give one back (up to five)
 - Fruit grows the snake: apple +1, cookie +2, cherries +3, starry cookie +4 (rare, stays longer, bursts into stars), star +5. A wizard cookie clears every laser and keeps them away for two bars
-- Power-ups: shield, double points, slow-mo, dash, magnet, ghost. Hold up to two
+- Power-ups: shield, double points, slow-mo (the world slows, you don't), dash, magnet, ghost. Hold up to two
   and press Space (or tap the slots) to use the oldest
 - Totem of Undying: very rare, cheats death once
 - Phones play sideways with the board full screen: touch anywhere on the left
@@ -31,9 +31,9 @@ rises and more lasers come.
 - Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
 - ☰ → Settings: music and effects volume, controller vibration (on/off,
   strength; it rumbles harder for bigger cuts, hits and game over), full screen
-- A controller that joins before any click gets a card asking for one click
-  (browsers only allow full screen and sound after a click or key); after
-  that the controller does everything. While playing, the mouse pointer
+- When a controller joins, a notice says so; before any click it also asks
+  for one (browsers only allow full screen and sound after a click or key);
+  after that the controller does everything. While playing, the mouse pointer
   hides until the mouse moves
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
   power-ups, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;

@@ -110,10 +110,11 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
  * play for two bars; it is announced and play goes on. 4: purple lasers
  * come first (level 5), then blue (12) and white (21). 5: far fewer lasers;
  * their number grows slowly and steps up with each new kind (see
- * `lasersFor`). Replays keep the revision they were played with, so old
+ * `lasersFor`). 6: slow-mo slows the world, not the snake (see
+ * `worldSlowed`). Replays keep the revision they were played with, so old
  * runs play back the same.
  */
-export const ITEMS_REV = 5
+export const ITEMS_REV = 6
 
 /** The revision of the run in play (set by `reset`): everything that differs between revisions reads it. */
 export const revision = { rev: ITEMS_REV }
@@ -127,7 +128,7 @@ export const laserTiers = (): Tier[] => (revision.rev >= 4 ? TIERS_V4 : TIERS_V1
 export const POWERS: Record<PowerKind, { name: string; blurb: string; tone: Tone; bars: number }> = {
   shield: { name: 'Shield', blurb: 'Blocks the next laser hit', tone: 'sky', bars: 8 },
   double: { name: 'Double', blurb: 'Every beat scores ×2', tone: 'sun', bars: 4 },
-  slow: { name: 'Slow-mo', blurb: 'You move at half speed', tone: 'lavender', bars: 2 },
+  slow: { name: 'Slow-mo', blurb: 'Everything but you slows down', tone: 'lavender', bars: 2 },
   dash: { name: 'Dash', blurb: 'Lunge 4 cells ahead, through your tail', tone: 'mint', bars: 0 },
   magnet: { name: 'Magnet', blurb: 'Fruit drifts toward your head', tone: 'rose', bars: 4 },
   ghost: { name: 'Ghost', blurb: 'Slide through your own body', tone: 'white', bars: 4 },

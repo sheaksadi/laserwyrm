@@ -5,7 +5,7 @@
  */
 import { reactive } from 'vue'
 import { now, sound as rawSound } from '../audio'
-import { DIRS, START_HEARTS, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Vec } from './catalog'
+import { DIRS, revision, START_HEARTS, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Vec } from './catalog'
 import { tempoFor } from './curve'
 
 /**
@@ -151,6 +151,12 @@ export const state = reactive({
 })
 
 export const isActive = (effect: keyof typeof state.effects) => state.effects[effect] > state.step
+/**
+ * Slow-mo, from revision 6: the snake keeps its speed and the world around
+ * it (lasers, items, the snipper) runs at half speed. Before, the snake
+ * itself moved at half speed.
+ */
+export const worldSlowed = () => revision.rev >= 6 && isActive('slow')
 
 /* ─── Game-clock timers ──────────────────────────────────────────────── */
 

@@ -18,7 +18,7 @@ import { fitGrid } from './layout'
 import { applyLevel, edgesFor, enterLevel, endIntro, multiplier } from './levels'
 import { pick, random, reseed } from './rng'
 import { eatSnipper, moveSnipper, spawnSnipper } from './snipper'
-import { cheats, demo, isActive, replay, run, same, sound, state, timers, clock } from './state'
+import { worldSlowed, cheats, demo, isActive, replay, run, same, sound, state, timers, clock } from './state'
 
 export function reset(from?: { seed: number; cols: number; rows: number; mode?: Mode }) {
   conductor.stop()
@@ -126,6 +126,8 @@ export function onBeat(step: number) {
   state.score += multiplier()
   const bar = Math.floor(step / 16)
   if (bar < 1 || cheats.noLasers) return // one bar of intro
+  // Slow-mo (revision 6): the world's beat comes half as often.
+  if (worldSlowed() && (step / 4) % 2 === 1) return
 
   trackLasers()
 
@@ -198,19 +200,30 @@ export function onStep(step: number) {
   if (step % 16 === 0) onBar(step / 16)
   if (step % 4 === 0) onBeat(step)
 
-  // Slow-mo: the snake moves on 8ths instead of 16ths.
-  if (!isActive('slow') || step % 2 === 0) tick()
+  // Slow-mo: before revision 6 the snake moved on 8ths instead of 16ths. From 6 the snake keeps
+  // its pace and the world holds still every other step: its clocks wait a step.
+  const slowWorld = worldSlowed()
+  if (slowWorld && step % 2 === 1) holdWorld(step)
+  if (slowWorld || !isActive('slow') || step % 2 === 0) tick()
   if (state.status !== 'running' || replay.ended) return
   if (isActive('magnet') && step % 2 === 0) pullFruit()
 
   for (const laser of state.lasers) if (!laser.struck && laser.strikeStep <= step) strike(laser)
 
   const s = state.snipper
-  if (s.active && step % 2 === 0) moveSnipper()
+  if (s.active && step % (slowWorld ? 4 : 2) === 0) moveSnipper()
   if (!s.active && snipperFor(state.level) > 0 && (state.level >= 1 || state.snake.length >= 8) && state.step >= s.until) spawnSnipper()
   if (s.active && s.resting && state.step >= s.until) s.resting = false
 
   state.items = state.items.filter((i) => i.until === null || i.until > step)
+}
+
+/** One step the world sits out (slow-mo): every clock that times the world moves on by a step. */
+function holdWorld(step: number) {
+  for (const laser of state.lasers) if (!laser.struck) laser.strikeStep++
+  for (const item of state.items) if (item.until !== null) item.until++
+  state.snipper.until++
+  if (state.calmUntil > step) state.calmUntil++
 }
 
 /* ─── The frame loop ──────────────────────────────────────────────────── */

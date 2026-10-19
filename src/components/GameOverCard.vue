@@ -60,7 +60,7 @@ import GameCode from './GameCode.vue'
         <div><dt>cuts</dt><dd>{{ state.stats.cuts }}</dd></div>
       </dl>
       <div class="over-buttons" :class="{ three: custom.on }">
-        <button class="btn" @click="play()"><span class="text-trim">Play again</span></button>
+        <button class="btn" data-nav-first @click="play()"><span class="text-trim">Play again</span></button>
         <!-- In custom play: back to the editor to tweak it, instead of only another go -->
         <button v-if="custom.on" class="btn btn-custom" @click="openEditor"><span class="text-trim">Editor</span></button>
         <button class="btn btn-line" @click="go('#/scores')"><span class="text-trim">Scores</span></button>
