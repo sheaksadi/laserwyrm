@@ -7,7 +7,7 @@ import { watch } from 'vue'
 import { conductor, now, queue } from '../audio'
 import { musicForLevel, warmUp } from '../music'
 import { design, isStock, itemsStock, live, snapshot } from '../design'
-import { DIRS, HEART_CHANCE, ITEMS_REV, POWER_KINDS, TOTEM_CHANCE, tierOf, type Mode, type Vec } from './catalog'
+import { DIRS, HEART_CHANCE, ITEMS_REV, POWER_KINDS, revision, TOTEM_CHANCE, tierOf, type Mode, type Vec } from './catalog'
 import { addItem, clearWalls, isWall, setWalls } from './board'
 import { armedFor, backgroundFor, gameRules, intensity, lasersFor, levelAtBar, lifeOf, maxHearts, musicFor, rateOf, snipperFor, tempoFor } from './curve'
 import { demoFrame } from './demo'
@@ -31,8 +31,8 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   const seed = from?.seed ?? (Math.floor(Math.random() * 2 ** 32) >>> 0)
   reseed(seed)
   if (from) state.mode = from.mode ?? 'normal'
-  run.itemsRev = from ? ((from as { rev?: number }).rev ?? 1) : ITEMS_REV
-  run.recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [], rev: run.itemsRev }
+  revision.rev = from ? ((from as { rev?: number }).rev ?? 1) : ITEMS_REV
+  run.recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [], rev: revision.rev }
   if (!isStock(live())) run.recording.design = snapshot(live())
   conductor.setStyle(0, 'play', 0)
   run.stepsDone = 0
@@ -107,7 +107,7 @@ export function onBar(bar: number) {
     else if (roll < 0.4 && level >= 1) addItem('star', 32)
     else if (roll < 0.62 && level >= 1) addItem(pick(POWER_KINDS), 48)
     // The cookies (item table 2): plain ones often, the wizard now and then, the starry one rarely but for longer.
-    else if (run.itemsRev < 2) {
+    else if (revision.rev < 2) {
       /* the first table stops here */
     } else if (roll < 0.72) addItem('cookie', 48)
     else if (roll < 0.76 && level >= 1) addItem('wizard', 32)

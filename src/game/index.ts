@@ -56,11 +56,11 @@
  * Everything outside imports from here ('./game'), never from those files.
  */
 export {
-  DIRS, FRUIT_GROW, GRID, HEART_PATH, LASER_TIERS, LASER_TRAITS, MAX_HEARTS, MAX_HELD, MAX_LEVEL, POWERS, POWER_KINDS,
+  DIRS, FRUIT_GROW, GRID, HEART_PATH, laserTiers, laserTraits, MAX_HEARTS, MAX_HELD, MAX_LEVEL, POWERS, POWER_KINDS,
   START_HEARTS, TIER_NOTE_MS, TONE_COLOR, TOTEM, customItem, isCustom, isPower, itemInfo, tierOf,
   type Beam, type CustomId, type Debris, type DirName, type Feel, type FruitKind, type Holdable, type Item, type ItemKind,
   type Laser, type LaserKind, type LaserTrait, type Mark, type Mode, type Popup, type PowerKind, type Replay, type ReplayEvent,
-  type Tone, type Vec,
+  type Tier, type Tone, type Vec,
 } from './catalog'
 export { heldSlots, intensity, startHearts, tempoFor, traitsFor } from './curve'
 export { cheats, demo, isActive, lastReplay, match, onFeel, onMark, replay, state } from './state'

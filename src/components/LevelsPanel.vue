@@ -7,7 +7,7 @@
  * global curve.
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import { cheatLevel, LASER_TIERS, play, reset, state, tierOf } from '../game'
+import { cheatLevel, laserTiers, play, reset, state, tierOf } from '../game'
 import { design, MAX_LEVELS, setCustom, STOCK_LEVELS, stopShared } from '../design'
 import LevelItems from './LevelItems.vue'
 import LevelMusic from './LevelMusic.vue'
@@ -19,7 +19,7 @@ const emit = defineEmits<{ close: [] }>()
 const selected = ref(Math.min(state.level, design.levels.length - 1))
 const edit = computed(() => design.levels[selected.value]!)
 const edited = (i: number) => Object.keys(design.levels[i] ?? {}).length > 0
-const tierColor = (i: number) => TIER_COLOR[LASER_TIERS[tierOf(i)]!.kind]
+const tierColor = (i: number) => TIER_COLOR[laserTiers()[tierOf(i)]!.kind]
 const TIER_COLOR = { red: 'var(--coral)', blue: 'var(--sky)', purple: 'var(--lavender)', white: '#FFFFFF', green: 'var(--sage)', gold: 'var(--sun)', prism: 'var(--rose)' } as const
 
 /* ─── The strip ─── */
@@ -143,7 +143,7 @@ const tabChanged = (t: Tab) => {
           class="name"
           maxlength="24"
           :value="edit.name ?? ''"
-          :placeholder="LASER_TIERS.find((t) => t.level === selected)?.name ?? 'Name this level'"
+          :placeholder="laserTiers().find((t) => t.level === selected)?.name ?? 'Name this level'"
           aria-label="Level name"
           @input="setName(($event.target as HTMLInputElement).value)"
         />

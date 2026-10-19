@@ -5,16 +5,14 @@
  */
 import { reactive } from 'vue'
 import { now, sound as rawSound } from '../audio'
-import { DIRS, ITEMS_REV, START_HEARTS, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Vec } from './catalog'
+import { DIRS, START_HEARTS, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Vec } from './catalog'
 import { tempoFor } from './curve'
 
 /**
- * The run in play, beyond what the view shows: its rules revision, its
- * recording so far, the steps done (inputs are filed against them) and the
+ * The run in play, beyond what the view shows: its recording so far, the steps done (inputs are filed against them) and the
  * id counter for things on the board.
  */
 export const run = {
-  itemsRev: ITEMS_REV,
   recording: { v: 1, mode: 'normal', seed: 1, cols: 30, rows: 20, steps: 0, events: [] } as Replay,
   stepsDone: 0,
   uid: 0,

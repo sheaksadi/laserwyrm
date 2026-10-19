@@ -6,7 +6,7 @@
 import { conductor } from '../audio'
 import { editOf, live, type Edges } from '../design'
 import { musicForLevel } from '../music'
-import { CALM_STEPS, INTRO_STEPS, LASER_TIERS, TIER_NOTE_MS, tierOf } from './catalog'
+import { CALM_STEPS, INTRO_STEPS, laserTiers, revision, TIER_NOTE_MS, tierOf } from './catalog'
 import { banner, popup, setWalls } from './board'
 import { armedFor, backgroundFor, barsFor, gameRules, intensity, lasersFor, maxHearts, musicFor, snipperFor, startHearts, tempoFor, traitsFor, warnFor } from './curve'
 import { feel, isActive, later, mark, run, sound, state } from './state'
@@ -17,10 +17,10 @@ export const edgesFor = (level: number): Edges => editOf(live(), level).edges ??
 export const healFor = (level: number) =>
   editOf(live(), level).heal ?? (state.mode === 'normal' && state.hearts < startHearts() ? gameRules().refill : 0)
 /** Stop to introduce a level: stock does it for each new kind of laser, in normal play. */
-export const isTierLevel = (level: number) => level > 0 && LASER_TIERS.some((t) => t.level === level)
+export const isTierLevel = (level: number) => level > 0 && laserTiers().some((t) => t.level === level)
 /** Stop to introduce a level: a level that asks for it; before revision 3, each new kind of laser in normal play. */
 export const introFor = (level: number) =>
-  editOf(live(), level).intro ?? (run.itemsRev < 3 && state.mode === 'normal' && isTierLevel(level))
+  editOf(live(), level).intro ?? (revision.rev < 3 && state.mode === 'normal' && isTierLevel(level))
 
 /**
  * How a level plays by the current design, for the editor: every value, and
@@ -80,7 +80,7 @@ export function enterLevel(level: number): boolean {
   sound.level()
   feel('level')
   mark('level')
-  const tierIndex = LASER_TIERS.findIndex((t) => t.level === level && level > 0)
+  const tierIndex = laserTiers().findIndex((t) => t.level === level && level > 0)
   if (introFor(level)) {
     startIntro(tierIndex > 0 ? tierIndex : tierOf(level))
     return true
@@ -96,7 +96,7 @@ export function enterLevel(level: number): boolean {
     popup(state.snake[0]!, `+${heal} ${heal === 1 ? 'life' : 'lives'}`, 'coral')
     mark('heal')
   }
-  const tier = LASER_TIERS.find((t) => t.level === level && level > 0)
+  const tier = laserTiers().find((t) => t.level === level && level > 0)
   if (tierIndex > 0) {
     // Announce it the way items are announced: a notice from the top.
     const id = ++run.uid

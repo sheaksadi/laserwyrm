@@ -13,7 +13,7 @@ rises and more lasers come.
   keyboard, controller or touch) over a warm-up beat; any key, click, tap or A
   starts, and the game's music fades in from it
 - Normal mode: walls wrap you to the other side. Each new kind of laser
-  (levels 11, 21, … 81) is announced with a notice from the top while play
+  (levels 5, 12, 21, … 81) is announced with a notice from the top while play
   goes on: the music builds into a new arrangement and the lasers ease in
   (replays from before keep the old two-bar pause)
 - Hardcore (the small square button next to Press start): walls kill, no hearts
@@ -34,10 +34,11 @@ rises and more lasers come.
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
   power-ups, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;
   prompts switch to match
-- 100 levels. New lasers arrive as you climb: blue (11, three wide), purple
-  (21, row and column at once), white (31, half the warning), green (41,
+- 100 levels. New lasers arrive as you climb: purple (5, row and column at
+  once), blue (12, three wide), white (21, half the warning), green (41,
   follows your head), gold (51, strikes twice); from 61 they mix two tricks,
-  and from 81 prism lasers carry three
+  and from 81 prism lasers carry three. Runs from before keep the old order
+  (blue 11, purple 21, white 31), so their replays play back the same
 - Playing goes full screen and stays there. Esc pauses; Esc again, or the
   pause screen's button, leaves full screen. Turn it off in the ☰ menu
 - C (or ☰ → Custom, or the Custom button) opens custom play: play your own game

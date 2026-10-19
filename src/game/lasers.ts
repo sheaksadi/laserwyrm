@@ -5,7 +5,7 @@
  */
 import { stepSeconds } from '../audio'
 import { editOf, live } from '../design'
-import { BOLT_MS, COMBO_LEVEL, LASER_TRAITS, PRISM_LEVEL, SNIPPER_RESPAWN_STEPS, type Beam, type Laser, type LaserKind, type LaserTrait, type Vec } from './catalog'
+import { BOLT_MS, COMBO_LEVEL, laserTraits, PRISM_LEVEL, SNIPPER_RESPAWN_STEPS, type Beam, type Laser, type LaserKind, type LaserTrait, type Vec } from './catalog'
 import { popup } from './board'
 import { warnFor } from './curve'
 import { cut, die } from './hits'
@@ -29,7 +29,8 @@ export function rollTraits(): LaserTrait[] {
     const second = open.length > 1 && random() < 0.3 ? pick(open.filter((t) => t !== first)) : null
     return second ? [first, second] : [first]
   }
-  const open = (Object.keys(LASER_TRAITS) as LaserTrait[]).filter((t) => LASER_TRAITS[t].unlock <= level)
+  const table = laserTraits()
+  const open = (Object.keys(table) as LaserTrait[]).filter((t) => table[t].unlock <= level)
   if (!open.length) return []
   const newest = open[open.length - 1]!
   const roll = random()
@@ -51,8 +52,9 @@ export function kindOf(traits: LaserTrait[]): LaserKind {
   if (traits.length >= 3) return 'prism'
   if (!traits.length) return 'red'
   // Two tricks wear the colour of the later one.
-  const latest = traits.reduce((a, b) => (LASER_TRAITS[b].unlock > LASER_TRAITS[a].unlock ? b : a))
-  return LASER_TRAITS[latest].kind
+  const table = laserTraits()
+  const latest = traits.reduce((a, b) => (table[b].unlock > table[a].unlock ? b : a))
+  return table[latest].kind
 }
 
 export function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
