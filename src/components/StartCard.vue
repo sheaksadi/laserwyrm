@@ -67,7 +67,7 @@ import Mascot from './Mascot.vue'
       </div>
       <!-- Settings, and the account (a face: claim a name, or your games) -->
       <div class="start-row">
-        <button class="btn btn-line" @click="openSettings">
+        <button class="btn btn-line" @click="openSettings()">
           <span class="start-face">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 1h4v2h1l1-1 2 2-1 1v1h2v4h-2v1l1 1-2 2-1-1h-1v2H6v-2H5l-1 1-2-2 1-1V9H1V5h2V4L2 3l2-2 1 1h1z" fill="currentColor" /><path d="M6 6h4v4H6z" fill="var(--ink)" /></svg>
             <span class="text-trim">Settings</span>

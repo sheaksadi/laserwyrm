@@ -406,3 +406,9 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
   .overlay { padding: 8px 50px; }
   .overlay > * { zoom: 0.8; }
 }
+
+/* The pause card: Restart with a square settings cog beside it. */
+.pause-tools { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 0.75rem; }
+.pause-tools .btn.btn { margin-top: 0; }
+.btn.btn-cog { width: 56px; padding: 0; }
+.btn.btn-cog svg { display: block; }

@@ -29,8 +29,13 @@ rises and more lasers come.
   half and a faint stick appears under your thumb; tap the right half to use a
   power-up
 - Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
-- ☰ → Settings: music and effects volume, controller vibration (on/off,
-  strength; it rumbles harder for bigger cuts, hits and game over), full screen
+- Settings (☰, the start screen, or the cog on the pause screen), in tabs:
+  Sound (all sound, music and effects volume), Controls (controller
+  vibration and strength, phone D-pad or stick, the keyboard keys),
+  Display (full screen, the board renderer: SVG or an experimental canvas,
+  the FPS meter with 1% low and graph), Cheats (any level, god mode, no
+  lasers, items, reset your best; never counted) and About (shortcuts to
+  scores, replays, account, custom games, AI agent; source and license)
 - When a controller joins, a notice says so; before any click it also asks
   for one (browsers only allow full screen and sound after a click or key);
   after that the controller does everything. While playing, the mouse pointer
@@ -46,10 +51,10 @@ rises and more lasers come.
 - Playing goes full screen and stays there. Esc pauses; Esc again, or the
   pause screen's button, leaves full screen. Turn it off in the ☰ menu
 - C (or ☰ → Custom, or the Custom button) opens custom play: play your own game
-  or a shared one, open the editor, or cheats. The editor (workshop) has tabs:
+  or a shared one, or open the editor. The editor (workshop) has tabs:
   - Game rules: your game's hearts (start, most, refill), starting length,
-    power-up slots and starting level; below them the OP switches for one run:
-    any level, god mode, no lasers, items, reset your best (never counted)
+    power-up slots and starting level, and its share code (cheats are in
+    Settings → Cheats)
   - Undo and redo cover every change (buttons, or Ctrl+Z / Ctrl+Shift+Z)
   - Global: the whole game's feel at once, and music for every level that
     has none of its own. Drag a bar per level (harder or

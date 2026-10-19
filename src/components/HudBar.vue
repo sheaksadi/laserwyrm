@@ -111,7 +111,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onPointerDown))
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" /></svg>
             <span>Controls</span><span class="state on">{{ touchControls === 'dpad' ? 'd-pad' : 'stick' }}</span><span></span>
           </button>
-          <button class="menu-item" role="menuitem" @click="openSettings">
+          <button class="menu-item" role="menuitem" @click="openSettings()">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0" /><path d="M16 4v4M8 10v4M18 16v4" /></svg>
             <span>Settings</span><span></span><span></span>
           </button>

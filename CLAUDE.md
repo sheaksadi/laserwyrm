@@ -67,7 +67,8 @@ Components, by area:
   AutoSlider
 - **Custom games:** CustomPanel, ExplorePanel
 - **Scores and replays:** Leaderboard, ReplaysPanel, ReplayViewer
-- **Account:** AccountPanel, NameEdit, LookPicker, AgentPanel, SettingsPanel
+- **Settings** (tabs: Sound, Controls, Display, Cheats, About; `ui.settingsTab`, `openSettings(tab)`): SettingsPanel, CheatsPanel
+- **Account:** AccountPanel, NameEdit, LookPicker, AgentPanel
 - **Multiplayer:** MultiplayerPanel, MpBar, MpResults
 
 ## The engine (`src/game/`)

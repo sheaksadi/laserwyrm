@@ -150,7 +150,8 @@ function loop() {
 let observer: ResizeObserver | null = null
 onMounted(() => {
   const c = canvas.value!
-  ctx = c.getContext('2d')
+  // Opaque (the board's backdrop is black anyway) and low-latency: it can show frames without waiting on the page's compositing.
+  ctx = c.getContext('2d', { alpha: false, desynchronized: true })
   resetColors()
   if (htmlInCanvas) c.addEventListener('paint', render)
   observer = new ResizeObserver(([entry]) => {

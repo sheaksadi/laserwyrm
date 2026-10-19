@@ -10,13 +10,17 @@ import { library, setCustom, stopShared } from '../design'
 import { enterFullscreen, isFullscreen, leaveFullscreen } from '../fullscreen'
 import { createRoom, leaveRoom, mp } from '../multiplayer'
 
+export type SettingsTab = 'sound' | 'controls' | 'display' | 'cheats' | 'about'
+
 export const ui = reactive({
   /** The hamburger menu on the right holds music, sound and restart. */
   menuOpen: false,
   /** Account, from the menu or the start card. */
   accountOpen: false,
-  /** Settings, from the menu or the start card. */
+  /** Settings, from the menu, the start card or the pause card. */
   settingsOpen: false,
+  /** Which settings tab shows. */
+  settingsTab: 'sound' as SettingsTab,
   /** The workshop (cheats and the editor), from the custom screen; C or Escape closes it. */
   cheatOpen: false,
   /** Which workshop tab opens first: cheats from C, the level editor from custom play. */
@@ -88,8 +92,9 @@ export function closeBriefing() {
   conductor.stop()
 }
 
-export function openSettings() {
+export function openSettings(tab?: SettingsTab) {
   ui.menuOpen = false
+  if (tab) ui.settingsTab = tab
   ui.settingsOpen = true
   pause()
 }
