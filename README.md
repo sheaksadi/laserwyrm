@@ -100,8 +100,8 @@ few KB. The player has play/pause, 0.5×–16× speed, a seek bar and ±5 s jump
 bar marks power-ups, cuts, hearts lost and gained, level ups and the totem,
 with filters.
 
-The server (`server/server.mjs`, plain Node plus `pg`) serves the built game
-and the API:
+The server (`server/`, plain Node plus `pg`; routes in `server/server.mjs`,
+handlers in `server/api/`) serves the built game and the API:
 
 | Method | Path | |
 |---|---|---|
@@ -170,8 +170,9 @@ npm start       # production: game and API on $PORT (8080)
 ```
 
 All sound is synthesised with Web Audio (`src/audio.ts`), which is also the
-game clock. Game logic lives in `src/game.ts`, the board in
-`src/components/Board.vue`.
+game clock. Game logic lives in `src/game/`, the app shell in `src/App.vue` and
+`src/app/`, the board in `src/components/Board.vue`. `CLAUDE.md` maps the code
+for anyone (or any agent) working on it.
 
 Deployed with the `Dockerfile`: a Vite build served, with the API, by the Node
 server on port 8080. The hosting platform provides Postgres as `DATABASE_URL`.
