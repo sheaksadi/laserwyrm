@@ -108,7 +108,23 @@ saved on the server, must play back exactly. So:
 - To check a refactor: play recorded runs with `startReplay` + `replayTo` before
   and after, and compare `state` at intervals. They must match exactly.
 
-## Designs (custom games)
+## Board renderers (experimental)
+
+Settings → Screen picks how the board is drawn (`src/renderer.ts`, kept per device):
+- **SVG** (`components/Board.vue`): one element per thing on the board; CSS animates them.
+- **Canvas** (`components/CanvasBoard.vue` + `src/render/`): one canvas redrawn every frame by
+  `render/draw.ts`, which reproduces each SVG element and its CSS animation from the time it
+  first appeared. Grid, frame and walls go to a still layer, redrawn only when they change.
+  It reads the game state raw (`toRaw`), since it pulls every frame anyway.
+- The game's SVG art (items via `ItemArt.vue`, hats via `Hat.vue`) stays as real elements
+  inside the canvas. With HTML-in-Canvas (Chromium flag `CanvasDrawElement`,
+  chrome://flags/#canvas-draw-element) the frame is drawn in the canvas `paint` event and
+  `drawElementImage` paints those elements in (`render/icons.ts`). Without it, each icon is
+  serialized into an image once per size. The canvas carries both `layoutsubtree` (Chromium
+  up to 156) and `content="drawable"` (newer), and each icon has `drawable`.
+- Board.vue and draw.ts must show the same picture: a change to one needs the other too.
+
+
 
 A design is data (`designCore.ts`): global curve, rules, up to 150 level edits, items,
 sprites, music. A level stores only what it changes. Everything else follows the curve

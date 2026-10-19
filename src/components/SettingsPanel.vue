@@ -9,6 +9,7 @@ import { pad, rumbleFor, vibrationOn, vibrationStrength } from '../gamepad'
 import { touchControls } from '../controls'
 import { isTouch } from '../game'
 import { showFps, showGraph, showLow } from '../perf'
+import { htmlInCanvas, renderer } from '../renderer'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -102,6 +103,15 @@ function setStrength(e: Event) {
       <button class="row sub" :class="{ off: !showFps }" role="switch" :aria-checked="showGraph" :disabled="!showFps" @click="showGraph = !showGraph">
         <span><b>Graph</b> recent frame times</span>
         <span class="state" :class="{ on: showGraph }">{{ showGraph ? 'on' : 'off' }}</span>
+      </button>
+      <!-- How the board is drawn: SVG elements, or one canvas redrawn each frame -->
+      <button class="row" role="radio" :aria-checked="renderer === 'svg'" @click="renderer = 'svg'">
+        <span><b>SVG board</b> the browser draws each thing</span>
+        <span class="state" :class="{ on: renderer === 'svg' }">{{ renderer === 'svg' ? 'on' : '' }}</span>
+      </button>
+      <button class="row" role="radio" :aria-checked="renderer === 'canvas'" @click="renderer = 'canvas'">
+        <span><b>Canvas board</b> experimental: one canvas{{ htmlInCanvas ? ', with HTML-in-Canvas' : '' }}</span>
+        <span class="state" :class="{ on: renderer === 'canvas' }">{{ renderer === 'canvas' ? 'on' : '' }}</span>
       </button>
     </section>
 

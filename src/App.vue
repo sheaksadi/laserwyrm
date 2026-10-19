@@ -7,6 +7,8 @@
  */
 import { defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
+import CanvasBoard from './components/CanvasBoard.vue'
+import { renderer } from './renderer'
 import { soundBlocked } from './audio'
 import { fitGrid, fitLayout, layout, demo, match, startDemo, stopDemo, onFeel, pause, replay, reset, state } from './game'
 import { enterFullscreen, fullscreenPending, watchFullscreen } from './fullscreen'
@@ -199,7 +201,7 @@ onBeforeUnmount(() => {
     <div
       class="arena"
       :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
-    ><Board /></div>
+    ><CanvasBoard v-if="renderer === 'canvas'" /><Board v-else /></div>
     <!-- Phones: the left half steers, the right half uses power-ups; both faint, over the board -->
     <template v-if="layout.pad === 'sticks' && !layout.portrait && route.name !== 'watch'">
       <DPad v-if="touchControls === 'dpad'" />
