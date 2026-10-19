@@ -88,8 +88,8 @@ rises and more lasers come.
 - Your design stays on the device and travels as one share code (`LW2-…`).
   Runs on a changed game count as custom (no best, not on the main boards),
   and their replays carry the design so they play back the same
-- New best scores can be signed with a name and optional email (saved in the
-  browser for now)
+- A run that makes the high scores goes up by itself once you have joined (a
+  name, or one made up; no email). The game-over card shows its place
 - The snipper hunts your middle: bite it to grow +3
 
 ## Games, players, high scores and replays

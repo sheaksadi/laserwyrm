@@ -30,6 +30,17 @@ const TABS: { id: SettingsTab; name: string; icon: string }[] = [
   { id: 'about', name: 'About', icon: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v6 M12 7.5v.5' },
 ]
 
+/** Whether this browser looks to be in the EU (by its time zone), for the open-to-work line under About. */
+const EU_ZONES = new Set('Berlin Busingen Vienna Brussels Sofia Zagreb Nicosia Prague Copenhagen Tallinn Helsinki Mariehamn Paris Athens Budapest Dublin Rome Riga Vilnius Luxembourg Malta Amsterdam Warsaw Lisbon Bucharest Bratislava Ljubljana Madrid Stockholm'.split(' ').map((c) => `Europe/${c}`))
+for (const z of ['Atlantic/Canary', 'Atlantic/Madeira', 'Atlantic/Azores', 'Africa/Ceuta', 'Asia/Nicosia', 'Asia/Famagusta']) EU_ZONES.add(z)
+const inEu = (() => {
+  try {
+    return EU_ZONES.has(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  } catch {
+    return false
+  }
+})()
+
 /* ─── Changing a key: click it, then press the new one (Esc cancels, Backspace clears) ─── */
 const listening = ref<{ action: Action; slot: 0 | 1 } | null>(null)
 function listen(action: Action, slot: 0 | 1) {
@@ -244,6 +255,10 @@ function setStrength(e: Event) {
         </section>
         <section>
           <h3>About</h3>
+      <p class="maker">
+        Made by Sadi · <a href="https://sadi.dev" target="_blank" rel="noopener">sadi.dev</a>
+      </p>
+      <p v-if="inEu" class="hire">In Germany or elsewhere in the EU? I'm open to work, remote. Say hi at <a href="https://sadi.dev" target="_blank" rel="noopener">sadi.dev</a>.</p>
       <p class="source">
         Laserwyrm is free software under the AGPL-3.0, with music by
         <a href="https://strudel.cc" target="_blank" rel="noopener">Strudel</a>.
@@ -252,6 +267,8 @@ function setStrength(e: Event) {
         </section>
       </template>
     </div>
+    <!-- Quietly, under every tab -->
+    <a class="signature" href="https://sadi.dev" target="_blank" rel="noopener">sadi.dev</a>
   </div>
 </template>
 
@@ -352,6 +369,28 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 @keyframes wait { from { opacity: 0.55; } to { opacity: 1; } }
 .bind-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
 .bind-foot .note { margin: 0; }
+.maker { margin: 0; font-size: 17px; color: var(--text-dim); }
+.maker a, .hire a { color: var(--mint); }
+.hire {
+  margin: 0.6rem 0 0;
+  padding: 8px 10px;
+  border: 2px dashed var(--mint);
+  border-radius: 10px;
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+.signature {
+  align-self: center;
+  margin-top: 8px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-decoration: none;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+.signature:hover, .signature:focus-visible { opacity: 1; color: var(--mint); }
 .source { margin: 1.2rem 0 0; font-size: 15px; line-height: 1.4; color: var(--text-muted); }
 .source a { color: var(--sky); }
 h2 {

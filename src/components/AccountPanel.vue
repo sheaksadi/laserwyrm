@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The player's account. Join (a name and an email, both optional), keep the
+ * The player's account. Join (a name, optional), keep the
  * login code the server gives back, sign in elsewhere with it, or sign out.
  * Joined: rename, choose the snake's look (colours, hats and trails that
  * unlock as you play), and see your runs on the high scores, where every
@@ -18,7 +18,6 @@ defineProps<{ embedded?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const nameInput = ref('')
-const emailInput = ref('')
 const codeInput = ref('')
 const busy = ref(false)
 const error = ref('')
@@ -77,7 +76,7 @@ async function create(name = nameInput.value.trim()) {
   error.value = ''
   suggestions.value = []
   try {
-    await claimName(name, emailInput.value.trim())
+    await claimName(name)
     fresh.value = true
     reveal.value = true
   } catch (err) {
@@ -181,7 +180,6 @@ function leave() {
         <h3>Join</h3>
         <form class="join" @submit.prevent="create()">
           <input v-model="nameInput" class="field" maxlength="12" placeholder="Name (optional)" aria-label="Name, optional" autocomplete="nickname" />
-          <input v-model="emailInput" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
           <button class="go" type="submit" :disabled="busy">Join</button>
         </form>
         <p class="hint">No name? One is made up; rename any time. Joined, your runs go on the high scores by themselves.</p>

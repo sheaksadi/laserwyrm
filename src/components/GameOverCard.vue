@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /**
  * The game-over card: the score big, the high-score entry when the run
- * makes the board, a few numbers, play again, and the game's share code.
+ * makes the board (or its place, once posted), a few numbers, play again,
+ * and the game's share code.
  */
+import { ref } from 'vue'
 import { play, state } from '../game'
 import { account } from '../account'
 import { custom, shared } from '../design'
@@ -10,12 +12,25 @@ import { go } from '../app/route'
 import { scoreEntry, submitScore } from '../app/scoreEntry'
 import { openAccount, openEditor, toMainMenu } from '../app/ui'
 import GameCode from './GameCode.vue'
+
+/** A just-made login code: copied, and whether its explanation is open. */
+const copied = ref(false)
+const info = ref(false)
+async function copyCode() {
+  if (!scoreEntry.newLoginCode) return
+  await navigator.clipboard.writeText(scoreEntry.newLoginCode).catch(() => {})
+  copied.value = true
+  setTimeout(() => (copied.value = false), 1500)
+}
 </script>
 
 <template>
   <div class="overlay">
     <div class="card card-over">
       <button class="close card-close" aria-label="Main menu" @click="toMainMenu">✕</button>
+      <!-- Joined players' runs go up by themselves: a quiet tag in the corner says so -->
+      <p v-if="scoreEntry.entry.phase === 'saved'" class="posted-tag">✓ posted</p>
+      <p v-else-if="scoreEntry.entry.phase === 'sending' && account.name" class="posted-tag sending">posting…</p>
       <header class="over-head">
         <p class="over-label">Game over · the snake {{ state.reason }}<template v-if="state.mode === 'hardcore'"> · hardcore</template></p>
         <p class="final" :class="{ best: state.newBest }">{{ state.score }}</p>
@@ -34,7 +49,6 @@ import GameCode from './GameCode.vue'
         <p class="entry-label">You made the high scores<template v-if="account.name"> as <b>{{ account.name }}</b></template></p>
         <template v-if="!account.name">
           <input v-model="scoreEntry.name" class="field" maxlength="12" placeholder="Username (optional)" aria-label="Username, optional" autocomplete="nickname" />
-          <input v-model="scoreEntry.email" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
         </template>
         <button class="btn btn-submit" type="submit" :disabled="scoreEntry.entry.phase === 'sending'"><span class="text-trim">{{ scoreEntry.entry.phase === 'sending' ? '…' : account.name ? 'Try again' : 'Join' }}</span></button>
         <p v-if="!account.name" class="entry-note">Join and your runs go on the board by themselves. No name? One is made up.</p>
@@ -44,14 +58,28 @@ import GameCode from './GameCode.vue'
           <button v-for="n in scoreEntry.nameSuggestions" :key="n" type="button" class="suggestion" @click="submitScore(n)">{{ n }}</button>
         </p>
       </form>
-      <p v-else-if="scoreEntry.entry.phase === 'saved'" class="entry-done">
-        Posted: {{ account.name }} is #{{ scoreEntry.entry.rank }} on the board.
-        <a :href="`#/scores/${scoreEntry.entry.id}`">See the board</a> · <a :href="`#/watch/${scoreEntry.entry.id}`">Watch your run</a> · <a href="#/" @click.prevent="openAccount">Manage</a>
-      </p>
-      <p v-if="scoreEntry.newLoginCode" class="login-code">
-        Your login code: <b>{{ scoreEntry.newLoginCode }}</b><br />
-        Keep it somewhere safe; it signs you in anywhere. It is also under ☰ → Account.
-      </p>
+      <div v-else-if="scoreEntry.entry.phase === 'saved'" class="placed">
+        <p class="placed-rank"><span class="hash">#</span>{{ scoreEntry.entry.rank }}</p>
+        <p class="placed-label">{{ account.name }} on the {{ state.mode === 'hardcore' ? 'hardcore ' : '' }}high scores</p>
+        <div class="placed-buttons">
+          <button class="btn btn-mini" @click="go(`#/scores/${scoreEntry.entry.id}`)"><span class="text-trim">Board</span></button>
+          <button class="btn btn-mini btn-watch" @click="go(`#/watch/${scoreEntry.entry.id}`)"><span class="text-trim">Watch</span></button>
+          <button class="btn btn-mini btn-line" @click="openAccount"><span class="text-trim">Manage</span></button>
+        </div>
+      </div>
+      <div v-if="scoreEntry.newLoginCode" class="login-code">
+        <p class="login-label">Your login code</p>
+        <div class="login-row">
+          <code>{{ scoreEntry.newLoginCode }}</code>
+          <button class="icon-btn" :aria-label="copied ? 'Copied' : 'Copy the login code'" :title="copied ? 'Copied' : 'Copy'" @click="copyCode">
+            <svg v-if="!copied" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>
+            <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-10" /></svg>
+          </button>
+          <button class="icon-btn info" :aria-expanded="info" aria-label="What is this?" title="What is this?" @click="info = !info">i</button>
+        </div>
+        <p v-if="info" class="login-info">This code is your account: it signs you in on any device, and anyone who has it can. There is no password or email to get it back, so keep it somewhere safe.</p>
+        <p class="login-note">Find it again in <button class="link-btn" @click="openAccount">Settings → Account</button></p>
+      </div>
 
       <dl class="tally">
         <div><dt>level</dt><dd>{{ state.level + 1 }}</dd></div>

@@ -73,7 +73,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
       <p v-if="!players.length" class="msg">Nobody yet. Join and play!</p>
       <table v-else>
         <thead>
-          <tr><th>#</th><th>Name</th><th class="num">Played</th><th class="num">Games</th></tr>
+          <tr><th>#</th><th>Name</th><th class="num">Played</th><th class="num">Games</th><th class="num">Best level</th></tr>
         </thead>
         <tbody>
           <tr v-for="(p, i) in players" :key="p.name" :class="{ mine: p.name === account.name, top: i < 3 }">
@@ -81,6 +81,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
             <td class="name">{{ p.name }}</td>
             <td class="num score">{{ played(p.seconds) }}</td>
             <td class="num">{{ p.games }}</td>
+            <td class="num">{{ p.level || '–' }}</td>
           </tr>
         </tbody>
       </table>
@@ -89,7 +90,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
 
     <table v-else>
       <thead>
-        <tr><th>#</th><th>Name</th><th class="hide-narrow">Game</th><th class="num">Score</th><th class="num">Lvl</th><th class="num hide-narrow">Time</th><th></th></tr>
+        <tr><th>#</th><th>Name</th><th class="hide-narrow">Game</th><th class="num">Score</th><th class="num">Level</th><th class="num hide-narrow">Time</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="(row, i) in rows" :key="row.id" :class="{ mine: row.id === props.highlight, top: i < 3 }">

@@ -76,7 +76,7 @@ export const myGames = () => call<{ games: GameRow[] }>('/api/me/games').then((r
 
 /* ─── Players ─── */
 
-/** Join: a name (blank: the server makes one up) and an optional email. */
+/** Join: a name (blank: the server makes one up). The server still takes an email, but the game no longer asks for one. */
 export const createUser = (name: string, email = '') => post<{ name: string; code: string }>('/api/users', { name, email })
 
 /** Claim a name (or a made-up one) and sign in as it; a taken name throws an ApiError with `extra.suggestions`. */
@@ -118,7 +118,8 @@ export const submitScore = (entry: { game: string; email: string }) =>
   post<{ id: number; rank: number }>('/api/scores', entry)
 
 /** Who has played longest, with their saved games' time added up. */
-export interface TimeRow { name: string; seconds: number; games: number }
+/** A player on the play-time board; `level` is the furthest they got in a clean run. */
+export interface TimeRow { name: string; seconds: number; games: number; level: number }
 export const fetchPlayTime = () => call<{ players: TimeRow[] }>('/api/scores/time').then((r) => r.players)
 
 /** Would this score make the board? The server says, without sending the board. True when it cannot be reached, so nobody loses a run. */

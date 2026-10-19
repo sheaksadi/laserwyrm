@@ -18,7 +18,6 @@ export const scoreEntry = reactive({
   /** The server did not know this device's login code (an old or wiped account): signed out, game saved anyway. */
   signedOutNote: '',
   name: '',
-  email: '',
   nameSuggestions: [] as string[],
   /** Just signed up from this form: show the login code once, with a nudge to keep it. */
   newLoginCode: null as string | null,
@@ -82,13 +81,13 @@ export async function submitScore(name = scoreEntry.name.trim()) {
   try {
     const code = await saving
     if (!code) throw new Error(`this game could not be saved (${scoreEntry.saveError}), so it cannot go on the board`)
-    // Not joined: Join here (the name and email are optional; a name is made up if blank).
+    // Not joined: Join here (the name is optional; one is made up if blank).
     if (!account.name) {
-      const made = await claimName(name, scoreEntry.email.trim())
+      const made = await claimName(name)
       scoreEntry.newLoginCode = made.code
       scoreEntry.name = made.name
     }
-    const saved = await sendScore({ game: code, email: scoreEntry.email.trim() })
+    const saved = await sendScore({ game: code, email: '' })
     scoreEntry.entry = { phase: 'saved', rank: saved.rank, id: saved.id }
   } catch (err) {
     if (err instanceof ApiError && Array.isArray(err.extra.suggestions)) scoreEntry.nameSuggestions = err.extra.suggestions as string[]

@@ -104,13 +104,14 @@ export function scoreRoutes(db) {
     async playTime(limitParam) {
       const n = Math.min(BOARD_MAX, Math.max(1, Number(limitParam) || 50))
       const { rows } = await db.query(
-        `SELECT u.name, SUM(g.seconds)::bigint AS seconds, count(*)::int AS games
+        `SELECT u.name, SUM(g.seconds)::bigint AS seconds, count(*)::int AS games,
+                MAX(g.level) FILTER (WHERE NOT g.cheated)::int AS level
          FROM games g JOIN users u ON u.id = g.user_id
          GROUP BY u.id, u.name HAVING SUM(g.seconds) > 0
          ORDER BY seconds DESC LIMIT $1`,
         [n],
       )
-      return { players: rows.map((r) => ({ name: r.name, seconds: Number(r.seconds), games: r.games })) }
+      return { players: rows.map((r) => ({ name: r.name, seconds: Number(r.seconds), games: r.games, level: r.level ?? 0 })) }
     },
   }
 }

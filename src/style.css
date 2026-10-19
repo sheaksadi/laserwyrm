@@ -144,7 +144,7 @@ html.pad-on :is(button, a, input, textarea, select, [tabindex]):focus {
   box-shadow: 0 0 0 6px rgba(255, 225, 77, 0.16), 0 0 22px rgba(255, 225, 77, 0.45);
 }
 
-/* Every ✕ says how else to get out on a keyboard: Esc. (With a controller, B is plain enough.) */
+/* Every ✕ says how else to get out on a keyboard: Esc. With a controller the ✕ becomes the B button itself (Circle on PlayStation). */
 .close { position: relative; overflow: visible; }
 .close::after {
   content: 'esc';
@@ -160,7 +160,29 @@ html.pad-on :is(button, a, input, textarea, select, [tabindex]):focus {
   color: var(--text-muted);
   pointer-events: none;
 }
-html.pad-on .close::after { content: none; }
+html.pad-on .close,
+html.pad-on .close:hover { color: transparent; }
+html.pad-on .close::after {
+  content: 'B';
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  translate: -50% -50%;
+  border: 2px solid #FF5566;
+  border-radius: 50%;
+  background: #1C1C2C;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  line-height: 1;
+  color: #FF5566;
+}
+html.pad-ps .close::after {
+  content: '';
+  border-color: #FF6B7A;
+  background: radial-gradient(circle, transparent 0 3.5px, #FF6B7A 3.5px 5.5px, transparent 5.5px) #1C1C2C;
+}
 @media (pointer: coarse) {
-  .close::after { content: none; }
+  html:not(.pad-on) .close::after { content: none; }
 }

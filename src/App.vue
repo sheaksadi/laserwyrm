@@ -119,6 +119,12 @@ watch(
   (on) => document.documentElement.classList.toggle('pad-on', on),
   { immediate: true },
 )
+// PlayStation pads: the ✕ buttons show Circle instead of B (style.css).
+watch(
+  () => pad.connected && pad.kind === 'playstation',
+  (on) => document.documentElement.classList.toggle('pad-ps', on),
+  { immediate: true },
+)
 watch(
   () => [status.value, route.value.name, ui.customOpen, ui.cheatOpen, ui.settingsOpen, ui.settingsTab, ui.briefing, ui.menuOpen, pad.connected],
   () => {
