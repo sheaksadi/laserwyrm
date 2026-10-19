@@ -21,9 +21,9 @@ const COUNTDOWN_MS = 3000
 /** Binary updates a player may send per second before the extras are dropped. */
 const PACKETS_PER_SECOND = 40
 const MODES = {
+  survival: { respawn: false },
   score: { respawn: true },
   sprint: { respawn: true },
-  survival: { respawn: false },
 }
 const MINUTES = [1, 2, 3, 5]
 const TARGETS = [1000, 2500, 5000]
@@ -32,7 +32,7 @@ const TARGETS = [1000, 2500, 5000]
 const rooms = new Map()
 
 /**
- * @typedef {{ index: number; name: string; ws: import('ws').WebSocket; final: null | { score: number; ms: number } }} Player
+ * @typedef {{ index: number; name: string; look: object; ws: import('ws').WebSocket; final: null | { score: number; ms: number } }} Player
  * @typedef {{ code: string; host: number; players: Map<number, Player>; phase: 'lobby' | 'playing' | 'results'; settings: object; design: object | null; timer: NodeJS.Timeout | null; results: object[] | null }} Room
  */
 
@@ -43,11 +43,17 @@ function newCode() {
   }
 }
 
+/** A hat and colour for the hologram: short ids only. */
+const cleanLook = (look) => {
+  const out = {}
+  for (const key of ['hat', 'color']) if (typeof look?.[key] === 'string' && /^[a-z0-9-]{1,20}$/.test(look[key])) out[key] = look[key]
+  return out
+}
 const cleanName = (name) => (String(name ?? '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16) || 'Wyrm')
 
 function cleanSettings(raw, core) {
   const s = raw && typeof raw === 'object' ? raw : {}
-  const mode = s.mode in MODES ? s.mode : 'score'
+  const mode = s.mode in MODES ? s.mode : 'survival'
   const out = {
     mode,
     minutes: MINUTES.includes(s.minutes) ? s.minutes : 3,
@@ -76,7 +82,7 @@ function snapshot(room) {
     phase: room.phase,
     settings: room.settings,
     hasDesign: !!room.design,
-    players: [...room.players.values()].map((p) => ({ index: p.index, name: p.name })),
+    players: [...room.players.values()].map((p) => ({ index: p.index, name: p.name, look: p.look })),
     results: room.results,
   }
 }
@@ -137,18 +143,21 @@ export function attachRooms(server, core) {
       ws.ping()
     }, 15000)
 
-    const enter = (target, name) => {
+    /** A name nobody else in the room has: two of the same get a number. */
+    const uniqueName = (target, name) => {
+      const base = cleanName(name)
+      const taken = new Set([...target.players.values()].filter((p) => p !== me).map((p) => p.name))
+      let unique = base
+      for (let n = 2; taken.has(unique); n++) unique = `${base.slice(0, 13)} ${n}`
+      return unique
+    }
+    const enter = (target, name, look) => {
       if (target.players.size >= MAX_PLAYERS) return send(ws, { t: 'error', message: 'That room is full.' })
       if (target.phase === 'playing') return send(ws, { t: 'error', message: 'That room is mid-game; try again when it ends.' })
       let index = 0
       while (target.players.has(index)) index++
       room = target
-      // Two of the same name get a number, so the scoreboard tells them apart.
-      const base = cleanName(name)
-      const taken = new Set([...target.players.values()].map((p) => p.name))
-      let unique = base
-      for (let n = 2; taken.has(unique); n++) unique = `${base.slice(0, 13)} ${n}`
-      me = { index, name: unique, ws, final: null }
+      me = { index, name: uniqueName(target, name), look: cleanLook(look), ws, final: null }
       target.players.set(index, me)
       announce(target)
       if (target.design) send(ws, { t: 'design', design: target.design })
@@ -178,14 +187,14 @@ export function attachRooms(server, core) {
           const fresh = { code: newCode(), host: 0, players: new Map(), phase: 'lobby', settings: null, design: null, timer: null, results: null }
           Object.assign(fresh, cleanSettings(msg.settings, core))
           rooms.set(fresh.code, fresh)
-          enter(fresh, msg.name)
+          enter(fresh, msg.name, msg.look)
           return
         }
         case 'join': {
           if (room) return
           const target = rooms.get(String(msg.code ?? '').replace(/\D/g, ''))
           if (!target) return send(ws, { t: 'error', message: 'No room with that code.' })
-          enter(target, msg.name)
+          enter(target, msg.name, msg.look)
           return
         }
         case 'settings': {
@@ -232,6 +241,13 @@ export function attachRooms(server, core) {
           if (!room || !me) return
           const to = room.players.get(Number(msg.to))
           if (to) send(to.ws, { t: 'signal', from: me.index, data: msg.data })
+          return
+        }
+        case 'profile': {
+          if (!room || !me) return
+          me.name = uniqueName(room, msg.name)
+          me.look = cleanLook(msg.look)
+          announce(room)
           return
         }
         case 'leave': {

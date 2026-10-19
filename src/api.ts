@@ -68,7 +68,7 @@ export const codeForUrl = (code: string) => code.replace('#', '-')
 /* ─── Games ─── */
 
 /** `design` names a shared design the run was played on; `cheats` says whether real cheats were used. */
-export const saveGame = (game: { score: number; level: number; cheated: boolean; mode: Mode; replay: Replay; design?: string; cheats?: boolean }) =>
+export const saveGame = (game: { score: number; level: number; cheated: boolean; mode: Mode; replay: Replay; design?: string; cheats?: boolean; seconds?: number }) =>
   post<{ code: string }>('/api/games', game)
 export const fetchGame = (code: string) => call<GameEntry>(`/api/games/${encodeURIComponent(codeForUrl(code))}`)
 export const searchGames = (q: string) => call<{ games: GameRow[] }>(`/api/games?q=${encodeURIComponent(q)}`).then((r) => r.games)
@@ -76,14 +76,30 @@ export const myGames = () => call<{ games: GameRow[] }>('/api/me/games').then((r
 
 /* ─── Players ─── */
 
-export const createUser = (name: string) => post<{ name: string; code: string }>('/api/users', { name })
+/** Join: a name (blank: the server makes one up) and an optional email. */
+export const createUser = (name: string, email = '') => post<{ name: string; code: string }>('/api/users', { name, email })
 
-/** Claim a name and sign in as it; a taken name throws an ApiError with `extra.suggestions`. */
-export async function claimName(name: string) {
-  const made = await createUser(name)
+/** Claim a name (or a made-up one) and sign in as it; a taken name throws an ApiError with `extra.suggestions`. */
+export async function claimName(name: string, email = '') {
+  const made = await createUser(name, email)
   signIn(made.name, made.code)
   return made
 }
+
+/** Change your name; the old one is free for others straight away. */
+export async function renameAccount(name: string) {
+  const { name: next } = await call<{ name: string }>('/api/me', { method: 'PATCH', body: JSON.stringify({ name }) })
+  account.name = next
+  return next
+}
+
+/** What unlocks go by: best score, games played, seconds played. */
+export interface PlayerStats { best: number; games: number; seconds: number }
+export interface Look { color?: string; hat?: string; trail?: string }
+export const fetchMe = () => call<{ name: string; look: Look | null; stats: PlayerStats }>('/api/me')
+export const saveLook = (look: Look) => call<{ look: Look }>('/api/me/look', { method: 'PUT', body: JSON.stringify(look) })
+export const myScores = () => call<{ scores: ScoreRow[] }>('/api/me/scores').then((r) => r.scores)
+export const removeScore = (id: number) => call<{ removed: number }>(`/api/me/scores/${id}`, { method: 'DELETE' })
 
 /** Sign in on this device with a login code. */
 export async function signInWithCode(code: string) {
@@ -100,6 +116,10 @@ export const fetchScores = (limit = BOARD_SIZE, mode: Mode = 'normal') =>
 export const fetchScore = (id: number) => call<ScoreEntry>(`/api/scores/${id}`)
 export const submitScore = (entry: { game: string; email: string }) =>
   post<{ id: number; rank: number }>('/api/scores', entry)
+
+/** Who has played longest, with their saved games' time added up. */
+export interface TimeRow { name: string; seconds: number; games: number }
+export const fetchPlayTime = () => call<{ players: TimeRow[] }>('/api/scores/time').then((r) => r.players)
 
 /** Would this score make the board? The server says, without sending the board. True when it cannot be reached, so nobody loses a run. */
 export async function placesOnBoard(score: number, mode: Mode): Promise<boolean> {

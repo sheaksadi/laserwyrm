@@ -6,7 +6,8 @@
  */
 import { computed, ref } from 'vue'
 import { library } from '../design'
-import { colorOf, createRoom, isHost, joinRoom, leaveRoom, MINUTES, MODES, mp, mpName, setSettings, startMatch, TARGETS, type MpMode } from '../multiplayer'
+import { colorOf, createRoom, isHost, joinRoom, leaveRoom, MINUTES, MODES, mp, setSettings, startMatch, TARGETS, type MpMode } from '../multiplayer'
+import NameEdit from './NameEdit.vue'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -45,12 +46,14 @@ const modes = Object.entries(MODES) as [MpMode, (typeof MODES)[MpMode]][]
       <button class="close" aria-label="Close" @click="close">✕</button>
     </header>
 
-    <!-- Not in a room yet: a name, then create or join -->
+    <!-- Your snake's name, here and in the room: rename any time -->
+    <div class="field-row">
+      <span class="label">Your snake</span>
+      <NameEdit />
+    </div>
+
+    <!-- Not in a room yet: create or join -->
     <template v-if="!inRoom">
-      <label class="field-row">
-        <span class="label">Your name</span>
-        <input v-model="mpName.value" class="field" maxlength="16" placeholder="Wyrm" autocomplete="nickname" />
-      </label>
       <div class="split">
         <section class="box">
           <h3>Start a room</h3>

@@ -5,9 +5,11 @@
  * a lighter one), with square caps for a blocky, 8-bit look.
  */
 import { computed, ref, watch } from 'vue'
-import { HEART_PATH, isActive, state, TONE_COLOR, type Beam, type LaserKind } from '../game'
+import { HEART_PATH, isActive, match, state, TONE_COLOR, type Beam, type LaserKind } from '../game'
 import PowerIcon from './PowerIcon.vue'
-import { colorOf, mp } from '../multiplayer'
+import { colorOf, mp, playerName } from '../multiplayer'
+import { shown } from '../looks'
+import Hat from './Hat.vue'
 
 
 /**
@@ -47,11 +49,45 @@ const holograms = computed(() =>
         run.push(`${c.x + 0.5},${c.y + 0.5}`)
       })
       out.push(run.join(' '))
-      return { index: p.index, name: p.name, color: colorOf(p.index), runs: out, head: p.snake[0]!, alive: p.alive }
+      const hat = mp.players.find((q) => q.index === p.index)?.look?.hat ?? 'none'
+      return { index: p.index, name: p.name, color: colorOf(p.index), runs: out, head: p.snake[0]!, alive: p.alive, hat }
     }),
 )
 const shielded = computed(() => isActive('shield'))
-const doubled = computed(() => isActive('double'))
+
+/** The snake's own look: its colour (gold while doubled), a hat, a trail. */
+const bodyColor = computed(() => (isActive('double') ? 'var(--sun)' : shown.value.color.id === 'rainbow' ? '#FFFFFF' : shown.value.color.value))
+/** Rainbow: each cell its own colour, over a white tube. */
+const rainbow = computed(() => shown.value.color.id === 'rainbow' && !isActive('double'))
+const headColor = computed(() => (shown.value.color.id === 'green' ? 'var(--mint)' : shown.value.color.id === 'rainbow' ? 'var(--sun)' : shown.value.color.value))
+const RAINBOW = ['#FF3355', '#FF9966', '#FFE14D', '#5CFF5C', '#3FA9FF', '#B26BFF']
+const CONFETTI = ['var(--coral)', 'var(--sun)', 'var(--mint)', 'var(--sky)', 'var(--rose)', 'var(--lavender)']
+
+/** The trail: a puff behind the tail each step, drifting off and fading. */
+interface Puff { id: number; x: number; y: number; dx: number; dy: number; color: string; spin: number; at: number }
+const puffs = ref<Puff[]>([])
+let puffId = 0
+watch(
+  () => state.step,
+  () => {
+    const kind = shown.value.trail
+    const tail = state.snake[state.snake.length - 1]
+    if (kind === 'none' || state.status !== 'running' || !tail) return
+    const now = performance.now()
+    const id = ++puffId
+    const angle = Math.random() * Math.PI * 2
+    const color =
+      kind === 'sparks' ? (id % 2 ? 'var(--sun)' : 'var(--peach)')
+      : kind === 'hearts' ? 'var(--rose)'
+      : kind === 'stars' ? 'var(--sun)'
+      : kind === 'confetti' ? CONFETTI[id % CONFETTI.length]!
+      : RAINBOW[id % RAINBOW.length]!
+    puffs.value = [
+      ...puffs.value.filter((p) => now - p.at < 800),
+      { id, x: tail.x + 0.5, y: tail.y + 0.5, dx: Math.cos(angle) * 0.7, dy: Math.sin(angle) * 0.7 - 0.3, color, spin: (Math.random() - 0.5) * 360, at: now },
+    ].slice(-30)
+  },
+)
 
 /** Eyes look where the snake is heading. */
 const eyes = computed(() => {
@@ -354,7 +390,19 @@ watch(
         stroke-dasharray="0.3 0.2" stroke-linecap="butt"
       />
       <rect :x="h.head.x + 0.12" :y="h.head.y + 0.12" width="0.76" height="0.76" fill="none" :stroke="h.color" stroke-width="2" vector-effect="non-scaling-stroke" opacity="0.8" />
-      <text class="holo-name" :x="h.head.x + 0.5" :y="h.head.y - 0.35" :fill="h.color" text-anchor="middle">{{ h.name }}</text>
+      <Hat :hat="h.hat" :mono="h.color" :transform="`translate(${h.head.x + 0.5} ${h.head.y + 0.5})`" />
+      <text class="holo-name" :x="h.head.x + 0.5" :y="h.head.y - (h.hat === 'none' ? 0.35 : 1.2)" :fill="h.color" text-anchor="middle">{{ h.name }}</text>
+    </g>
+
+    <!-- The trail: puffs left behind the tail -->
+    <g v-for="p in puffs" :key="`p${p.id}`" :transform="`translate(${p.x} ${p.y})`">
+      <g class="puff" :style="{ '--dx': `${p.dx}px`, '--dy': `${p.dy}px`, '--spin': `${p.spin}deg` }">
+        <path v-if="shown.trail === 'hearts'" :d="HEART_PATH" transform="scale(0.07) translate(-3.5 -3)" :fill="p.color" />
+        <polygon v-else-if="shown.trail === 'stars'" :points="tinyStar(0, 0, 0.2)" :fill="p.color" />
+        <rect v-else-if="shown.trail === 'confetti'" x="-0.1" y="-0.05" width="0.2" height="0.1" :fill="p.color" />
+        <circle v-else-if="shown.trail === 'rainbow'" r="0.16" :fill="p.color" />
+        <rect v-else x="-0.08" y="-0.08" width="0.16" height="0.16" :fill="p.color" />
+      </g>
     </g>
 
     <!-- The snake: outline tube, body tube, belly dots, head -->
@@ -365,9 +413,12 @@ watch(
     />
     <polyline
       v-for="(run, i) in runs" :key="`b${i}`"
-      :points="run" fill="none" :stroke="doubled ? 'var(--sun)' : 'var(--sage)'" stroke-width="0.7"
+      :points="run" fill="none" :stroke="bodyColor" stroke-width="0.7"
       stroke-linecap="square" stroke-linejoin="miter"
     />
+    <template v-if="rainbow">
+      <rect v-for="(cell, i) in state.snake.slice(1)" :key="`r${i}`" :x="cell.x + 0.15" :y="cell.y + 0.15" width="0.7" height="0.7" :fill="RAINBOW[i % RAINBOW.length]" />
+    </template>
     <rect
       v-for="(cell, i) in state.snake.slice(1)" :key="`d${i}`"
       v-show="i % 2 === 0"
@@ -381,9 +432,12 @@ watch(
     />
     <rect
       :x="head.x + 0.06" :y="head.y + 0.06" width="0.88" height="0.88"
-      fill="var(--mint)" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke"
+      :fill="headColor" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke"
     />
     <circle v-for="(eye, i) in eyes" :key="`e${i}`" :cx="eye.x" :cy="eye.y" r="0.08" fill="var(--ink)" />
+    <Hat :hat="shown.hat" :transform="`translate(${head.x + 0.5} ${head.y + 0.5})`" />
+    <!-- In multiplayer, your name over your own snake too -->
+    <text v-if="match.on" class="holo-name own" :x="head.x + 0.5" :y="head.y - (shown.hat === 'none' ? 0.35 : 1.2)" text-anchor="middle">{{ playerName() }}</text>
 
     <!-- The snipper: a beetle with scissor pincers -->
     <g
@@ -455,6 +509,12 @@ watch(
 
 <style scoped>
 .holo { animation: holo 3.2s steps(1) infinite; }
+.holo-name.own { fill: var(--sage); }
+.puff { animation: puff 0.75s ease-out forwards; }
+@keyframes puff {
+  from { opacity: 0.9; transform: translate(0, 0) scale(1) rotate(0deg); }
+  to { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.3) rotate(var(--spin)); }
+}
 .holo.out { opacity: 0.25; animation: none; }
 .holo-name { font-family: var(--font-pixel); font-size: 0.55px; opacity: 0.9; }
 @keyframes holo {

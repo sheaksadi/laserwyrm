@@ -126,6 +126,9 @@ const SCHEMA = `
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, gid)
   );
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS look JSONB;
+  ALTER TABLE games ADD COLUMN IF NOT EXISTS seconds INTEGER NOT NULL DEFAULT 0;
   CREATE TABLE IF NOT EXISTS agent_keys (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL REFERENCES users(id),
@@ -443,19 +446,80 @@ function api(db) {
       return { ok: true, store: db.kind }
     },
 
+    /** Join: a name (or, left blank, a free one made up here) and, if given, an email. */
     async createUser(req) {
       limit(clientIp(req), 'user', 10)
-      const { name: raw } = await readJson(req)
-      const name = typeof raw === 'string' ? raw.trim() : ''
+      const { name: raw, email: rawEmail } = await readJson(req)
+      const email = checkEmail(rawEmail)
+      if (email === false) throw new HttpError(400, 'email does not look right')
+      let name = typeof raw === 'string' ? raw.trim() : ''
+      if (!name) name = (await suggestions(WORDS[randomInt(WORDS.length)].toLowerCase().replace(/^./, (c) => c.toUpperCase())))[0] ?? `Wyrm${randomInt(1000, 10000)}`
       if (!NAME_RE.test(name)) throw new HttpError(400, 'names are 1 to 12 letters, digits, - or _')
       const code = newLoginCode()
       try {
-        await db.query('INSERT INTO users (name, name_key, token_hash) VALUES ($1, $2, $3)', [name, nameKey(name), hashToken(code)])
+        await db.query('INSERT INTO users (name, name_key, token_hash, email) VALUES ($1, $2, $3, $4)', [name, nameKey(name), hashToken(code), email])
       } catch (err) {
         if (err.code === '23505') throw new HttpError(409, `${name} is taken`, { suggestions: await suggestions(name) })
         throw err
       }
       return { status: 201, body: { name, code } }
+    },
+
+    /** A new name; the old one is free for anyone else at once. The board shows the new one. */
+    async rename(req) {
+      limit(clientIp(req), 'rename', 10)
+      const user = await userFrom(req, true)
+      const { name: raw } = await readJson(req)
+      const name = typeof raw === 'string' ? raw.trim() : ''
+      if (!NAME_RE.test(name)) throw new HttpError(400, 'names are 1 to 12 letters, digits, - or _')
+      try {
+        await db.query('UPDATE users SET name = $1, name_key = $2 WHERE id = $3', [name, nameKey(name), user.id])
+      } catch (err) {
+        if (err.code === '23505') throw new HttpError(409, `${name} is taken`, { suggestions: await suggestions(name) })
+        throw err
+      }
+      await db.query('UPDATE scores SET name = $1 WHERE user_id = $2', [name, user.id])
+      return { name }
+    },
+
+    /** The snake's look (colour, hat, trail): the game checks what is unlocked; this only keeps it small. */
+    async saveLook(req) {
+      const user = await userFrom(req, true)
+      const body = await readJson(req)
+      const look = {}
+      for (const key of ['color', 'hat', 'trail']) if (typeof body[key] === 'string' && /^[a-z0-9-]{1,20}$/.test(body[key])) look[key] = body[key]
+      await db.query('UPDATE users SET look = $1 WHERE id = $2', [look, user.id])
+      return { look }
+    },
+
+    /** The player's runs on the board, to take any off. */
+    async myScores(req) {
+      const user = await userFrom(req, true)
+      const { rows } = await db.query(
+        `SELECT s.id, s.name, s.score, s.level, s.steps, s.created_at, g.code, COALESCE(g.mode, 'normal') AS mode
+         FROM scores s LEFT JOIN games g ON g.id = s.game_id WHERE s.user_id = $1 ORDER BY s.score DESC LIMIT 100`,
+        [user.id],
+      )
+      return { scores: rows.map(scoreRow) }
+    },
+    async removeScore(req, id) {
+      const user = await userFrom(req, true)
+      const { rows } = await db.query('DELETE FROM scores WHERE id = $1 AND user_id = $2 RETURNING id', [id, user.id])
+      if (!rows[0]) throw new HttpError(404, 'no such score of yours')
+      return { removed: id }
+    },
+
+    /** Who has played longest: their saved games' time added up. */
+    async playTime(limitParam) {
+      const n = Math.min(BOARD_MAX, Math.max(1, Number(limitParam) || 50))
+      const { rows } = await db.query(
+        `SELECT u.name, SUM(g.seconds)::bigint AS seconds, count(*)::int AS games
+         FROM games g JOIN users u ON u.id = g.user_id
+         GROUP BY u.id, u.name HAVING SUM(g.seconds) > 0
+         ORDER BY seconds DESC LIMIT $1`,
+        [n],
+      )
+      return { players: rows.map((r) => ({ name: r.name, seconds: Number(r.seconds), games: r.games })) }
     },
 
     async login(req) {
@@ -466,9 +530,17 @@ function api(db) {
       return { name: rows[0].name }
     },
 
+    /** The player: name, look, and what their unlocks go by (best score, games, time played). */
     async me(req) {
       const user = await userFrom(req, true)
-      return { name: user.name }
+      const { rows } = await db.query(
+        `SELECT u.look, COALESCE(MAX(g.score) FILTER (WHERE NOT g.cheated), 0)::int AS best,
+                count(g.id)::int AS games, COALESCE(SUM(g.seconds), 0)::bigint AS seconds
+         FROM users u LEFT JOIN games g ON g.user_id = u.id WHERE u.id = $1 GROUP BY u.id`,
+        [user.id],
+      )
+      const r = rows[0] ?? {}
+      return { name: user.name, look: r.look ?? null, stats: { best: r.best ?? 0, games: r.games ?? 0, seconds: Number(r.seconds ?? 0) } }
     },
 
     async saveGame(req) {
@@ -491,13 +563,15 @@ function api(db) {
           clean = body.cheats === false && !!replay.design && canonical(replay.design) === canonical(rows[0].design)
         }
       }
+      // Time played, as the game timed it; held to what the steps allow (16ths at 40 to 400 bpm).
+      const seconds = Math.round(Math.min(replay.steps * 0.375, Math.max(replay.steps * 0.0375, Number(body.seconds) || 0)))
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = newGameCode()
         try {
           await db.query(
-            `INSERT INTO games (code, user_id, score, level, steps, cheated, mode, replay, ip_hash, design_id, design_clean)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [code, user?.id ?? null, body.score, body.level, replay.steps, body.cheated === true, mode, replay, ipHash(clientIp(req)), designId, clean],
+            `INSERT INTO games (code, user_id, score, level, steps, cheated, mode, replay, ip_hash, design_id, design_clean, seconds)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            [code, user?.id ?? null, body.score, body.level, replay.steps, body.cheated === true, mode, replay, ipHash(clientIp(req)), designId, clean, seconds],
           )
           return { status: 201, body: { code } }
         } catch (err) {
@@ -865,6 +939,11 @@ async function main() {
       else if (path === '/api/users' && post) out = await routes.createUser(req)
       else if (path === '/api/login' && post) out = await routes.login(req)
       else if (path === '/api/me' && get) out = await routes.me(req)
+      else if (path === '/api/me' && req.method === 'PATCH') out = await routes.rename(req)
+      else if (path === '/api/me/look' && req.method === 'PUT') out = await routes.saveLook(req)
+      else if (path === '/api/me/scores' && get) out = await routes.myScores(req)
+      else if ((m = path.match(/^\/api\/me\/scores\/(\d+)$/)) && req.method === 'DELETE') out = await routes.removeScore(req, Number(m[1]))
+      else if (path === '/api/scores/time' && get) out = await routes.playTime(url.searchParams.get('limit'))
       else if (path === '/api/me/games' && get) out = await routes.myGames(req)
       else if (path === '/api/games' && post) out = await routes.saveGame(req)
       else if (path === '/api/games' && get) out = await routes.searchGames(url.searchParams.get('q'))

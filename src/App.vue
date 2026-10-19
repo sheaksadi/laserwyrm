@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Board from './components/Board.vue'
 import { conductor, musicOn, muted, soundBlocked } from './audio'
-import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, demo, match, startDemo, stopDemo, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
+import { effectLeft, fitGrid, fitLayout, HEART_PATH, isActive, LASER_TIERS, lastReplay, layout, demo, match, runSeconds, startDemo, stopDemo, multiplier, onFeel, setMode, pause, play, POWERS, replay, reset, startHearts, state, TIER_NOTE_MS, toggle, TONE_COLOR, TOTEM, turn, useItem, type DirName, type Mode } from './game'
 import { canFullscreen, enterFullscreen, fullscreenPending, isFullscreen, leaveFullscreen, watchFullscreen } from './fullscreen'
 import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { account, localGames, rememberGame, signOut } from './account'
@@ -12,6 +12,7 @@ import { custom, library, playShared, setCustom, shared, stopShared } from './de
 import { navFocusFirst, navMove, navPress, navScope } from './menuNav'
 import Briefing from './components/Briefing.vue'
 import { sync } from './sync'
+import { refreshMe } from './looks'
 import { createRoom, joinRoom, leaveRoom, mp } from './multiplayer'
 import MpBar from './components/MpBar.vue'
 import MpResults from './components/MpResults.vue'
@@ -186,7 +187,7 @@ watch(
     entryName.value = account.name ?? entryName.value
     saveError.value = ''
     signedOutNote.value = ''
-    const payload = { ...summary, cheated: state.cheated, replay: run, design: shared.slug ?? undefined, cheats: state.usedCheats }
+    const payload = { ...summary, cheated: state.cheated, replay: run, design: shared.slug ?? undefined, cheats: state.usedCheats, seconds: Math.round(runSeconds(run.steps)) }
     saving = saveGame(payload)
       .catch((err) => {
         // A login code this server does not know: sign out here and save the game without it.
@@ -199,6 +200,8 @@ watch(
         gameCode.value = code
         gameSave.value = 'saved'
         rememberGame({ code, ...summary, created_at: new Date().toISOString() })
+        // New numbers for the unlocks.
+        void refreshMe()
         return code
       })
       .catch((err) => {
@@ -208,19 +211,21 @@ watch(
       })
     entry.value = { phase: 'checking' }
     const places = !state.cheated && (await placesOnBoard(state.score, state.mode))
-    if (state.status === 'over') entry.value = { phase: places ? 'open' : 'none' }
+    if (state.status !== 'over') return
+    // Joined: every run that places goes up by itself (take it off from the account page). Otherwise: Join to post it.
+    if (places && account.name) void submitScore()
+    else entry.value = { phase: places ? 'open' : 'none' }
   },
 )
 async function submitScore(name = entryName.value.trim()) {
-  if (!account.name && !name) return
   entry.value = { phase: 'sending' }
   nameSuggestions.value = []
   try {
     const code = await saving
     if (!code) throw new Error(`this game could not be saved (${saveError.value}), so it cannot go on the board`)
-    // Not signed in: the name typed here becomes the player's account.
+    // Not joined: Join here (the name and email are optional; a name is made up if blank).
     if (!account.name) {
-      const made = await claimName(name)
+      const made = await claimName(name, entryEmail.value.trim())
       newLoginCode.value = made.code
       entryName.value = made.name
     }
@@ -1028,10 +1033,12 @@ onBeforeUnmount(() => {
             @submit.prevent="submitScore()"
           >
             <p class="entry-label">You made the high scores<template v-if="account.name"> as <b>{{ account.name }}</b></template></p>
-            <input v-if="!account.name" v-model="entryName" class="field" maxlength="12" placeholder="Pick a name" aria-label="Name" autocomplete="nickname" required autofocus />
-            <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
-            <button class="btn btn-submit" type="submit" :disabled="entry.phase === 'sending'"><span class="text-trim">{{ entry.phase === 'sending' ? '…' : 'Submit' }}</span></button>
-            <p v-if="!account.name" class="entry-note">Your name becomes your account.</p>
+            <template v-if="!account.name">
+              <input v-model="entryName" class="field" maxlength="12" placeholder="Username (optional)" aria-label="Username, optional" autocomplete="nickname" />
+              <input v-model="entryEmail" class="field" type="email" maxlength="80" placeholder="Email (optional)" aria-label="Email, optional" autocomplete="email" />
+            </template>
+            <button class="btn btn-submit" type="submit" :disabled="entry.phase === 'sending'"><span class="text-trim">{{ entry.phase === 'sending' ? '…' : account.name ? 'Try again' : 'Join' }}</span></button>
+            <p v-if="!account.name" class="entry-note">Join and your runs go on the board by themselves. No name? One is made up.</p>
             <p v-if="entry.phase === 'failed'" class="entry-error">{{ entry.error }}</p>
             <p v-if="nameSuggestions.length" class="suggest">
               Free:
@@ -1039,8 +1046,8 @@ onBeforeUnmount(() => {
             </p>
           </form>
           <p v-else-if="entry.phase === 'saved'" class="entry-done">
-            {{ account.name }}: #{{ entry.rank }} on the board.
-            <a :href="`#/scores/${entry.id}`">See the board</a> · <a :href="`#/watch/${entry.id}`">Watch your run</a>
+            Posted: {{ account.name }} is #{{ entry.rank }} on the board.
+            <a :href="`#/scores/${entry.id}`">See the board</a> · <a :href="`#/watch/${entry.id}`">Watch your run</a> · <a href="#/" @click.prevent="openAccount">Manage</a>
           </p>
           <p v-if="newLoginCode" class="login-code">
             Your login code: <b>{{ newLoginCode }}</b><br />
@@ -1892,6 +1899,12 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
   text-transform: uppercase;
   color: var(--text);
   text-shadow: 2px 2px 0 var(--ink);
+}
+/* Phones: the level-up banner a size down, so it does not cover the board. */
+@media (max-height: 560px), (max-width: 760px) {
+  .banner { top: 28%; gap: 0.35rem; }
+  .banner-title { padding: 0.4rem 0.75rem; border-width: 2px; box-shadow: 3px 3px 0 var(--coral); font-size: 0.72rem; }
+  .banner-sub { font-size: 7px; }
 }
 @keyframes banner {
   0% { opacity: 0; transform: scale(0.7); }

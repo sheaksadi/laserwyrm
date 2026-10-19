@@ -1,25 +1,29 @@
 <script setup lang="ts">
 /**
  * The high-score board, from the server. Every run on it can be watched.
+ * A third tab ranks players by time played instead.
  */
 import { onMounted, ref } from 'vue'
-import { fetchScores, type ScoreRow } from '../api'
+import { account } from '../account'
+import { fetchPlayTime, fetchScores, type ScoreRow, type TimeRow } from '../api'
 import { runSeconds, state, type Mode } from '../game'
 import GameCode from './GameCode.vue'
 
 const props = defineProps<{ highlight?: number }>()
 const emit = defineEmits<{ close: []; watch: [id: number] }>()
 
-/** Which board: normal or hardcore. Opens on the mode last played. */
-const mode = ref<Mode>(state.mode)
+/** Which board: normal or hardcore (opens on the mode last played), or time played. */
+const mode = ref<Mode | 'time'>(state.mode)
 const rows = ref<ScoreRow[]>([])
+const players = ref<TimeRow[]>([])
 const status = ref<'loading' | 'ok' | 'error'>('loading')
 const error = ref('')
 
 async function load() {
   status.value = 'loading'
   try {
-    rows.value = await fetchScores(undefined, mode.value)
+    if (mode.value === 'time') players.value = await fetchPlayTime()
+    else rows.value = await fetchScores(undefined, mode.value)
     status.value = 'ok'
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -27,7 +31,7 @@ async function load() {
   }
 }
 onMounted(load)
-function show(next: Mode) {
+function show(next: Mode | 'time') {
   mode.value = next
   void load()
 }
@@ -35,6 +39,12 @@ function show(next: Mode) {
 const time = (steps: number) => {
   const s = Math.round(runSeconds(steps))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+/** 3h 05m, or 12m 40s. */
+const played = (seconds: number) => {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(seconds % 60).padStart(2, '0')}s`
 }
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 </script>
@@ -51,6 +61,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
     <div class="tabs" role="tablist" aria-label="Board">
       <button role="tab" :aria-selected="mode === 'normal'" :class="{ on: mode === 'normal' }" @click="show('normal')">Normal</button>
       <button role="tab" :aria-selected="mode === 'hardcore'" class="hard" :class="{ on: mode === 'hardcore' }" @click="show('hardcore')">Hardcore</button>
+      <button role="tab" :aria-selected="mode === 'time'" class="time" :class="{ on: mode === 'time' }" @click="show('time')">Play time</button>
     </div>
 
     <p v-if="status === 'loading'" class="msg">Loading…</p>
@@ -58,6 +69,22 @@ const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day:
       Could not reach the score server ({{ error }}).
       <button class="link" @click="load">Try again</button>
     </p>
+    <template v-else-if="mode === 'time'">
+      <p v-if="!players.length" class="msg">Nobody yet. Join and play!</p>
+      <table v-else>
+        <thead>
+          <tr><th>#</th><th>Name</th><th class="num">Played</th><th class="num">Games</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(p, i) in players" :key="p.name" :class="{ mine: p.name === account.name, top: i < 3 }">
+            <td class="rank">{{ i + 1 }}</td>
+            <td class="name">{{ p.name }}</td>
+            <td class="num score">{{ played(p.seconds) }}</td>
+            <td class="num">{{ p.games }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
     <p v-else-if="!rows.length" class="msg">No scores yet. Be the first.</p>
 
     <table v-else>
@@ -126,6 +153,7 @@ h2 {
 }
 .tabs button.on { border-bottom-color: var(--sun); color: var(--text); }
 .tabs button.hard.on { border-bottom-color: var(--coral); color: var(--coral); }
+.tabs button.time.on { border-bottom-color: var(--sky); color: var(--sky); }
 .tabs button:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
 .msg { margin: 1rem 0; font-size: 19px; color: var(--text-dim); }
 .msg.err { color: var(--coral); }

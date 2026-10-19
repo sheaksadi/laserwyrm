@@ -2,10 +2,11 @@
 /**
  * Multiplayer, during the game: who is ahead, by how much, and who is
  * climbing fastest, beside the clock (or the target, or who is still
- * alive). Before the go, a big count down in the middle.
+ * alive). On phones it is a slim rail down the right, beside the board
+ * rather than over it. Before the go, a big count down in the middle.
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { state } from '../game'
+import { layout, state } from '../game'
 import { colorOf, MODES, mp, rate } from '../multiplayer'
 
 const now = ref(performance.now())
@@ -54,6 +55,11 @@ const lead = computed(() => {
   return `${(list[0]!.score - myRow.value.score).toLocaleString()} behind ${list[0]!.name}`
 })
 
+/** Phones: the rail beside the board. */
+const rail = computed(() => layout.pad !== 'none')
+/** 1234 → 1.2k, to fit the rail. */
+const short = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+
 const clock = computed(() => {
   if (mp.settings.mode === 'score') {
     const left = Math.max(0, Math.ceil((mp.endsAt - Math.max(now.value, mp.startsAt)) / 1000))
@@ -65,7 +71,20 @@ const clock = computed(() => {
 </script>
 
 <template>
-  <div class="mp-bar" aria-live="off">
+  <!-- Phones: a rail down the right side, out of the board's way -->
+  <div v-if="rail" class="mp-rail" aria-live="off">
+    <b class="rail-clock" :class="{ urgent: clock.urgent }">{{ mp.settings.mode === 'sprint' ? short(mp.settings.target) : clock.text.replace(' alive', '♥') }}</b>
+    <div v-for="r in rows" :key="r.index" class="rail-p" :class="{ you: r.you, out: !r.alive, stale: r.stale }" :style="{ '--pc': r.color }">
+      <span class="rail-place">{{ r.place }}</span>
+      <span class="rail-name">{{ r.you ? 'you' : r.name.slice(0, 4) }}</span>
+      <span class="rail-track"><i :style="{ transform: `scaleX(${r.share})` }"></i></span>
+      <b class="rail-score">{{ short(r.score) }}</b>
+      <span v-if="!r.you" class="rail-gap" :class="r.gap > 0 ? 'ahead' : 'behind'">{{ r.gap > 0 ? '+' : r.gap < 0 ? '−' : '=' }}{{ r.gap ? short(Math.abs(r.gap)) : '' }}</span>
+      <span v-else-if="r.hot" class="rail-hot">▲</span>
+    </div>
+  </div>
+
+  <div v-else class="mp-bar" aria-live="off">
     <div class="head">
       <span class="mode">{{ MODES[mp.settings.mode].name }}</span>
       <b class="clock" :class="{ urgent: clock.urgent }">{{ clock.text }}</b>
@@ -158,11 +177,44 @@ const clock = computed(() => {
   25% { transform: scale(1); opacity: 1; }
 }
 
-/* Phones: the HUD is down the side, so the board goes up to the top; keep it small. */
-@media (max-width: 760px), (max-height: 560px) {
-  .mp-bar { top: 8px; right: 50%; transform: translateX(50%); width: min(15rem, 60vw); padding: 5px 8px; }
-  .lead { display: none; }
+/* Phones: a slim rail in the right-hand gutter, under the pause and menu buttons. */
+.mp-rail {
+  position: absolute;
+  top: 92px;
+  right: 4px;
+  z-index: 6;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  width: 42px;
+  pointer-events: none;
 }
+.rail-clock { padding: 4px 0; border: 2px solid var(--sky); border-radius: 8px; background: rgba(11, 11, 26, 0.85); font-family: var(--font-pixel); font-size: 7px; font-weight: 400; text-align: center; color: var(--sky); }
+.rail-clock.urgent { color: var(--coral); border-color: var(--coral); }
+.rail-p {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 3px 2px 4px;
+  border: 2px solid var(--border);
+  border-left: 3px solid var(--pc);
+  border-radius: 8px;
+  background: rgba(11, 11, 26, 0.85);
+}
+.rail-p.you { border-color: var(--sage); border-left-color: var(--sage); }
+.rail-p.out { opacity: 0.4; }
+.rail-p.stale { border-style: dashed; }
+.rail-place { font-family: var(--font-pixel); font-size: 6px; color: var(--text-muted); }
+.rail-p:nth-child(2) .rail-place { color: var(--sun); }
+.rail-name { max-width: 100%; overflow: hidden; font-size: 11px; line-height: 1; text-transform: uppercase; white-space: nowrap; color: var(--pc); }
+.rail-p.you .rail-name { color: var(--sage); }
+.rail-track { width: 30px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.rail-track i { display: block; height: 100%; background: var(--pc); transform-origin: left; transition: transform 0.25s var(--ease-out); }
+.rail-score { font-family: var(--font-pixel); font-size: 6px; font-weight: 400; color: var(--text); }
+.rail-gap { font-size: 10px; line-height: 1; }
+.rail-gap.ahead { color: var(--coral); }
+.rail-gap.behind { color: var(--sage); }
+.rail-hot { font-size: 10px; line-height: 1; color: var(--sun); }
 @media (prefers-reduced-motion: reduce) {
   .count, .clock.urgent { animation: none; }
 }

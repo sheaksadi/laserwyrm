@@ -16,6 +16,7 @@
  */
 import { reactive, watch } from 'vue'
 import { account } from './account'
+import { shown } from './looks'
 import { library, type Design } from './design'
 import { endMatch, fitGrid, goMatch, haltMatch, match, prepareMatch, state } from './game'
 
@@ -41,9 +42,9 @@ export interface Peer {
 export interface Standing { index: number; name: string; score: number; ms: number; left: boolean }
 
 export const MODES: Record<MpMode, { name: string; blurb: string }> = {
+  survival: { name: 'Survival', blurb: 'Your usual hearts, no respawns. The last snake alive wins.' },
   score: { name: 'Score attack', blurb: 'Most points when the clock runs out. Unlimited lives: you respawn.' },
   sprint: { name: 'Sprint', blurb: 'First to the target score wins. Unlimited lives.' },
-  survival: { name: 'Survival', blurb: 'Your usual hearts, no respawns. The last snake alive wins.' },
 }
 export const MINUTES = [1, 2, 3, 5] as const
 export const TARGETS = [1000, 2500, 5000] as const
@@ -55,8 +56,8 @@ export const mp = reactive({
   code: '',
   you: -1,
   host: -1,
-  players: [] as { index: number; name: string }[],
-  settings: { mode: 'score', minutes: 3, target: 2500, game: 'Main game' } as MpSettings,
+  players: [] as { index: number; name: string; look?: { hat?: string; color?: string } }[],
+  settings: { mode: 'survival', minutes: 3, target: 2500, game: 'Main game' } as MpSettings,
   /** Which of this device's games the host picked ('main' for the main game). */
   gameId: 'main',
   results: null as Standing[] | null,
@@ -93,7 +94,10 @@ watch(
     }
   },
 )
-const myName = () => mpName.value.trim() || account.name || 'Wyrm'
+/** Your snake's name: your account's, or (not joined) the one typed here. */
+export const playerName = () => account.name || mpName.value.trim() || 'Wyrm'
+const myName = playerName
+const myLook = () => ({ hat: shown.value.hat, color: shown.value.color.id })
 
 export const isHost = () => mp.you === mp.host && mp.you >= 0
 export const colorOf = (index: number) => PLAYER_COLORS[index % PLAYER_COLORS.length]!
@@ -144,7 +148,7 @@ export async function createRoom(gameId = 'main') {
   }
   mp.gameId = gameId
   const { game, design } = designFor(gameId)
-  sendControl({ t: 'create', name: myName(), settings: { ...mp.settings, game, design } })
+  sendControl({ t: 'create', name: myName(), look: myLook(), settings: { ...mp.settings, game, design } })
 }
 
 export async function joinRoom(code: string) {
@@ -153,7 +157,7 @@ export async function joinRoom(code: string) {
   } catch (err) {
     return fail(err)
   }
-  sendControl({ t: 'join', code, name: myName() })
+  sendControl({ t: 'join', code, name: myName(), look: myLook() })
 }
 
 function fail(err: unknown) {
@@ -169,6 +173,12 @@ export function setSettings(change: Partial<MpSettings> & { gameId?: string }) {
   const { gameId: _, ...rest } = change
   sendControl({ t: 'settings', settings: { ...mp.settings, ...rest, game, design } })
 }
+
+/** Your name or look changed while in a room: tell the others. */
+export function sendProfile() {
+  if (mp.phase !== 'off') sendControl({ t: 'profile', name: myName(), look: myLook() })
+}
+watch(() => [account.name, shown.value.hat, shown.value.color.id], sendProfile)
 
 /** The host starts the game: on this device's grid, so everyone's board is the same. */
 export function startMatch() {
@@ -218,6 +228,7 @@ function onControl(msg: Record<string, any>) {
         mp.final = null
         mp.phase = 'lobby'
       }
+      for (const p of msg.players as { index: number; name: string }[]) if (mp.peers[p.index]) mp.peers[p.index]!.name = p.name
       // Gone players: no hologram, no link.
       for (const index of Object.keys(mp.peers).map(Number)) {
         if (!msg.players.some((p: { index: number }) => p.index === index)) {
