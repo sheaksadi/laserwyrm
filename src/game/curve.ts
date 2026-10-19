@@ -4,7 +4,7 @@
  * read the design, never the run, so the editor can ask about any level.
  */
 import { editOf, live } from '../design'
-import { laserTraits, type LaserTrait } from './catalog'
+import { laserTraits, revision, tierOf, type LaserTrait } from './catalog'
 
 /** The rules of the game in play (stock unless a custom game changes them). */
 export const gameRules = () => live().rules
@@ -64,12 +64,24 @@ export function warnFor(level: number) {
   return Math.max(4, Math.round(steps * d.global.warn))
 }
 
-/** Lasers that come each bar at a level, on average. */
+/**
+ * Lasers that come each bar at a level, on average. From revision 5 the
+ * count only sets the feel: it grows slowly with the intensity (its square
+ * root) and steps up a little with each new kind of laser, which is where
+ * the real jumps in difficulty come from. Before, it grew with the
+ * intensity itself, up to 10 a bar by level 15.
+ */
 export const lasersFor = (level: number) =>
-  editOf(live(), level).lasers ?? Math.min(10, 1 + intensity(level)) * live().global.lasers
-/** The most lasers armed at once. */
+  editOf(live(), level).lasers ??
+  (revision.rev >= 5 ? Math.min(7, 1 + 0.5 * Math.sqrt(intensity(level)) + 0.25 * tierOf(level)) : Math.min(10, 1 + intensity(level))) *
+    live().global.lasers
+/** The most lasers armed at once (from revision 5: slow growth, a step per new kind of laser). */
 export const armedFor = (level: number) =>
-  editOf(live(), level).armed ?? Math.round(Math.min(14, Math.floor(2 + intensity(level))) * live().global.lasers)
+  editOf(live(), level).armed ??
+  Math.round(
+    (revision.rev >= 5 ? Math.min(9, 2 + 0.4 * Math.sqrt(intensity(level)) + 0.5 * tierOf(level)) : Math.min(14, Math.floor(2 + intensity(level)))) *
+      live().global.lasers,
+  )
 
 /** Laser tricks that can turn up at a level: its own pick, or the ones unlocked by then. */
 export const traitsFor = (level: number): LaserTrait[] =>
