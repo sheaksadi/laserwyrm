@@ -114,10 +114,11 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
  * `worldSlowed`). 7: energy and dashing. The use button dashes, paid for
  * with energy that fruit and time fill; power-ups go off as they are eaten
  * instead of being held, and a totem refills hearts and energy at once
- * (see `ENERGY`). Replays keep the revision they were played with, so old
- * runs play back the same.
+ * (see `ENERGY`). 8: the dash power-up no longer drops, as the use button
+ * dashes anyway (see `powerKinds`). Replays keep the revision they were
+ * played with, so old runs play back the same.
  */
-export const ITEMS_REV = 7
+export const ITEMS_REV = 8
 
 /** The revision of the run in play (set by `reset`): everything that differs between revisions reads it. */
 export const revision = { rev: ITEMS_REV }
@@ -153,6 +154,8 @@ export const POWERS: Record<PowerKind, { name: string; blurb: string; tone: Tone
   ghost: { name: 'Ghost', blurb: 'Slide through your own body', tone: 'white', bars: 4 },
 }
 export const POWER_KINDS = Object.keys(POWERS) as PowerKind[]
+/** The power-ups that drop, by the rules in play: from revision 8, no dash pill. */
+export const powerKinds = (): PowerKind[] => (revision.rev >= 8 ? POWER_KINDS.filter((k) => k !== 'dash') : POWER_KINDS)
 export const TOTEM = { name: 'Totem of Undying', blurb: 'Cheats death once, then crumbles' }
 
 /** Colours for each tone, shared by the board and the HUD. */

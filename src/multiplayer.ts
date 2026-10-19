@@ -13,14 +13,24 @@
  * · flags u8 · head x u8 · head y u8 · length u16, then the body as 2-bit
  * steps from the head (right, down, left, up), four to a byte. A 40-cell
  * snake is 25 bytes.
+ *
+ * Packets are kept as they come and shown on the next game step, so the
+ * others' snakes move in time with yours however the network bunches them.
+ *
+ * Two modes make the snakes meet. Slither: no lasers, and running into
+ * another snake (as this board shows it) is a crash; a crashed snake turns to
+ * food on every board (sent as a 'crash' message). Domination: eight zones;
+ * whoever has the most cells in one takes it and keeps it until someone
+ * outnumbers them there, and every zone held scores each beat. Each board
+ * works these out for its own snake; the scores travel in the packets.
  */
-import { reactive, watch } from 'vue'
+import { markRaw, reactive, watch } from 'vue'
 import { account } from './account'
 import { shown } from './looks'
 import { library, type Design } from './design'
-import { endMatch, fitGrid, goMatch, haltMatch, match, prepareMatch, state } from './game'
+import { crash, dropPellets, endMatch, fitGrid, goMatch, haltMatch, isActive, match, prepareMatch, state } from './game'
 
-export type MpMode = 'score' | 'sprint' | 'survival'
+export type MpMode = 'score' | 'sprint' | 'survival' | 'slither' | 'zones'
 export interface MpSettings { mode: MpMode; minutes: number; target: number; game: string }
 interface Vec { x: number; y: number }
 export interface Peer {
@@ -45,7 +55,11 @@ export const MODES: Record<MpMode, { name: string; blurb: string }> = {
   survival: { name: 'Survival', blurb: 'Your usual hearts, no respawns. The last snake alive wins.' },
   score: { name: 'Score attack', blurb: 'Most points when the clock runs out. Unlimited lives: you respawn.' },
   sprint: { name: 'Sprint', blurb: 'First to the target score wins. Unlimited lives.' },
+  slither: { name: 'Slither', blurb: 'No lasers. Hit another snake and you crash, and turn to food. Most points wins.' },
+  zones: { name: 'Domination', blurb: 'Eight zones: outnumber the others in one to take it. Held zones score every beat.' },
 }
+/** Modes that run on the clock (the rest end on a target or the last snake). */
+export const timed = (mode: MpMode) => mode === 'score' || mode === 'slither' || mode === 'zones'
 export const MINUTES = [1, 2, 3, 5] as const
 export const TARGETS = [1000, 2500, 5000] as const
 /** Each player's colour, by their place in the room; your own snake stays green. */
@@ -204,6 +218,8 @@ function cleanup() {
   stopClock()
   if (match.on) endMatch()
   Object.assign(mp, { phase: 'off', code: '', you: -1, host: -1, players: [], results: null, peers: {}, mine: [], final: null })
+  zones.list = []
+  incoming = {}
   roomDesign = null
 }
 
@@ -245,6 +261,10 @@ function onControl(msg: Record<string, any>) {
       return begin(msg as { seed: number; cols: number; rows: number; in: number; settings: MpSettings })
     case 'end':
       return finish(false)
+    case 'crash':
+      // Someone crashed (slither): their snake turns to food here too.
+      if (match.live && Array.isArray(msg.cells)) dropPellets(msg.cells.filter((c: unknown) => c && typeof (c as Vec).x === 'number' && typeof (c as Vec).y === 'number'))
+      return
     case 'left':
       delete mp.peers[msg.index]
       dropLink(msg.index)
@@ -266,9 +286,13 @@ let seq = 0
 
 function begin(msg: { seed: number; cols: number; rows: number; in: number; settings: MpSettings }) {
   mp.settings = msg.settings
-  prepareMatch({ seed: msg.seed, cols: msg.cols, rows: msg.rows, design: roomDesign, respawn: msg.settings.mode !== 'survival' })
+  const mode = msg.settings.mode
+  prepareMatch({ seed: msg.seed, cols: msg.cols, rows: msg.rows, design: roomDesign, respawn: mode !== 'survival', calm: mode === 'slither' })
   mp.startsAt = performance.now() + msg.in
-  mp.endsAt = msg.settings.mode === 'score' ? mp.startsAt + msg.settings.minutes * 60_000 : 0
+  mp.endsAt = timed(mode) ? mp.startsAt + msg.settings.minutes * 60_000 : 0
+  incoming = {}
+  if (mode === 'zones') layZones(msg.cols, msg.rows)
+  else zones.list = []
   mp.results = null
   mp.final = null
   mp.mine = []
@@ -423,23 +447,105 @@ function receive(buf: ArrayBuffer, link: 'p2p' | 'relay') {
     if (ahead === 0 || ahead >= 0x8000) return
   }
   peer.seq = packet.seq
-  peer.seen = performance.now()
-  peer.snake = packet.snake
-  peer.score = packet.score
-  peer.hearts = packet.hearts
-  peer.level = packet.level
-  peer.alive = (packet.flags & 1) === 1
-  peer.link = link === 'p2p' || links[peer.index]?.channel?.readyState === 'open' ? 'p2p' : 'relay'
-  sample(peer.samples, peer.seen, peer.score)
+  // Shown on the next step (see `showPeers`); nothing reactive is touched per packet.
+  incoming[packet.index] = { ...packet, link: link === 'p2p' || links[peer.index]?.channel?.readyState === 'open' ? 'p2p' : 'relay', at: performance.now() }
+  // Not playing yet (or any more): no steps come, so show it now.
+  if (!match.live) showPeers()
 }
 
-// One packet per game step, while playing.
+/** The newest packet from each player, not yet shown. */
+let incoming: Record<number, NonNullable<ReturnType<typeof decode>> & { link: 'p2p' | 'relay'; at: number }> = {}
+
+/** Show what has come in since the last step: one reactive update per player, the snake itself kept raw. */
+function showPeers() {
+  for (const [index, packet] of Object.entries(incoming)) {
+    const peer = mp.peers[Number(index)]
+    if (!peer) continue
+    peer.seen = packet.at
+    peer.snake = markRaw(packet.snake)
+    peer.score = packet.score
+    peer.hearts = packet.hearts
+    peer.level = packet.level
+    peer.alive = (packet.flags & 1) === 1
+    peer.link = packet.link
+    sample(peer.samples, peer.seen, peer.score)
+  }
+  incoming = {}
+}
+
+// Each game step, while playing: show the others' latest, run the mode's rules, send this snake.
 watch(
   () => state.step,
-  () => {
-    if (mp.phase === 'playing' && match.live) sendState()
+  (step) => {
+    if (mp.phase !== 'playing' || !match.live) return
+    showPeers()
+    if (mp.settings.mode === 'slither') checkCrash()
+    if (mp.settings.mode === 'zones') holdZones(step)
+    sendState()
   },
 )
+
+/* ─── Slither ────────────────────────────────────────────────────────── */
+
+/** This snake's head on another snake: a crash. Ghost (and the cover after a respawn) passes through. */
+function checkCrash() {
+  const head = state.snake[0]
+  if (!head || state.status !== 'running' || isActive('ghost')) return
+  for (const p of Object.values(mp.peers)) {
+    if (!p.alive || !p.snake.length) continue
+    if (p.snake.some((c) => c.x === head.x && c.y === head.y)) {
+      const body = state.snake.map((c) => ({ x: c.x, y: c.y }))
+      sendControl({ t: 'crash', cells: body.slice(0, 120) })
+      crash(`ran into ${p.name}`)
+      dropPellets(body)
+      return
+    }
+  }
+}
+
+/* ─── Domination ─────────────────────────────────────────────────────── */
+
+export interface Zone { x: number; y: number; w: number; h: number; owner: number }
+/** The zones and who holds each (a player's index, -1 for nobody). */
+export const zones = reactive({ list: [] as Zone[] })
+/** A zone's colour: its holder's (yours is mint), or a faint white while nobody holds it. */
+export const zoneColor = (owner: number) => (owner < 0 ? '#C8C8DC' : owner === mp.you ? '#00F0C8' : colorOf(owner))
+/** Points a held zone scores each beat. */
+const ZONE_POINTS = 10
+
+/** Eight zones in two rows of four, evenly over the board. */
+function layZones(cols: number, rows: number) {
+  const w = Math.max(3, Math.round(cols / 9))
+  const h = Math.max(3, Math.round(rows / 5))
+  const out: Zone[] = []
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 4; c++) {
+      const cx = Math.round(((c + 0.5) * cols) / 4)
+      const cy = Math.round(((r + 0.5) * rows) / 2)
+      out.push({ x: cx - Math.floor(w / 2), y: cy - Math.floor(h / 2), w, h, owner: -1 })
+    }
+  }
+  zones.list = out
+}
+
+/** Who has the most cells in each zone takes it (a tie keeps the holder); each beat, this snake's zones score. */
+function holdZones(step: number) {
+  const snakes: [number, { x: number; y: number }[]][] = [[mp.you, state.snake]]
+  for (const p of Object.values(mp.peers)) if (p.alive) snakes.push([p.index, p.snake])
+  for (const z of zones.list) {
+    let best = -1
+    let most = 0
+    let tie = false
+    for (const [index, cells] of snakes) {
+      let n = 0
+      for (const c of cells) if (c.x >= z.x && c.x < z.x + z.w && c.y >= z.y && c.y < z.y + z.h) n++
+      if (n > most) [best, most, tie] = [index, n, false]
+      else if (n && n === most) tie = true
+    }
+    if (best >= 0 && !tie && best !== z.owner) z.owner = best
+  }
+  if (step % 4 === 0 && state.status === 'running') state.score += ZONE_POINTS * zones.list.filter((z) => z.owner === mp.you).length
+}
 
 /* ─── Peer to peer ───────────────────────────────────────────────────── */
 

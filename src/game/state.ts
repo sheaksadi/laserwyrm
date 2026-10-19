@@ -178,7 +178,7 @@ export function later(ms: number, run: () => void) {
  * While one is on there is no pausing; with respawns, dying starts the
  * snake again instead of ending the run.
  */
-export const match = reactive({ on: false, live: false, respawn: false, respawns: 0 })
+export const match = reactive({ on: false, live: false, respawn: false, respawns: 0, calm: false })
 
 /**
  * The start screen's backdrop: the real game playing itself on the board,

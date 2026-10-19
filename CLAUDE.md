@@ -39,7 +39,8 @@ src/
   music.ts           Strudel level music on top of the conductor
   designCore.ts      a game design as data: shape, stock values, cleaning. Shared with the server
   design.ts          the editable design in the browser: library of games, undo, sharing
-  multiplayer.ts     rooms over the /mp websocket; game side is game/match.ts
+  multiplayer.ts     rooms over the /mp websocket; game side is game/match.ts. Peer packets are held and
+                     shown on the next step (raw, not reactive); Slither crashes and Domination zones live here
   replayPlayer.ts    watching a recorded run (speed, seek)
   account.ts api.ts  the player on this device; the HTTP client for server/
   sync.ts            syncing custom games to the account (for AI agents over MCP)
@@ -108,7 +109,8 @@ saved on the server, must play back exactly. So:
   `checkReplay` (`server/checks.mjs`).
 - Changing what happens in play (item tables, laser rolls, the order of `random()`
   calls) changes old runs. Gate it behind a new rules revision: bump `ITEMS_REV`
-  in `catalog.ts` and branch on `revision.rev`, as revisions 2–7 do (7: energy and dashing; power-ups no longer held, `usesEnergy()`). Laser tiers
+  in `catalog.ts` and branch on `revision.rev`, as revisions 2–8 do (7: energy and dashing; power-ups no longer held, `usesEnergy()`; 8: no dash pill, `powerKinds()`).
+  Matches always play the current revision (`prepareMatch`). Laser tiers
   differ by revision (4 moved purple to level 5): read them with `laserTraits()`
   and `laserTiers()`, never a fixed table, so replays and notices follow the run.
 - To check a refactor: play recorded runs with `startReplay` + `replayTo` before

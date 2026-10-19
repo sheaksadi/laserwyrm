@@ -30,7 +30,8 @@ const label = computed(() => {
       <path v-if="button === 'a'" d="M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5" stroke="#7FA8FF" stroke-width="2.4" stroke-linecap="square" />
       <circle v-else cx="12" cy="12" r="5" fill="none" stroke="#FF6B7A" stroke-width="2.4" />
     </template>
-    <text v-else x="12" y="16.5" text-anchor="middle" font-size="13" font-family="var(--font-pixel)" :fill="button === 'a' ? '#5CE65C' : '#FF5566'">{{ button.toUpperCase() }}</text>
+    <!-- The letter as pixels on a 2-unit grid, dead centre (a font's own spacing pushes it off) -->
+    <path v-else :d="button === 'a' ? 'M9 6h2v2h-2zM11 6h2v2h-2zM13 6h2v2h-2zM7 8h2v2h-2zM15 8h2v2h-2zM7 10h2v2h-2zM15 10h2v2h-2zM7 12h2v2h-2zM9 12h2v2h-2zM11 12h2v2h-2zM13 12h2v2h-2zM15 12h2v2h-2zM7 14h2v2h-2zM15 14h2v2h-2zM7 16h2v2h-2zM15 16h2v2h-2z' : 'M7 6h2v2h-2zM9 6h2v2h-2zM11 6h2v2h-2zM13 6h2v2h-2zM7 8h2v2h-2zM15 8h2v2h-2zM7 10h2v2h-2zM9 10h2v2h-2zM11 10h2v2h-2zM13 10h2v2h-2zM7 12h2v2h-2zM15 12h2v2h-2zM7 14h2v2h-2zM15 14h2v2h-2zM7 16h2v2h-2zM9 16h2v2h-2zM11 16h2v2h-2zM13 16h2v2h-2z'" :fill="button === 'a' ? '#5CE65C' : '#FF5566'" />
   </svg>
   <!-- D-pad: a plus -->
   <svg v-else-if="button === 'dpad'" class="glyph" viewBox="0 0 24 24" aria-label="D-pad" role="img">

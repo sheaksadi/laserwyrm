@@ -5,7 +5,7 @@
  * never counts. Debug, at the end, resets things on this device.
  */
 import { computed, ref } from 'vue'
-import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, laserTiers, MAX_LEVEL, POWER_KINDS, POWERS, resetBest, state, TOTEM, type CustomId } from '../game'
+import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, laserTiers, MAX_LEVEL, powerKinds, POWERS, resetBest, state, TOTEM, type CustomId } from '../game'
 import { design } from '../design'
 import { briefed, cheatThenPlay, freshStart, saveBriefed } from '../app/ui'
 import PowerIcon from './PowerIcon.vue'
@@ -82,7 +82,7 @@ const give = (kind: Parameters<typeof cheatGive>[0]) => cheatThenPlay(() => chea
   <section>
     <h3>Give</h3>
     <div class="gives">
-      <button v-for="kind in POWER_KINDS" :key="kind" class="give" :title="POWERS[kind].blurb" @click="give(kind)">
+      <button v-for="kind in powerKinds()" :key="kind" class="give" :title="POWERS[kind].blurb" @click="give(kind)">
         <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon :kind="kind" /></svg>
         <span>{{ POWERS[kind].name }}</span>
       </button>

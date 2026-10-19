@@ -25,7 +25,12 @@ const counts = computed(() => {
   for (const m of player.marks) n[m.kind] = (n[m.kind] ?? 0) + 1
   return n
 })
-const visibleMarks = computed(() => player.marks.filter((m) => shown[m.kind]))
+/** The marks on the seek bar, with their place and label worked out once (not every frame). */
+const visibleMarks = computed(() =>
+  player.marks
+    .filter((m) => shown[m.kind])
+    .map((m) => ({ ...m, left: pos(m.step), label: `${FILTERS.find((f) => f.key === m.kind)?.label ?? 'Game over'} · ${clock(m.step)}` })),
+)
 const pos = (step: number) => `${(step / Math.max(1, replay.total)) * 100}%`
 /** Jump to just before a moment, so it plays out. */
 const jumpTo = (step: number) => seek(step - 12)
@@ -71,9 +76,9 @@ const done = computed(() => replay.ended || replay.at >= replay.total)
         :key="i"
         class="mark"
         :class="m.kind"
-        :style="{ left: pos(m.step), background: colorOf(m.kind) }"
-        :title="`${FILTERS.find((f) => f.key === m.kind)?.label ?? 'Game over'} · ${clock(m.step)}`"
-        :aria-label="`Jump to ${m.kind} at ${clock(m.step)}`"
+        :style="{ left: m.left, background: colorOf(m.kind) }"
+        :title="m.label"
+        :aria-label="`Jump to ${m.label}`"
         @click="jumpTo(m.step)"
       ></button>
     </div>

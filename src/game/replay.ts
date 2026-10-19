@@ -3,7 +3,8 @@
  * inputs, seek, and leave. Cheats are put aside while it plays.
  */
 import { conductor } from '../audio'
-import { playWith } from '../design'
+import { live, playWith } from '../design'
+import { toRaw } from 'vue'
 import { CODE_DIR, usesEnergy, type Replay, type ReplayEvent } from './catalog'
 import { levelAtBar, tempoFor } from './curve'
 import { queueTurn } from './controls'
@@ -69,13 +70,32 @@ export function replaySeek(target: number, run: Replay) {
   state.lasers = state.lasers.filter((l) => !l.struck)
 }
 
+/**
+ * Seconds at the start of each bar, for the design in play: worked out once
+ * and kept, since the replay viewer asks for times every frame. Forgotten when
+ * a game is set up (`forgetTimes`), as the design may have changed.
+ */
+let barStarts: number[] = [0]
+let timesFor: object | null = null
+export function forgetTimes() {
+  barStarts = [0]
+  timesFor = null
+}
+
 /** How long `steps` of a run last in seconds, with the tempo rising level by level. */
 export function runSeconds(steps: number) {
-  let seconds = 0
-  for (let bar = 0, left = steps; left > 0; bar++, left -= 16) {
-    seconds += (Math.min(left, 16) * 60) / (tempoFor(levelAtBar(bar)) * 4)
+  const d = toRaw(live())
+  if (timesFor !== d) {
+    forgetTimes()
+    timesFor = d
   }
-  return seconds
+  const bars = Math.floor(steps / 16)
+  while (barStarts.length <= bars + 1) {
+    const bar = barStarts.length - 1
+    barStarts.push(barStarts[bar]! + (16 * 60) / (tempoFor(levelAtBar(bar)) * 4))
+  }
+  const start = barStarts[bars]!
+  return start + ((barStarts[bars + 1]! - start) * (steps - bars * 16)) / 16
 }
 
 /** Leave the replay and set up a fresh live game. */

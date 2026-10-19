@@ -6,7 +6,7 @@
  */
 import { computed, ref } from 'vue'
 import { library } from '../design'
-import { colorOf, createRoom, isHost, joinRoom, leaveRoom, MINUTES, MODES, mp, setSettings, startMatch, TARGETS, type MpMode } from '../multiplayer'
+import { colorOf, createRoom, isHost, joinRoom, leaveRoom, MINUTES, MODES, mp, setSettings, startMatch, TARGETS, timed, type MpMode } from '../multiplayer'
 import NameEdit from './NameEdit.vue'
 
 const emit = defineEmits<{ close: [] }>()
@@ -121,7 +121,7 @@ const modes = Object.entries(MODES) as [MpMode, (typeof MODES)[MpMode]][]
             <span>{{ m.blurb }}</span>
           </button>
         </div>
-        <div v-if="mp.settings.mode === 'score'" class="chips">
+        <div v-if="timed(mp.settings.mode)" class="chips">
           <span class="label">Time</span>
           <button v-for="m in MINUTES" :key="m" class="chip" :class="{ on: mp.settings.minutes === m }" :disabled="!isHost()" @click="setSettings({ minutes: m })">{{ m }} min</button>
         </div>

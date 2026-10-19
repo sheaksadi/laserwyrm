@@ -10,7 +10,7 @@
 import { toRaw } from 'vue'
 import { HEART_PATH, isActive, match, state as live, TONE_COLOR, type Beam, type Laser, type LaserKind } from '../game'
 import { shown } from '../looks'
-import { colorOf, mp, playerName } from '../multiplayer'
+import { colorOf, mp, playerName, zoneColor, zones } from '../multiplayer'
 import { drawIcon, HAT_BOX, ITEM_BOX } from './icons'
 
 /**
@@ -224,6 +224,21 @@ export function drawFront(f: Frame, keep: Set<string>) {
     ctx.strokeStyle = col('var(--mint)')
     ctx.lineWidth = px(8)
     ctx.strokeRect(0, 0, cols, rows)
+    ctx.globalAlpha = 1
+  }
+
+  // Domination: the zones, tinted by who holds them (as Board.vue draws them).
+  for (const z of toRaw(zones).list) {
+    const color = zoneColor(z.owner)
+    ctx.globalAlpha = 0.13
+    ctx.fillStyle = color
+    ctx.fillRect(z.x, z.y, z.w, z.h)
+    ctx.globalAlpha = 0.7
+    ctx.strokeStyle = color
+    ctx.lineWidth = 0.08
+    ctx.setLineDash([0.4, 0.25])
+    ctx.strokeRect(z.x, z.y, z.w, z.h)
+    ctx.setLineDash([])
     ctx.globalAlpha = 1
   }
 

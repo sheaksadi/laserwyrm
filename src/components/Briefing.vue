@@ -8,7 +8,7 @@
  */
 import { touchControls } from '../controls'
 import { computed } from 'vue'
-import { HEART_PATH, isTouch, POWER_KINDS, POWERS, type Mode } from '../game'
+import { HEART_PATH, isTouch, powerKinds, POWERS, type Mode } from '../game'
 import { pad, padInUse } from '../gamepad'
 import { bindings, keyFor, keyLabel } from '../keys'
 import PadGlyph from './PadGlyph.vue'
@@ -42,7 +42,7 @@ const touch = computed(() => isTouch() && !padInUse.value)
         <li>
           <b class="sun">Power-ups</b> go off as you eat them.
           <span class="powers">
-            <svg v-for="k in POWER_KINDS" :key="k" viewBox="-0.5 -0.5 1 1" width="18" height="18" :aria-label="POWERS[k].name"><title>{{ POWERS[k].name }}: {{ POWERS[k].blurb }}</title><PowerIcon :kind="k" /></svg>
+            <svg v-for="k in powerKinds()" :key="k" viewBox="-0.5 -0.5 1 1" width="18" height="18" :aria-label="POWERS[k].name"><title>{{ POWERS[k].name }}: {{ POWERS[k].blurb }}</title><PowerIcon :kind="k" /></svg>
           </span>
         </li>
         <li><b class="sun">Dash</b> four cells ahead, over your own body, for energy. Fruit fills it, and it slowly comes back.</li>

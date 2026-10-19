@@ -7,7 +7,7 @@
 import { computed, ref, watch } from 'vue'
 import { HEART_PATH, isActive, match, state, TONE_COLOR, worldSlowed, type Beam, type LaserKind } from '../game'
 import ItemArt from './ItemArt.vue'
-import { colorOf, mp, playerName } from '../multiplayer'
+import { colorOf, mp, playerName, zoneColor, zones } from '../multiplayer'
 import { shown } from '../looks'
 import Hat from './Hat.vue'
 
@@ -261,6 +261,11 @@ watch(
       :width="state.cols" :height="state.rows" fill="none" opacity="0"
       stroke="var(--mint)" stroke-width="8" vector-effect="non-scaling-stroke"
     />
+
+    <!-- Domination: the zones, tinted by who holds them -->
+    <g v-for="(z, i) in zones.list" :key="`z${i}`" class="zone">
+      <rect :x="z.x" :y="z.y" :width="z.w" :height="z.h" :fill="zoneColor(z.owner)" fill-opacity="0.13" :stroke="zoneColor(z.owner)" stroke-opacity="0.7" stroke-width="0.08" stroke-dasharray="0.4 0.25" />
+    </g>
 
     <!-- Walls from a home-made level: solid blocks with a lit top edge -->
     <g v-if="state.walls.length" class="walls">

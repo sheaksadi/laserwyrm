@@ -7,7 +7,7 @@
  * the same game; it does not run the game itself.
  *
  * Text frames are JSON control messages (create, join, settings, start,
- * final, signal, leave). Binary frames are the players' snake updates: the
+ * final, signal, crash, leave). Binary frames are the players' snake updates: the
  * server stamps the sender's index into byte 1 and passes them on to the
  * rest of the room. Players who manage a WebRTC link send those updates
  * peer to peer instead; the server relays the signalling for that.
@@ -22,8 +22,10 @@ const COUNTDOWN_MS = 3000
 const PACKETS_PER_SECOND = 40
 const MODES = {
   survival: { respawn: false },
-  score: { respawn: true },
+  score: { respawn: true, timed: true },
   sprint: { respawn: true },
+  slither: { respawn: true, timed: true },
+  zones: { respawn: true, timed: true },
 }
 const MINUTES = [1, 2, 3, 5]
 const TARGETS = [1000, 2500, 5000]
@@ -217,7 +219,7 @@ export function attachRooms(server, core) {
           broadcast(room, start)
           announce(room)
           // Timed games end on the clock even if someone never reports.
-          const limit = room.settings.mode === 'score' ? room.settings.minutes * 60_000 + COUNTDOWN_MS + 8000 : 30 * 60_000
+          const limit = MODES[room.settings.mode].timed ? room.settings.minutes * 60_000 + COUNTDOWN_MS + 8000 : 30 * 60_000
           room.timer = setTimeout(() => finish(room), limit)
           return
         }
@@ -235,6 +237,13 @@ export function attachRooms(server, core) {
           room.phase = 'lobby'
           room.results = null
           announce(room)
+          return
+        }
+        case 'crash': {
+          // Slither: a snake crashed; everyone else drops its body as food.
+          if (!room || !me || room.phase !== 'playing' || !Array.isArray(msg.cells)) return
+          const cells = msg.cells.slice(0, 120).filter((c) => c && Number.isInteger(c.x) && Number.isInteger(c.y)).map((c) => ({ x: c.x, y: c.y }))
+          broadcast(room, { t: 'crash', from: me.index, cells }, me.index)
           return
         }
         case 'signal': {

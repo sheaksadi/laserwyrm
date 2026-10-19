@@ -25,12 +25,17 @@ rises and more lasers come.
 - Dash: Space lunges four cells ahead, over your own body, for energy. The
   energy bar at the top fills from fruit (stars and cookies the most) and
   slowly by itself
-- Power-ups: shield, double points, slow-mo (the world slows, you don't), dash, magnet, ghost. They go
+- Power-ups: shield, double points, slow-mo (the world slows, you don't), magnet, ghost. They go
   off as you eat them
 - Totem of Undying: very rare, fills your hearts and energy
 - Phones play sideways with the board full screen: touch anywhere on the left
   half and a faint stick appears under your thumb; tap the right half to dash
 - Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
+- Multiplayer rooms (up to six, by code or link), five modes: Survival (last
+  snake alive), Score attack (most points on the clock), Sprint (first to a
+  target), Slither (no lasers; run into another snake and you crash and turn
+  to food) and Domination (eight zones: outnumber the others in one to take
+  it; held zones score every beat)
 - Settings (☰, the start screen, or the cog on the pause screen), in tabs:
   Sound (all sound, music and effects volume), Controls (controller
   vibration and strength, phone D-pad or stick with a picture of each, and

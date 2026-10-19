@@ -7,7 +7,7 @@
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { layout, state } from '../game'
-import { colorOf, MODES, mp, rate } from '../multiplayer'
+import { colorOf, MODES, mp, rate, timed, zones } from '../multiplayer'
 
 const now = ref(performance.now())
 const timer = window.setInterval(() => (now.value = performance.now()), 200)
@@ -57,11 +57,13 @@ const lead = computed(() => {
 
 /** Phones: the rail beside the board. */
 const rail = computed(() => layout.pad !== 'none')
+/** Domination: how many zones you hold, of how many. */
+const heldZones = computed(() => `${zones.list.filter((z) => z.owner === mp.you).length}/${zones.list.length}`)
 /** 1234 → 1.2k, to fit the rail. */
 const short = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 
 const clock = computed(() => {
-  if (mp.settings.mode === 'score') {
+  if (timed(mp.settings.mode)) {
     const left = Math.max(0, Math.ceil((mp.endsAt - Math.max(now.value, mp.startsAt)) / 1000))
     return { text: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`, urgent: left <= 10 }
   }
@@ -86,7 +88,7 @@ const clock = computed(() => {
 
   <div v-else class="mp-bar" aria-live="off">
     <div class="head">
-      <span class="mode">{{ MODES[mp.settings.mode].name }}</span>
+      <span class="mode">{{ MODES[mp.settings.mode].name }}<template v-if="zones.list.length"> · {{ heldZones }} zones</template></span>
       <b class="clock" :class="{ urgent: clock.urgent }">{{ clock.text }}</b>
     </div>
     <ol class="rows">

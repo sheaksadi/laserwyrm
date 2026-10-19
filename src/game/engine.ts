@@ -7,7 +7,7 @@ import { watch } from 'vue'
 import { conductor, now, queue } from '../audio'
 import { musicForLevel, warmUp } from '../music'
 import { design, isStock, itemsStock, live, snapshot } from '../design'
-import { DIRS, ENERGY, HEART_CHANCE, ITEMS_REV, POWER_KINDS, revision, TOTEM_CHANCE, tierOf, usesEnergy, type Mode, type Vec } from './catalog'
+import { DIRS, ENERGY, HEART_CHANCE, ITEMS_REV, powerKinds, revision, TOTEM_CHANCE, tierOf, usesEnergy, type Mode, type Vec } from './catalog'
 import { addItem, clearWalls, isWall, setWalls } from './board'
 import { armedFor, backgroundFor, gameRules, intensity, lasersFor, levelAtBar, lifeOf, maxHearts, musicFor, rateOf, snipperFor, tempoFor } from './curve'
 import { demoFrame } from './demo'
@@ -16,12 +16,14 @@ import { dropWeighted, eat, gainEnergy, pullFruit } from './items'
 import { spawnLaser, strike, trackLasers } from './lasers'
 import { fitGrid } from './layout'
 import { applyLevel, edgesFor, enterLevel, endIntro, multiplier } from './levels'
+import { forgetTimes } from './replay'
 import { pick, random, reseed } from './rng'
 import { eatSnipper, moveSnipper, spawnSnipper } from './snipper'
-import { worldSlowed, cheats, demo, isActive, replay, run, same, sound, state, timers, clock } from './state'
+import { worldSlowed, cheats, demo, isActive, match, replay, run, same, sound, state, timers, clock } from './state'
 
-export function reset(from?: { seed: number; cols: number; rows: number; mode?: Mode }) {
+export function reset(from?: { seed: number; cols: number; rows: number; mode?: Mode; rev?: number }) {
   conductor.stop()
+  forgetTimes()
   if (from) {
     state.cols = from.cols
     state.rows = from.rows
@@ -31,7 +33,7 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   const seed = from?.seed ?? (Math.floor(Math.random() * 2 ** 32) >>> 0)
   reseed(seed)
   state.mode = from ? (from.mode ?? 'normal') : run.mode
-  revision.rev = from ? ((from as { rev?: number }).rev ?? 1) : ITEMS_REV
+  revision.rev = from ? (from.rev ?? 1) : ITEMS_REV
   run.recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [], rev: revision.rev }
   if (!isStock(live())) run.recording.design = snapshot(live())
   conductor.setStyle(0, 'play', 0)
@@ -107,7 +109,7 @@ export function onBar(bar: number) {
     if (!stockItems) dropWeighted(roll, level)
     else if (roll < 0.3) addItem('cherry', 48)
     else if (roll < 0.4 && level >= 1) addItem('star', 32)
-    else if (roll < 0.62 && level >= 1) addItem(pick(POWER_KINDS), 48)
+    else if (roll < 0.62 && level >= 1) addItem(pick(powerKinds()), 48)
     // The cookies (item table 2): plain ones often, the wizard now and then, the starry one rarely but for longer.
     else if (revision.rev < 2) {
       /* the first table stops here */
@@ -127,7 +129,7 @@ export function onBeat(step: number) {
   state.beat++
   state.score += multiplier()
   const bar = Math.floor(step / 16)
-  if (bar < 1 || cheats.noLasers) return // one bar of intro
+  if (bar < 1 || cheats.noLasers || match.calm) return // one bar of intro; none at all in a laser-free match
   // Slow-mo (revision 6): the world's beat comes half as often.
   if (worldSlowed() && (step / 4) % 2 === 1) return
 
@@ -264,6 +266,7 @@ export function startEngine() {
   watch(
     design,
     (d) => {
+      forgetTimes()
       if (replay.active || live() !== design) return
       if (state.status === 'ready') return reset()
       if (!isStock(d)) state.cheated = true
