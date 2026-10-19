@@ -33,6 +33,7 @@ src/
     route.ts         hash pages (#/scores, #/replays, #/watch/…) and share/room links
     input.ts         keyboard, swipes, controller buttons (what each does depends on what is open)
     scoreEntry.ts    saving every finished game; posting one to the high scores
+    padReady.ts      controller before any click: the click-once card (full screen and sound need a real gesture)
   game/              the engine (see "The engine" below); import it only as './game'
   audio.ts           Web Audio synth AND the game clock (`conductor`, `now()`, step queue)
   music.ts           Strudel level music on top of the conductor

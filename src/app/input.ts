@@ -8,6 +8,7 @@ import { leaveFullscreen } from '../fullscreen'
 import { navMove, navPress, navScope } from '../menuNav'
 import { mp } from '../multiplayer'
 import { seekBy, togglePlay } from '../replayPlayer'
+import { padPrompt, skipPadPrompt } from './padReady'
 import { go, route } from './route'
 import { begin, closeBriefing, openCustom, status, toggleMusic, toggleMute, toMainMenu, ui } from './ui'
 
@@ -130,6 +131,8 @@ export const padHandlers = {
     else if (route.value.name === 'game' && !ui.cheatOpen) turn(dir)
   },
   primary: () => {
+    // The click-once card: the controller cannot answer it, only skip it.
+    if (padPrompt.value) return skipPadPrompt()
     if (ui.briefing) return begin()
     if (navPress()) return
     if (route.value.name === 'watch') return togglePlay()
@@ -139,6 +142,7 @@ export const padHandlers = {
     else play()
   },
   start: () => {
+    if (padPrompt.value) return skipPadPrompt()
     if (match.on && mp.phase === 'playing') return (ui.mpMenu = !ui.mpMenu)
     if (ui.briefing) return begin()
     if (ui.cheatOpen) ui.cheatOpen = false
@@ -152,6 +156,7 @@ export const padHandlers = {
   },
   // B is back: out of whatever is open, one layer at a time. In play it pauses; on the pause screen, back into the game.
   cancel: () => {
+    if (padPrompt.value) return skipPadPrompt()
     const r = route.value
     if (r.name === 'watch') return go('code' in r ? '#/replays' : '#/scores')
     if (r.name === 'scores' || r.name === 'replays') return go('#/')

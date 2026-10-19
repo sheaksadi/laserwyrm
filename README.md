@@ -31,6 +31,10 @@ rises and more lasers come.
 - Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
 - ☰ → Settings: music and effects volume, controller vibration (on/off,
   strength; it rumbles harder for bigger cuts, hits and game over), full screen
+- A controller that joins before any click gets a card asking for one click
+  (browsers only allow full screen and sound after a click or key); after
+  that the controller does everything. While playing, the mouse pointer
+  hides until the mouse moves
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
   power-ups, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;
   prompts switch to match
