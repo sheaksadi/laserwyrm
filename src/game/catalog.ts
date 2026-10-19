@@ -34,10 +34,22 @@ export interface Beam {
 export type LaserTrait = 'wide' | 'cross' | 'fast' | 'track' | 'repeat'
 export type LaserKind = 'red' | 'blue' | 'purple' | 'white' | 'green' | 'gold' | 'prism'
 
-export const LASER_TRAITS: Record<LaserTrait, { unlock: number; kind: LaserKind }> = {
+export type TraitTable = Record<LaserTrait, { unlock: number; kind: LaserKind }>
+export interface Tier { level: number; kind: LaserKind; name: string; blurb: string }
+
+/** Revisions 1–3: blue at level 11, purple at 21, white at 31. */
+const TRAITS_V1: TraitTable = {
   wide: { unlock: 10, kind: 'blue' },
   cross: { unlock: 20, kind: 'purple' },
   fast: { unlock: 30, kind: 'white' },
+  track: { unlock: 40, kind: 'green' },
+  repeat: { unlock: 50, kind: 'gold' },
+}
+/** Revision 4: purple comes first, at level 5; blue at 12, white at 21. The rest as before. */
+const TRAITS_V4: TraitTable = {
+  cross: { unlock: 4, kind: 'purple' },
+  wide: { unlock: 11, kind: 'blue' },
+  fast: { unlock: 20, kind: 'white' },
   track: { unlock: 40, kind: 'green' },
   repeat: { unlock: 50, kind: 'gold' },
 }
@@ -45,17 +57,25 @@ export const LASER_TRAITS: Record<LaserTrait, { unlock: number; kind: LaserKind 
 export const COMBO_LEVEL = 60
 export const PRISM_LEVEL = 80
 
-/** The levels where something new arrives, with what to tell the player. */
-export const LASER_TIERS: { level: number; kind: LaserKind; name: string; blurb: string }[] = [
-  { level: 0, kind: 'red', name: 'Red', blurb: 'one straight line' },
-  { level: 10, kind: 'blue', name: 'Blue lasers', blurb: 'three wide: they splash' },
-  { level: 20, kind: 'purple', name: 'Purple lasers', blurb: 'a row and a column at once' },
-  { level: 30, kind: 'white', name: 'White lasers', blurb: 'half the warning' },
-  { level: 40, kind: 'green', name: 'Green lasers', blurb: 'they follow your head' },
-  { level: 50, kind: 'gold', name: 'Gold lasers', blurb: 'they strike twice' },
-  { level: COMBO_LEVEL, kind: 'gold', name: 'Combos', blurb: 'lasers mix two tricks' },
-  { level: PRISM_LEVEL, kind: 'prism', name: 'Prism lasers', blurb: 'three tricks at once' },
-]
+const TIER_TEXT: Record<LaserTrait, Omit<Tier, 'level' | 'kind'>> = {
+  wide: { name: 'Blue lasers', blurb: 'three wide: they splash' },
+  cross: { name: 'Purple lasers', blurb: 'a row and a column at once' },
+  fast: { name: 'White lasers', blurb: 'half the warning' },
+  track: { name: 'Green lasers', blurb: 'they follow your head' },
+  repeat: { name: 'Gold lasers', blurb: 'they strike twice' },
+}
+/** The levels where something new arrives, with what to tell the player: red, each trick as it unlocks, combos, prisms. */
+function tiersOf(traits: TraitTable): Tier[] {
+  const tricks = (Object.keys(traits) as LaserTrait[]).sort((a, b) => traits[a].unlock - traits[b].unlock)
+  return [
+    { level: 0, kind: 'red', name: 'Red', blurb: 'one straight line' },
+    ...tricks.map((t) => ({ level: traits[t].unlock, kind: traits[t].kind, ...TIER_TEXT[t] })),
+    { level: COMBO_LEVEL, kind: 'gold', name: 'Combos', blurb: 'lasers mix two tricks' },
+    { level: PRISM_LEVEL, kind: 'prism', name: 'Prism lasers', blurb: 'three tricks at once' },
+  ]
+}
+const TIERS_V1 = tiersOf(TRAITS_V1)
+const TIERS_V4 = tiersOf(TRAITS_V4)
 
 export interface Laser {
   id: number
@@ -87,10 +107,19 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
 /**
  * Which rules of play a run uses. 1: the first item table. 2 adds the
  * cookies (plain, wizard, starry). 3: a new kind of laser no longer stops
- * play for two bars; it is announced and play goes on. Replays keep the
+ * play for two bars; it is announced and play goes on. 4: purple lasers
+ * come first (level 5), then blue (12) and white (21). Replays keep the
  * revision they were played with, so old runs play back the same.
  */
-export const ITEMS_REV = 3
+export const ITEMS_REV = 4
+
+/** The revision of the run in play (set by `reset`): everything that differs between revisions reads it. */
+export const revision = { rev: ITEMS_REV }
+
+/** When each laser trick unlocks, by the rules in play. */
+export const laserTraits = (): TraitTable => (revision.rev >= 4 ? TRAITS_V4 : TRAITS_V1)
+/** The laser tiers, by the rules in play: their index is also the music's arrangement. */
+export const laserTiers = (): Tier[] => (revision.rev >= 4 ? TIERS_V4 : TIERS_V1)
 
 /** Every power-up: what it is called, what it does, its colour, and how long it lasts (0: instant). */
 export const POWERS: Record<PowerKind, { name: string; blurb: string; tone: Tone; bars: number }> = {
@@ -208,7 +237,7 @@ export const GRID = { cols: 48, rows: 26 }
 export const MAX_LEVEL = 100
 
 /** Which laser tier (and so which music) a level belongs to. */
-export const tierOf = (level: number) => LASER_TIERS.reduce((at, t, i) => (t.level <= level ? i : at), 0)
+export const tierOf = (level: number) => laserTiers().reduce((at, t, i) => (t.level <= level ? i : at), 0)
 
 /** Two bars of pause to meet a new laser, then four calmer bars. */
 export const INTRO_STEPS = 32

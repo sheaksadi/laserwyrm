@@ -10,7 +10,7 @@
  * pause, a calm stretch, and × on points.
  */
 import { computed } from 'vue'
-import { LASER_TRAITS, levelPlan, state, type LaserTrait } from '../game'
+import { laserTraits, levelPlan, state, type LaserTrait } from '../game'
 import { design, LEVEL_RANGE, TRAITS, type Edges, type LevelEdit } from '../design'
 import AutoSlider from './AutoSlider.vue'
 
@@ -97,7 +97,7 @@ const INTRO: { value: boolean | undefined; name: string }[] = [
           role="switch"
           :aria-checked="plan.traits.includes(tr)"
           :class="{ on: plan.traits.includes(tr), own: !!edit.traits }"
-          :title="`Stock: from level ${LASER_TRAITS[tr].unlock + 1}`"
+          :title="`Stock: from level ${laserTraits()[tr].unlock + 1}`"
           @click="toggleTrait(tr)"
         >
           <i class="sw" :style="{ background: TRAIT_INFO[tr].color }"></i>{{ TRAIT_INFO[tr].name }}

@@ -6,7 +6,7 @@
  * best), and the game's code (copy it, paste one in, or start over).
  */
 import { computed, ref } from 'vue'
-import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, LASER_TIERS, MAX_LEVEL, POWER_KINDS, POWERS, resetBest, state, TOTEM, type CustomId } from '../game'
+import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, laserTiers, MAX_LEVEL, POWER_KINDS, POWERS, resetBest, state, TOTEM, type CustomId } from '../game'
 import { design, isStock, readShareCode, replaceDesign, RULES_RANGE, shareCode, STOCK_RULES, stockDesign, type GameRules } from '../design'
 import AutoSlider from './AutoSlider.vue'
 import PowerIcon from './PowerIcon.vue'
@@ -121,7 +121,7 @@ function backToStock() {
       <!-- Jump straight to where each new kind of laser arrives -->
       <div class="tiers">
         <button
-          v-for="tier in LASER_TIERS"
+          v-for="tier in laserTiers()"
           :key="tier.level"
           class="tier"
           :class="{ on: state.level >= tier.level }"

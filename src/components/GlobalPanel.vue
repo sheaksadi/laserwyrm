@@ -8,7 +8,7 @@
  * settings (in the levels tab) still win over these.
  */
 import { computed, ref } from 'vue'
-import { LASER_TIERS, levelPlan, state } from '../game'
+import { laserTiers, levelPlan, state } from '../game'
 import { design, GLOBAL_RANGE, LEVEL_RANGE, STOCK_GLOBAL, type Global } from '../design'
 
 type Knob = keyof Global
@@ -142,7 +142,7 @@ function resetGlobal() {
   >
     <line x1="0" :x2="LEVELS" :y1="H / 2" :y2="H / 2" class="mid" />
     <line
-      v-for="tier in LASER_TIERS.slice(1)"
+      v-for="tier in laserTiers().slice(1)"
       :key="tier.level"
       :x1="tier.level" :x2="tier.level" y1="0" :y2="H"
       :stroke="TIER_COLOR[tier.kind]" class="tier-line"

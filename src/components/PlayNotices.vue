@@ -4,7 +4,7 @@
  * item just picked up or used, a match's bar, and the level-up banner.
  */
 import { computed } from 'vue'
-import { demo, layout, LASER_TIERS, state, TIER_NOTE_MS } from '../game'
+import { demo, laserTiers, layout, state, TIER_NOTE_MS } from '../game'
 import { mp } from '../multiplayer'
 import { status } from '../app/ui'
 import MpBar from './MpBar.vue'
@@ -37,12 +37,12 @@ const tierShown = computed(() => {
     :key="tierShown.key"
     class="notice tier-note"
     :class="{ touch: layout.pad !== 'none' }"
-    :style="{ '--laser': INTRO_COLOR[LASER_TIERS[tierShown.tier]!.kind], '--note': `${tierShown.seconds}s` }"
+    :style="{ '--laser': INTRO_COLOR[laserTiers()[tierShown.tier]!.kind], '--note': `${tierShown.seconds}s` }"
   >
     <span class="tier-swatch" aria-hidden="true"></span>
     <span class="notice-text">
-      <b>{{ LASER_TIERS[tierShown.tier]!.name }} · level {{ state.level + 1 }}</b>
-      <span>{{ LASER_TIERS[tierShown.tier]!.blurb }}<template v-if="tierShown.healed"> · +1 heart</template></span>
+      <b>{{ laserTiers()[tierShown.tier]!.name }} · level {{ state.level + 1 }}</b>
+      <span>{{ laserTiers()[tierShown.tier]!.blurb }}<template v-if="tierShown.healed"> · +1 heart</template></span>
     </span>
   </div>
 

@@ -3,7 +3,7 @@
  * magnet), and which bonus item drops when a game's items are changed.
  */
 import { live, type Stack } from '../design'
-import { customItem, DASH_CELLS, FRUIT_GROW, isCustom, isPower, POWER_KINDS, POWERS, TOTEM, type CustomId, type Holdable, type Item, type ItemKind, type Vec } from './catalog'
+import { revision, customItem, DASH_CELLS, FRUIT_GROW, isCustom, isPower, POWER_KINDS, POWERS, TOTEM, type CustomId, type Holdable, type Item, type ItemKind, type Vec } from './catalog'
 import { addItem, isWall, notice, popup } from './board'
 import { heldSlots, lifeOf, maxHearts, rateOf } from './curve'
 import { edgesFor } from './levels'
@@ -145,7 +145,7 @@ export function dropWeighted(roll: number, level: number) {
     options.push(['star', 0.1 * rateOf('star', level), lifeOf('star', 32)])
     for (const kind of POWER_KINDS) options.push([kind, (0.22 / POWER_KINDS.length) * rateOf(kind, level), lifeOf(kind, 48)])
   }
-  if (run.itemsRev >= 2) {
+  if (revision.rev >= 2) {
     options.push(['cookie', 0.1 * rateOf('cookie', level), lifeOf('cookie', 48)])
     if (level >= 1) options.push(['wizard', 0.04 * rateOf('wizard', level), lifeOf('wizard', 32)])
     if (level >= 2) options.push(['starry', 0.02 * rateOf('starry', level), lifeOf('starry', 96)])

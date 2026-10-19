@@ -4,7 +4,7 @@
  * read the design, never the run, so the editor can ask about any level.
  */
 import { editOf, live } from '../design'
-import { LASER_TRAITS, type LaserTrait } from './catalog'
+import { laserTraits, type LaserTrait } from './catalog'
 
 /** The rules of the game in play (stock unless a custom game changes them). */
 export const gameRules = () => live().rules
@@ -73,7 +73,7 @@ export const armedFor = (level: number) =>
 
 /** Laser tricks that can turn up at a level: its own pick, or the ones unlocked by then. */
 export const traitsFor = (level: number): LaserTrait[] =>
-  editOf(live(), level).traits ?? (Object.keys(LASER_TRAITS) as LaserTrait[]).filter((t) => LASER_TRAITS[t].unlock <= level)
+  editOf(live(), level).traits ?? (Object.keys(laserTraits()) as LaserTrait[]).filter((t) => laserTraits()[t].unlock <= level)
 
 export const snipperFor = (level: number) => editOf(live(), level).snipper ?? 1
 
