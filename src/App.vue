@@ -40,6 +40,8 @@ const ReplaysPanel = defineAsyncComponent(() => import('./components/ReplaysPane
 import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
 import FpsMeter from './components/FpsMeter.vue'
+import PadReady from './components/PadReady.vue'
+import { padPrompt } from './app/padReady'
 import { showFps } from './perf'
 import ActionButton from './components/ActionButton.vue'
 import Joystick from './components/Joystick.vue'
@@ -152,6 +154,30 @@ const fsHint = ref(false)
 let fsHintTimer = 0
 let stopFullscreenWatch = () => {}
 
+/**
+ * The mouse pointer hides while playing, as a video player's does: it shows
+ * when the mouse moves and goes again after two still seconds. Menus and the
+ * pause screen always keep it.
+ */
+const cursorIdle = ref(false)
+let cursorTimer = 0
+function onMouseMove(event: MouseEvent) {
+  // Browsers also send moves that are not the hand moving (the page changing under a still pointer).
+  if (!event.movementX && !event.movementY) return
+  cursorIdle.value = false
+  clearTimeout(cursorTimer)
+  cursorTimer = window.setTimeout(() => (cursorIdle.value = status.value === 'running' && !replay.active), 2000)
+}
+watch(
+  () => status.value === 'running' && !replay.active,
+  (playing) => {
+    clearTimeout(cursorTimer)
+    // Into play: hide after the same two seconds. Out of play: show at once.
+    if (playing) cursorTimer = window.setTimeout(() => (cursorIdle.value = true), 2000)
+    else cursorIdle.value = false
+  },
+)
+
 /** "Controller connected" shows briefly each time one joins. */
 const padToast = ref(false)
 let padToastTimer = 0
@@ -181,6 +207,7 @@ onMounted(() => {
     },
   )
   window.addEventListener('keydown', onKey)
+  window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('resize', onResize)
   window.addEventListener('blur', onBlur)
   document.addEventListener('visibilitychange', onVisibility)
@@ -190,6 +217,7 @@ onBeforeUnmount(() => {
   stopGamepad()
   stopFullscreenWatch()
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('blur', onBlur)
   document.removeEventListener('visibilitychange', onVisibility)
@@ -197,7 +225,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="screen" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove">
+  <div class="screen" :class="{ 'cursor-idle': cursorIdle }" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove">
     <div
       class="arena"
       :style="{ top: `${layout.top}px`, right: `${layout.right}px`, bottom: `${layout.bottom}px`, left: `${layout.left}px` }"
@@ -310,7 +338,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Controller connected -->
-    <div v-if="padToast" class="pad-toast">
+    <div v-if="padToast && !padPrompt" class="pad-toast">
       <PadGlyph button="a" /> controller connected
     </div>
 
@@ -324,6 +352,9 @@ onBeforeUnmount(() => {
       <p class="rotate-sub">Laserwyrm plays in landscape: stick on the left, button on the right.</p>
     </div>
 
+    <!-- A controller joined before any click: one click lets it go full screen with sound -->
+    <PadReady />
+
     <!-- Frame rate, when switched on in Settings -->
     <FpsMeter v-if="showFps" />
 
@@ -333,6 +364,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Playing with the mouse still: no pointer over the game. */
+.screen.cursor-idle,
+.screen.cursor-idle * { cursor: none !important; }
 .screen {
   position: fixed;
   inset: 0;
