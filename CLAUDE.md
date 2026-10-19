@@ -45,6 +45,7 @@ src/
   sync.ts            syncing custom games to the account (for AI agents over MCP)
   keys.ts          keyboard bindings (two keys per action, saved on the device); input reads them
   looks.ts sprites.ts gamepad.ts controls.ts fullscreen.ts menuNav.ts
+  gamepad.ts         also tracks whether the controller was the last input (`padInUse`): hints, ✕-as-B and the big highlight follow it
   components/        Vue components (groups below)
   styles/cards.css   the start/pause/game-over cards and overlays (see "Styles")
   style.css          global: palette variables, fonts, base elements

@@ -86,7 +86,8 @@ function readFlag(key: string) {
     return false
   }
 }
-function saveBriefed(on: boolean) {
+/** Mark the briefing seen (or not, to show it again before the next game). */
+export function saveBriefed(on: boolean) {
   briefed.value = on
   try {
     if (on) localStorage.setItem('laserwyrm-briefed', '1')
@@ -103,6 +104,24 @@ export function openBriefing(mode: Mode, force = false) {
   ui.briefing = mode
   conductor.warmup()
 }
+/**
+ * Debug: this device as on a first visit. Every setting, key, look of the
+ * screens and the best score go; the account and custom games stay (they
+ * cannot be had back). Then the page loads again.
+ */
+const KEEP_ON_FRESH = new Set(['laserwyrm-account', 'laserwyrm-my-games', 'laserwyrm-offline', 'laserwyrm-games', 'laserwyrm-design', 'laserwyrm-rules', 'laserwyrm-custom', 'laserwyrm-wall-templates', 'laserwyrm-agent-sync', 'laserwyrm-look'])
+export function freshStart() {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if ((key.startsWith('laserwyrm-') || key.startsWith('snake-')) && !KEEP_ON_FRESH.has(key)) localStorage.removeItem(key)
+    }
+    sessionStorage.clear()
+  } catch {
+    /* storage blocked: nothing was kept anyway */
+  }
+  location.replace(location.pathname)
+}
+
 /** About → How to play: the briefing now on the start screen, else before the next game. */
 export function showHowToPlay() {
   saveBriefed(false)

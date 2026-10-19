@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * Cheats, in Settings: jump to any level, god mode, no lasers, hand out
- * power-ups, reset the best score. They are for this run only, and a run
- * that used any of them never counts.
+ * power-ups. They are for this run only, and a run that used any of them
+ * never counts. Debug, at the end, resets things on this device.
  */
 import { computed, ref } from 'vue'
 import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, laserTiers, MAX_LEVEL, POWER_KINDS, POWERS, resetBest, state, TOTEM, type CustomId } from '../game'
 import { design } from '../design'
-import { cheatThenPlay } from '../app/ui'
+import { briefed, cheatThenPlay, freshStart, saveBriefed } from '../app/ui'
 import PowerIcon from './PowerIcon.vue'
 
 const customPowers = computed(() => design.custom.filter((c) => c.kind === 'power'))
@@ -16,6 +16,13 @@ const bestCleared = ref(false)
 function clearBest() {
   resetBest()
   bestCleared.value = true
+}
+/** Fresh start wipes this device's settings: the first click arms it, the second does it. */
+const freshArmed = ref(false)
+function fresh() {
+  if (freshArmed.value) return freshStart()
+  freshArmed.value = true
+  setTimeout(() => (freshArmed.value = false), 4000)
 }
 const TIER_COLOR = { red: 'var(--coral)', blue: 'var(--sky)', purple: 'var(--lavender)', white: '#FFFFFF', green: 'var(--sage)', gold: 'var(--sun)', prism: 'linear-gradient(90deg, #FF3355, #FFE14D, #5CFF5C, #3FA9FF, #B26BFF)' } as const
 const pickLevel = (value: number) => cheatLevel(value)
@@ -93,10 +100,18 @@ const give = (kind: Parameters<typeof cheatGive>[0]) => cheatThenPlay(() => chea
   </section>
 
   <section>
-    <h3>Testing</h3>
+    <h3>Debug</h3>
     <button class="row" @click="clearBest">
       <span><b>Reset best score</b> on this device, to test new bests again</span>
       <span class="state" :class="{ on: bestCleared }">{{ bestCleared ? 'done' : state.best.toLocaleString() }}</span>
+    </button>
+    <button class="row" role="switch" :aria-checked="!briefed" @click="saveBriefed(!briefed)">
+      <span><b>How to play</b> before the next game, as on a first visit</span>
+      <span class="state" :class="{ on: !briefed }">{{ briefed ? 'off' : 'on' }}</span>
+    </button>
+    <button class="row danger" :class="{ armed: freshArmed }" @click="fresh">
+      <span><b>Fresh start</b> this device as on a first visit: settings, keys and best score go; your account and custom games stay</span>
+      <span class="state">{{ freshArmed ? 'sure? click again' : 'reload' }}</span>
     </button>
   </section>
   </div>
@@ -163,6 +178,8 @@ h3 {
 .row:hover { border-color: var(--sage); }
 .state { flex: none; font-family: var(--font-pixel); font-size: 9px; text-transform: uppercase; color: var(--text-muted); }
 .state.on { color: var(--sage); }
+.row.danger:hover, .row.danger.armed { border-color: var(--coral); }
+.row.danger.armed .state { color: var(--coral); }
 .gives { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
 .give {
   display: grid;

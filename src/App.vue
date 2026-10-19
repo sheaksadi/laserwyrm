@@ -12,7 +12,7 @@ import { renderer } from './renderer'
 import { soundBlocked } from './audio'
 import { fitGrid, fitLayout, layout, demo, match, startDemo, stopDemo, onFeel, pause, replay, reset, state } from './game'
 import { enterFullscreen, fullscreenPending, watchFullscreen } from './fullscreen'
-import { pad, rumbleFor, startGamepad, stopGamepad } from './gamepad'
+import { pad, padInUse, rumbleFor, startGamepad, stopGamepad } from './gamepad'
 import { player } from './replayPlayer'
 import { custom } from './design'
 import { navFocusFirst } from './menuNav'
@@ -113,15 +113,16 @@ function onVisibility() {
   if (document.hidden) pause()
 }
 
-// With a controller, highlight the main button of each screen as it opens; `pad-on` makes the highlight big and bright.
+// With a controller, highlight the main button of each screen as it opens. `pad-on`, while the controller is what was
+// last used, makes the highlight big and bright and turns each ✕ into B; the mouse or keyboard turns them back.
 watch(
-  () => pad.connected,
+  () => padInUse.value,
   (on) => document.documentElement.classList.toggle('pad-on', on),
   { immediate: true },
 )
 // PlayStation pads: the ✕ buttons show Circle instead of B (style.css).
 watch(
-  () => pad.connected && pad.kind === 'playstation',
+  () => padInUse.value && pad.kind === 'playstation',
   (on) => document.documentElement.classList.toggle('pad-ps', on),
   { immediate: true },
 )
@@ -314,7 +315,7 @@ onBeforeUnmount(() => {
 
     <!-- Just went full screen: how to get out -->
     <div v-if="fsHint && status === 'running' && layout.pad === 'none'" class="fs-hint">
-      <template v-if="pad.connected"><PadGlyph button="start" /> pause · leave full screen from the pause screen</template>
+      <template v-if="padInUse"><PadGlyph button="start" /> pause · leave full screen from the pause screen</template>
       <template v-else><kbd>Esc</kbd> pause · <kbd>Esc</kbd> again to leave full screen</template>
     </div>
 

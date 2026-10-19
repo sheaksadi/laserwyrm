@@ -6,7 +6,7 @@
 import { play, reset } from '../game'
 import { custom } from '../design'
 import { canFullscreen, isFullscreen } from '../fullscreen'
-import { pad } from '../gamepad'
+import { padInUse } from '../gamepad'
 import { openEditor, openSettings, playNormal, toggleFullscreen, toMainMenu } from '../app/ui'
 </script>
 
@@ -35,7 +35,7 @@ import { openEditor, openSettings, playNormal, toggleFullscreen, toMainMenu } fr
       <button v-if="canFullscreen()" class="btn btn-line" @click="toggleFullscreen()">
         <span class="text-trim">{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}</span>
       </button>
-      <p v-if="isFullscreen && !pad.connected" class="keys"><span class="keygroup"><kbd>Esc</kbd> exit full screen</span></p>
+      <p v-if="isFullscreen && !padInUse" class="keys"><span class="keygroup"><kbd>Esc</kbd> exit full screen</span></p>
     </div>
   </div>
 </template>

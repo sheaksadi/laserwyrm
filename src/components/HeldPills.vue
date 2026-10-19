@@ -7,7 +7,7 @@
  */
 import { computed } from 'vue'
 import { demo, heldSlots, itemInfo, state, useItem } from '../game'
-import { pad } from '../gamepad'
+import { pad, padInUse } from '../gamepad'
 import { keyFor } from '../keys'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
@@ -33,7 +33,7 @@ const tooltip = computed(
     <span v-for="i in heldSlots()" :key="i" class="slot" :class="{ next: i === 1 && held.length }">
       <svg v-if="held[i - 1]" viewBox="-0.5 -0.5 1 1"><PowerIcon :kind="held[i - 1]!" /></svg>
     </span>
-    <span v-if="pad.connected" class="hint pad"><PadGlyph button="a" /> to use</span>
+    <span v-if="padInUse" class="hint pad"><PadGlyph button="a" /> to use</span>
     <span v-else class="hint">{{ keyFor('use') }} to use</span>
   </button>
 </template>

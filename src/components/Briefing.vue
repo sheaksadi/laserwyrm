@@ -9,7 +9,7 @@
 import { touchControls } from '../controls'
 import { computed } from 'vue'
 import { HEART_PATH, isTouch, POWER_KINDS, POWERS, type Mode } from '../game'
-import { pad } from '../gamepad'
+import { pad, padInUse } from '../gamepad'
 import { bindings, keyFor, keyLabel } from '../keys'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
@@ -17,7 +17,7 @@ import PowerIcon from './PowerIcon.vue'
 const props = defineProps<{ mode: Mode }>()
 const emit = defineEmits<{ start: []; back: [] }>()
 
-const touch = computed(() => isTouch() && !pad.connected)
+const touch = computed(() => isTouch() && !padInUse.value)
 </script>
 
 <template>
@@ -50,7 +50,7 @@ const touch = computed(() => isTouch() && !pad.connected)
       </ul>
 
       <div class="how">
-        <template v-if="pad.connected">
+        <template v-if="padInUse">
           <p><span class="caps"><PadGlyph button="dpad" /><PadGlyph button="stick" /></span><span>move</span></p>
           <p><span class="caps"><PadGlyph button="a" /><PadGlyph button="rt" /></span><span>power-up</span></p>
           <p><span class="caps"><PadGlyph button="start" /></span><span>pause</span></p>
@@ -79,7 +79,7 @@ const touch = computed(() => isTouch() && !pad.connected)
     </div>
 
     <p class="go">
-      <template v-if="pad.connected">
+      <template v-if="padInUse">
         <span class="hint">Press <PadGlyph button="a" class="big" /> to start</span>
         <span class="hint dim"><PadGlyph button="b" class="big" /> back</span>
       </template>

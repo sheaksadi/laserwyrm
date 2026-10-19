@@ -7,7 +7,7 @@
  * Browsers only reveal a controller after its first button press, so it
  * shows up as connected from then on.
  */
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { DirName, Feel } from './game'
 
 export type PadKind = 'xbox' | 'playstation'
@@ -17,7 +17,12 @@ export const pad = reactive({
   kind: 'xbox' as PadKind,
   /** Bumped when a controller connects, so the view can say so once. */
   joined: 0,
+  /** The controller was the last thing used (not the mouse or keyboard): ✕ buttons show B, and the highlight is big. */
+  active: false,
 })
+
+/** Show controller buttons in hints: a controller is connected and was the last thing used. */
+export const padInUse = computed(() => pad.connected && pad.active)
 
 export interface PadHandlers {
   turn: (dir: DirName) => void
@@ -62,6 +67,7 @@ function poll() {
   const before = held
   const pressed = (i: number) => down.has(i) && !before.has(i)
   held = down
+  for (const i of down) if (!before.has(i)) pad.active = true
 
   if (pressed(BUTTON.up)) handlers.turn('up')
   if (pressed(BUTTON.down)) handlers.turn('down')
@@ -78,7 +84,10 @@ function poll() {
   if (Math.max(Math.abs(x), Math.abs(y)) > STICK_DEADZONE) {
     dir = Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : y > 0 ? 'down' : 'up'
   }
-  if (dir && dir !== stickDir) handlers.turn(dir)
+  if (dir && dir !== stickDir) {
+    pad.active = true
+    handlers.turn(dir)
+  }
   stickDir = dir
 }
 
@@ -91,6 +100,13 @@ function refresh() {
 function onConnect() {
   refresh()
   pad.joined++
+  pad.active = true
+}
+
+/** The mouse or keyboard took over from the controller. */
+function onOtherInput(event: Event) {
+  if (event instanceof PointerEvent && event.pointerType !== 'mouse') return
+  pad.active = false
 }
 
 /* ─── Rumble ─── */
@@ -182,11 +198,15 @@ export function rumbleFor(kind: Feel, amount = 1, force = false) {
   }
 }
 
+const OTHER_INPUT = ['keydown', 'pointerdown', 'pointermove'] as const
+
 export function startGamepad(next: PadHandlers) {
   handlers = next
   window.addEventListener('gamepadconnected', onConnect)
   window.addEventListener('gamepaddisconnected', refresh)
+  for (const kind of OTHER_INPUT) window.addEventListener(kind, onOtherInput, { capture: true, passive: true })
   refresh()
+  pad.active = pad.connected
   frame = requestAnimationFrame(poll)
 }
 
@@ -194,5 +214,6 @@ export function stopGamepad() {
   handlers = null
   window.removeEventListener('gamepadconnected', onConnect)
   window.removeEventListener('gamepaddisconnected', refresh)
+  for (const kind of OTHER_INPUT) window.removeEventListener(kind, onOtherInput, { capture: true })
   cancelAnimationFrame(frame)
 }
