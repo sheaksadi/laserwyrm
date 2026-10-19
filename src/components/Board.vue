@@ -70,6 +70,14 @@ const holograms = computed(() =>
 )
 const shielded = computed(() => isActive('shield'))
 
+/** A dash's way as an angle, so its speed lines run along it. */
+const dashAngle = (dir: { x: number; y: number }) => (dir.x > 0 ? 0 : dir.x < 0 ? 180 : dir.y > 0 ? 90 : -90)
+/** Where a dash landed: one cell on from the last it passed (round the edge if it wrapped). */
+const landing = (d: { cells: { x: number; y: number }[]; dir: { x: number; y: number } }) => {
+  const last = d.cells[d.cells.length - 1]!
+  return { x: (last.x + d.dir.x + state.cols) % state.cols, y: (last.y + d.dir.y + state.rows) % state.rows }
+}
+
 /** The snake's own look: its colour (gold while doubled), a hat, a trail. */
 const bodyColor = computed(() => (isActive('double') ? 'var(--sun)' : shown.value.color.id === 'rainbow' ? '#FFFFFF' : shown.value.color.value))
 /** Rainbow: each cell its own colour, over a white tube. */
@@ -419,6 +427,20 @@ watch(
     />
     <circle v-for="(eye, i) in eyes" :key="`e${i}`" :cx="eye.x" :cy="eye.y" r="0.08" fill="var(--ink)" />
     <Hat :hat="shown.hat" :transform="`translate(${head.x + 0.5} ${head.y + 0.5})`" />
+    <!-- Dash, over the snake (its body fills the cells it shot through): an afterimage of the
+         head on each, fading from the back, speed lines along and beside it, a flash where it lands -->
+    <g v-for="d in state.dashes" :key="`dash${d.id}`" v-memo="[d.id]" class="dash">
+      <g v-for="(c, i) in d.cells" :key="i" :transform="`translate(${c.x + 0.5} ${c.y + 0.5}) rotate(${dashAngle(d.dir)})`" :style="{ '--delay': `${i * 45}ms` }">
+        <rect class="dash-ghost" x="-0.42" y="-0.42" width="0.84" height="0.84" :fill="headColor" />
+        <path class="dash-streak" d="M-0.6 -0.68h1.1M-0.5 0h0.9M-0.6 0.68h1.1" stroke="#F0F0FF" stroke-width="0.08" />
+      </g>
+      <rect
+        class="dash-land"
+        :x="landing(d).x + 0.05" :y="landing(d).y + 0.05" width="0.9" height="0.9"
+        fill="none" :stroke="headColor" stroke-width="0.12"
+      />
+    </g>
+
     <!-- In multiplayer, your name over your own snake too -->
     <text v-if="match.on" class="holo-name own" :x="head.x + 0.5" :y="head.y - (shown.hat === 'none' ? 0.35 : 1.2)" text-anchor="middle">{{ playerName() }}</text>
 
@@ -659,6 +681,22 @@ watch(
 }
 /* A starry cookie's burst flies out and fades. */
 .burst-star { animation: burst-star 0.9s var(--ease-out) both; }
+/* Dash: afterimages shrink away from the back, the speed lines streak on and fade, the landing flashes. */
+.dash-ghost { transform-box: fill-box; transform-origin: center; animation: dash-ghost 0.44s ease-out var(--delay) both; }
+@keyframes dash-ghost {
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(0.3); opacity: 0; }
+}
+.dash-streak { animation: dash-streak 0.38s ease-out var(--delay) both; }
+@keyframes dash-streak {
+  from { transform: translateX(-0.4px); opacity: 0.9; }
+  to { transform: translateX(0.5px); opacity: 0; }
+}
+.dash-land { transform-box: fill-box; transform-origin: center; animation: dash-land 0.24s ease-out both; }
+@keyframes dash-land {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(2); opacity: 0; }
+}
 @keyframes burst-star {
   from { transform: translate(0, 0) rotate(0deg) scale(1.2); opacity: 1; }
   to { transform: translate(var(--dx), var(--dy)) rotate(var(--spin)) scale(0.3); opacity: 0; }

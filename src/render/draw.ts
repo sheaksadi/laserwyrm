@@ -288,6 +288,8 @@ export function drawFront(f: Frame, keep: Set<string>) {
   drawHolograms(f)
   drawPuffs(f)
   drawSnake(f)
+  // Over the snake: its body fills the cells it dashed through.
+  for (const d of state.dashes) drawDash(f, d, keep)
   drawSnipper(f, keep)
   for (const laser of state.lasers) if (laser.struck) drawStrike(f, laser, keep)
 
@@ -491,6 +493,56 @@ function tube(ctx: CanvasRenderingContext2D, run: { x: number; y: number }[]) {
 }
 
 const RAINBOW = ['#FF3355', '#FF9966', '#FFE14D', '#5CFF5C', '#3FA9FF', '#B26BFF']
+
+/** A dash, as Board.vue draws it: afterimages fading from the back, speed lines, a flash where it lands. */
+function drawDash(f: Frame, d: { id: number; cells: { x: number; y: number }[]; dir: { x: number; y: number } }, keep: Set<string>) {
+  const { ctx } = f
+  const key = `dash${d.id}`
+  keep.add(key)
+  const age = since(key, f.now)
+  const head = shown.value.color.id === 'green' ? col('var(--mint)') : shown.value.color.id === 'rainbow' ? col('var(--sun)') : col(shown.value.color.value)
+  const angle = d.dir.x > 0 ? 0 : d.dir.x < 0 ? Math.PI : d.dir.y > 0 ? Math.PI / 2 : -Math.PI / 2
+  d.cells.forEach((c, i) => {
+    // Each cell waits its turn at full strength, then fades (as the SVG's delayed animation does).
+    const t = Math.max(0, age - i * 45)
+    ctx.save()
+    ctx.translate(c.x + 0.5, c.y + 0.5)
+    ctx.rotate(angle)
+    const g = easeOut(clamp01(t / 440))
+    if (g < 1) {
+      const k = lerp(1, 0.3, g)
+      ctx.globalAlpha = 0.8 * (1 - g)
+      ctx.fillStyle = head
+      ctx.fillRect(-0.42 * k, -0.42 * k, 0.84 * k, 0.84 * k)
+    }
+    const s = easeOut(clamp01(t / 380))
+    if (s < 1) {
+      ctx.globalAlpha = 0.9 * (1 - s)
+      ctx.strokeStyle = '#F0F0FF'
+      ctx.lineWidth = 0.07
+      ctx.translate(lerp(-0.4, 0.5, s), 0)
+      ctx.beginPath()
+      ctx.lineWidth = 0.08
+      ctx.moveTo(-0.6, -0.68); ctx.lineTo(0.5, -0.68)
+      ctx.moveTo(-0.5, 0); ctx.lineTo(0.4, 0)
+      ctx.moveTo(-0.6, 0.68); ctx.lineTo(0.5, 0.68)
+      ctx.stroke()
+    }
+    ctx.restore()
+  })
+  const l = easeOut(clamp01(age / 240))
+  if (l < 1) {
+    const last = d.cells[d.cells.length - 1]!
+    const x = (last.x + d.dir.x + state.cols) % state.cols
+    const y = (last.y + d.dir.y + state.rows) % state.rows
+    const k = lerp(1, 2, l)
+    ctx.globalAlpha = 1 - l
+    ctx.strokeStyle = head
+    ctx.lineWidth = 0.12
+    ctx.strokeRect(x + 0.5 - 0.45 * k, y + 0.5 - 0.45 * k, 0.9 * k, 0.9 * k)
+    ctx.globalAlpha = 1
+  }
+}
 
 function drawSnake(f: Frame) {
   const { ctx, s, dpr, now } = f

@@ -201,6 +201,7 @@ export function refill() {
 
 /** Lunge ahead, passing over the body; through the wall in normal mode, stopping short of it in hardcore. */
 export function dash() {
+  const passed: Vec[] = [{ ...state.snake[0]! }]
   for (let i = 0; i < DASH_CELLS; i++) {
     const head = state.snake[0]!
     const next = { x: head.x + state.direction.x, y: head.y + state.direction.y }
@@ -213,11 +214,22 @@ export function dash() {
     state.snake.unshift(next)
     if (state.grow > 0) state.grow--
     else state.snake.pop()
+    passed.push({ ...next })
     arrive(next)
   }
   // A beat of ghost, so landing on the body is not a bite.
   state.effects.ghost = Math.max(state.effects.ghost, state.step + 4)
+  // For the board: afterimages and speed lines where it went (the landing cell is the head itself).
+  if (passed.length > 1) {
+    const id = ++dashIds
+    state.dashes.push({ id, cells: passed.slice(0, -1), dir: { ...state.direction } })
+    later(DASH_FX_MS, () => (state.dashes = state.dashes.filter((d) => d.id !== id)))
+  }
 }
+/** Dash effects get their own ids, so the run's ids (items, debris) stay as they were. */
+let dashIds = 0
+/** How long a dash's afterimages last on the board. */
+export const DASH_FX_MS = 520
 
 /** Fruit within reach slides one cell toward the head. */
 export function pullFruit() {

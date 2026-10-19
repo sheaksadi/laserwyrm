@@ -135,6 +135,8 @@ export const state = reactive({
   popups: [] as Popup[],
   /** Star bursts from starry cookies, for the board to draw. */
   bursts: [] as { id: number; x: number; y: number }[],
+  /** Dashes, for the board to draw: the cells passed (where it set off first) and the way it went. */
+  dashes: [] as { id: number; cells: Vec[]; dir: Vec }[],
   /** Until this step, after a wizard cookie, no lasers. */
   wizardUntil: 0,
   /** A new kind of laser just arrived (without stopping play): the notice saying so. */

@@ -72,6 +72,7 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     debris: [],
     popups: [],
     bursts: [],
+    dashes: [],
     wizardUntil: 0,
     tierNote: null,
     banner: null,
