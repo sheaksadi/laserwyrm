@@ -2,6 +2,7 @@
  * What lies on the board besides the snake: walls, items and where a new
  * one can go, and the short-lived popups, banners and notices.
  */
+import { toRaw } from 'vue'
 import { editOf, live, unpackWalls } from '../design'
 import { NOTICE_MS, POPUP_MS, type Holdable, type ItemKind, type Tone, type Vec } from './catalog'
 import { pick } from './rng'
@@ -34,14 +35,16 @@ export function clearWalls() {
 }
 
 export function freeCell(): Vec {
-  const taken = (x: number, y: number) =>
-    wallSet.has(y * state.cols + x) ||
-    state.snake.some((c) => c.x === x && c.y === y) ||
-    state.items.some((i) => i.x === x && i.y === y) ||
-    (state.snipper.active && state.snipper.x === x && state.snipper.y === y)
+  // Everything taken, as cell numbers, gathered once (read raw: no reactive tracking per cell).
+  const cols = state.cols
+  const taken = new Set(wallSet)
+  for (const c of toRaw(state.snake)) taken.add(c.y * cols + c.x)
+  for (const i of toRaw(state.items)) taken.add(i.y * cols + i.x)
+  if (state.snipper.active) taken.add(state.snipper.y * cols + state.snipper.x)
+  // Same scan order as always, so the same seed picks the same cell.
   const free: Vec[] = []
   for (let y = 1; y < state.rows - 1; y++)
-    for (let x = 1; x < state.cols - 1; x++) if (!taken(x, y)) free.push({ x, y })
+    for (let x = 1; x < cols - 1; x++) if (!taken.has(y * cols + x)) free.push({ x, y })
   return pick(free)
 }
 

@@ -33,6 +33,21 @@ const runs = computed(() => {
 })
 const head = computed(() => state.snake[0]!)
 
+/** Squares, as one path: one attribute to set per step instead of one element per cell. */
+const square = (x: number, y: number, size: number) => `M${x} ${y}h${size}v${size}h-${size}z`
+/** Belly dots on every other body cell. */
+const belly = computed(() => {
+  let d = ''
+  for (let i = 1; i < state.snake.length; i += 2) d += square(state.snake[i]!.x + 0.38, state.snake[i]!.y + 0.38, 0.24)
+  return d
+})
+/** Rainbow: each body cell its own colour, in turn; one path per colour. */
+const rainbowCells = computed(() => {
+  const out = RAINBOW.map(() => '')
+  for (let i = 1; i < state.snake.length; i++) out[(i - 1) % RAINBOW.length] += square(state.snake[i]!.x + 0.15, state.snake[i]!.y + 0.15, 0.7)
+  return out
+})
+
 /** In multiplayer: everyone else's snake, as a hologram (broken where it wraps, like this one). */
 const holograms = computed(() =>
   Object.values(mp.peers)
@@ -131,6 +146,8 @@ const LASER_COLOR: Record<LaserKind, string> = {
 }
 const LASER_KINDS = Object.keys(LASER_COLOR) as LaserKind[]
 const half = (beam: Beam) => (beam.width - 1) / 2
+/** Where a laser's beams are: green ones drift, so their warning redraws as they move. */
+const beamsAt = (laser: { beams: Beam[] }) => laser.beams.map((b) => b.index).join()
 /** Emitters grow with the band they fire. */
 const emitterSize = (beam: Beam) => (beam.width === 3 ? 1.6 : 0.7)
 
@@ -243,7 +260,7 @@ watch(
 
     <!-- Walls from a home-made level: solid blocks with a lit top edge -->
     <g v-if="state.walls.length" class="walls">
-      <g v-for="i in state.walls" :key="i" :transform="`translate(${i % state.cols} ${Math.floor(i / state.cols)})`">
+      <g v-for="i in state.walls" :key="i" v-memo="[i, state.cols]" :transform="`translate(${i % state.cols} ${Math.floor(i / state.cols)})`">
         <rect x="0.04" y="0.04" width="0.92" height="0.92" fill="#2A2350" stroke="var(--lavender)" stroke-width="0.06" />
         <rect x="0.14" y="0.14" width="0.72" height="0.12" fill="var(--lavender)" opacity="0.45" />
       </g>
@@ -251,7 +268,7 @@ watch(
 
     <!-- Laser warnings: emitters at both ends, stripes, and a fuse that runs to the beat.
          A laser is one or two beams (a cross), each 1 or 3 cells wide, coloured by kind. -->
-    <g v-for="laser in state.lasers" :key="laser.id" :style="{ '--laser': LASER_COLOR[laser.kind] }">
+    <g v-for="laser in state.lasers" :key="laser.id" v-memo="[laser.struck, laser.warnMs, beamsAt(laser), state.cols, state.rows]" :style="{ '--laser': LASER_COLOR[laser.kind] }">
       <template v-if="!laser.struck">
         <g v-for="(beam, b) in laser.beams" :key="b" :class="{ tracking: laser.traits.includes('track') }">
           <rect
@@ -290,6 +307,7 @@ watch(
     <g
       v-for="item in state.items"
       :key="item.id"
+      v-memo="[item.x, item.y, item.kind, fading(item.until)]"
       :transform="`translate(${item.x + 0.5} ${item.y + 0.5})`"
     >
       <g class="pop" :class="{ fading: fading(item.until) }">
@@ -338,14 +356,14 @@ watch(
     </g>
 
     <!-- A starry cookie bursts into stars -->
-    <g v-for="b in state.bursts" :key="`burst${b.id}`" :transform="`translate(${b.x + 0.5} ${b.y + 0.5})`">
+    <g v-for="b in state.bursts" :key="`burst${b.id}`" v-memo="[b.id]" :transform="`translate(${b.x + 0.5} ${b.y + 0.5})`">
       <g v-for="(d, i) in BURST" :key="i" class="burst-star" :style="{ '--dx': `${d[0]}px`, '--dy': `${d[1]}px`, '--spin': `${d[2]}deg` }">
         <polygon :points="tinyStar(0, 0, 0.22)" fill="var(--sun)" />
       </g>
     </g>
 
     <!-- Severed pieces: lie still and shiver, then pop one by one into sparks -->
-    <g v-for="piece in state.debris" :key="piece.id">
+    <g v-for="piece in state.debris" :key="piece.id" v-memo="[piece.id]">
       <g
         v-for="(cell, i) in piece.cells"
         :key="i"
@@ -395,7 +413,7 @@ watch(
     </g>
 
     <!-- The trail: puffs left behind the tail -->
-    <g v-for="p in puffs" :key="`p${p.id}`" :transform="`translate(${p.x} ${p.y})`">
+    <g v-for="p in puffs" :key="`p${p.id}`" v-memo="[p.id, shown.trail]" :transform="`translate(${p.x} ${p.y})`">
       <g class="puff" :style="{ '--dx': `${p.dx}px`, '--dy': `${p.dy}px`, '--spin': `${p.spin}deg` }">
         <path v-if="shown.trail === 'hearts'" :d="HEART_PATH" transform="scale(0.07) translate(-3.5 -3)" :fill="p.color" />
         <polygon v-else-if="shown.trail === 'stars'" :points="tinyStar(0, 0, 0.2)" :fill="p.color" />
@@ -417,13 +435,9 @@ watch(
       stroke-linecap="square" stroke-linejoin="miter"
     />
     <template v-if="rainbow">
-      <rect v-for="(cell, i) in state.snake.slice(1)" :key="`r${i}`" :x="cell.x + 0.15" :y="cell.y + 0.15" width="0.7" height="0.7" :fill="RAINBOW[i % RAINBOW.length]" />
+      <path v-for="(d, k) in rainbowCells" :key="`r${k}`" :d="d" :fill="RAINBOW[k]" />
     </template>
-    <rect
-      v-for="(cell, i) in state.snake.slice(1)" :key="`d${i}`"
-      v-show="i % 2 === 0"
-      :x="cell.x + 0.38" :y="cell.y + 0.38" width="0.24" height="0.24" fill="var(--ink)" opacity="0.45"
-    />
+    <path :d="belly" fill="var(--ink)" opacity="0.45" />
     <circle
       v-if="shielded"
       class="shield"
@@ -472,7 +486,7 @@ watch(
     </g>
 
     <!-- Laser strikes: a straight beam and a jagged bolt, over everything -->
-    <g v-for="laser in state.lasers" :key="`s${laser.id}`">
+    <g v-for="laser in state.lasers" :key="`s${laser.id}`" v-memo="[laser.struck, state.cols, state.rows]">
       <template v-if="laser.struck">
         <g v-for="(beam, b) in laser.beams" :key="b" class="strike" :class="[beam.axis, laser.from]">
           <rect
@@ -498,6 +512,7 @@ watch(
     <text
       v-for="p in state.popups"
       :key="p.id"
+      v-memo="[p.id]"
       class="popup"
       :x="p.x + 0.5" :y="p.y"
       text-anchor="middle"
