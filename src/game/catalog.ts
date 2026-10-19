@@ -108,10 +108,12 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
  * Which rules of play a run uses. 1: the first item table. 2 adds the
  * cookies (plain, wizard, starry). 3: a new kind of laser no longer stops
  * play for two bars; it is announced and play goes on. 4: purple lasers
- * come first (level 5), then blue (12) and white (21). Replays keep the
- * revision they were played with, so old runs play back the same.
+ * come first (level 5), then blue (12) and white (21). 5: far fewer lasers;
+ * their number grows slowly and steps up with each new kind (see
+ * `lasersFor`). Replays keep the revision they were played with, so old
+ * runs play back the same.
  */
-export const ITEMS_REV = 4
+export const ITEMS_REV = 5
 
 /** The revision of the run in play (set by `reset`): everything that differs between revisions reads it. */
 export const revision = { rev: ITEMS_REV }
