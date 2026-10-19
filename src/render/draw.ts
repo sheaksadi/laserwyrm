@@ -93,6 +93,8 @@ export interface Frame {
   dpr: number
   /** Animation time in ms (it stands still while the game is paused). */
   now: number
+  /** The world's animation time: as `now`, but at half speed during slow-mo (lasers, items, the snipper). */
+  world: number
   /** Wall-clock ms, for the trail puffs, which are timed that way. */
   wall: number
   beatAt: number
@@ -230,14 +232,14 @@ export function drawFront(f: Frame, keep: Set<string>) {
   for (const item of state.items) {
     const key = `i${item.id}`
     keep.add(key)
-    const age = since(key, now)
+    const age = since(key, f.world)
     const pop = easeOut(clamp01(age / 300))
     let alpha = pop
-    if (item.until !== null && item.until - state.step <= 8 && (now % 250) >= 125) alpha *= 0.25
+    if (item.until !== null && item.until - state.step <= 8 && (f.world % 250) >= 125) alpha *= 0.25
     let scale = 0.95 + 0.05 * pop
     let spin = 0
-    if (item.kind === 'star') spin = ((now % 3000) / 3000) * Math.PI * 2
-    if ((item.kind === 'heart' || item.kind === 'wizard' || item.kind === 'totem') && now % 600 >= 300) scale *= 1.25
+    if (item.kind === 'star') spin = ((f.world % 3000) / 3000) * Math.PI * 2
+    if ((item.kind === 'heart' || item.kind === 'wizard' || item.kind === 'totem') && f.world % 600 >= 300) scale *= 1.25
     ctx.save()
     ctx.translate(item.x + 0.5, item.y + 0.5)
     ctx.rotate(spin)
@@ -311,7 +313,7 @@ function drawWarning(f: Frame, laser: Laser, keep: Set<string>) {
   const { cols, rows } = state
   const key = `w${laser.id}`
   keep.add(key)
-  const age = since(key, now)
+  const age = since(key, f.world)
   const p = clamp01(age / laser.warnMs)
   // The stripes breathe: 0.14 to 0.36, there and back every 0.8 s.
   const phase = (age % 800) / 400
@@ -622,7 +624,8 @@ const PINCER_TOP = new Path2D('M 0.18 -0.12 Q 0.48 -0.2 0.5 0.02 Q 0.36 -0.06 0.
 const PINCER_BOTTOM = new Path2D('M 0.18 0.12 Q 0.48 0.2 0.5 -0.02 Q 0.36 0.06 0.22 0.02 Z')
 
 function drawSnipper(f: Frame, keep: Set<string>) {
-  const { ctx, s, dpr, now } = f
+  const { ctx, s, dpr } = f
+  const now = f.world
   const sn = state.snipper
   if (!sn.active) return
   const key = 'snipper'

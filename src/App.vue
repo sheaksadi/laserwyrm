@@ -41,7 +41,6 @@ import ReplayViewer from './components/ReplayViewer.vue'
 import PadGlyph from './components/PadGlyph.vue'
 import FpsMeter from './components/FpsMeter.vue'
 import PadReady from './components/PadReady.vue'
-import { padPrompt } from './app/padReady'
 import { showFps } from './perf'
 import ActionButton from './components/ActionButton.vue'
 import Joystick from './components/Joystick.vue'
@@ -175,18 +174,6 @@ watch(
     // Into play: hide after the same two seconds. Out of play: show at once.
     if (playing) cursorTimer = window.setTimeout(() => (cursorIdle.value = true), 2000)
     else cursorIdle.value = false
-  },
-)
-
-/** "Controller connected" shows briefly each time one joins. */
-const padToast = ref(false)
-let padToastTimer = 0
-watch(
-  () => pad.joined,
-  () => {
-    padToast.value = true
-    clearTimeout(padToastTimer)
-    padToastTimer = window.setTimeout(() => (padToast.value = false), 2200)
   },
 )
 
@@ -337,10 +324,6 @@ onBeforeUnmount(() => {
       <template v-else>tap, click or press any key for full screen</template>
     </div>
 
-    <!-- Controller connected -->
-    <div v-if="padToast && !padPrompt" class="pad-toast">
-      <PadGlyph button="a" /> controller connected
-    </div>
 
     <!-- Phones held upright: ask for sideways -->
     <div v-if="layout.pad === 'sticks' && layout.portrait" class="rotate">
@@ -352,7 +335,7 @@ onBeforeUnmount(() => {
       <p class="rotate-sub">Laserwyrm plays in landscape: stick on the left, button on the right.</p>
     </div>
 
-    <!-- A controller joined before any click: one click lets it go full screen with sound -->
+    <!-- Controller connected (and, before any click, asking for one: full screen and sound need it) -->
     <PadReady />
 
     <!-- Frame rate, when switched on in Settings -->

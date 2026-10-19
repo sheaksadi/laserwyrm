@@ -63,7 +63,7 @@ export {
   type Tier, type Tone, type Vec,
 } from './catalog'
 export { heldSlots, intensity, startHearts, tempoFor, traitsFor } from './curve'
-export { cheats, demo, isActive, lastReplay, match, onFeel, onMark, replay, state } from './state'
+export { cheats, demo, isActive, worldSlowed, lastReplay, match, onFeel, onMark, replay, state } from './state'
 export { arenaInsets, fitGrid, fitLayout, isTouch, layout } from './layout'
 export { reset } from './engine'
 export { levelFeel, levelPlan, multiplier } from './levels'

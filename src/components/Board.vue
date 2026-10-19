@@ -5,7 +5,7 @@
  * a lighter one), with square caps for a blocky, 8-bit look.
  */
 import { computed, ref, watch } from 'vue'
-import { HEART_PATH, isActive, match, state, TONE_COLOR, type Beam, type LaserKind } from '../game'
+import { HEART_PATH, isActive, match, state, TONE_COLOR, worldSlowed, type Beam, type LaserKind } from '../game'
 import ItemArt from './ItemArt.vue'
 import { colorOf, mp, playerName } from '../multiplayer'
 import { shown } from '../looks'
@@ -178,6 +178,23 @@ watch(
       ],
       { duration: 280, easing: 'ease-out' },
     )
+  },
+)
+/**
+ * Slow-mo: the world's animations (laser warnings and fuses, items, the
+ * snipper) run at half speed with it; strikes, debris and popups, the
+ * game answering you, keep theirs. Checked each step, since new things
+ * start their animations at full speed.
+ */
+const WORLD = '.warn, .fuse, .emitter, .pop, .fading, .pincer, .spin, .beat-throb, .twinkle'
+watch(
+  () => [state.step, worldSlowed()] as const,
+  ([, slow]) => {
+    const rate = slow ? 0.5 : 1
+    for (const a of root.value?.getAnimations({ subtree: true }) ?? []) {
+      const target = (a.effect as KeyframeEffect | null)?.target
+      if (a.playbackRate !== rate && target instanceof Element && target.matches(WORLD)) a.playbackRate = rate
+    }
   },
 )
 watch(

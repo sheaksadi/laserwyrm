@@ -11,7 +11,7 @@
  * on each animation frame.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { state } from '../game'
+import { state, worldSlowed } from '../game'
 import { shown } from '../looks'
 import { colorOf, mp } from '../multiplayer'
 import { htmlInCanvas } from '../renderer'
@@ -108,13 +108,18 @@ const backCtx = back.getContext('2d')!
 let backFor = ''
 /** Animation time: it stands still while the game is paused, as the SVG board's animations do. */
 let anim = 0
+/** The world's animation time: half speed during slow-mo. */
+let world = 0
 let lastWall = performance.now()
 
 function render() {
   const c = canvas.value
   if (!c || !ctx) return
   const wall = performance.now()
-  if (state.status !== 'paused') anim += wall - lastWall
+  if (state.status !== 'paused') {
+    anim += wall - lastWall
+    world += (wall - lastWall) * (worldSlowed() ? 0.5 : 1)
+  }
   lastWall = wall
   const { s, ox, oy } = fit.value
   const { dpr } = size.value
@@ -129,7 +134,7 @@ function render() {
   ctx.clearRect(0, 0, c.width, c.height)
   ctx.drawImage(back, 0, 0)
   const keep = new Set<string>()
-  drawFront({ ctx, s, ox, oy, dpr, now: anim, wall, beatAt, downbeat, puffs }, keep)
+  drawFront({ ctx, s, ox, oy, dpr, now: anim, world, wall, beatAt, downbeat, puffs }, keep)
   sweep(keep)
 }
 
