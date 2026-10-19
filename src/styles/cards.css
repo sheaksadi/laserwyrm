@@ -348,56 +348,32 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
 }
 .posted-tag.sending { border-color: var(--border); color: var(--text-muted); }
 
-/* The run's place on the board: the rank big and bright, then where to go from there. */
-.placed {
-  display: grid;
-  gap: 6px;
-  padding: 12px 12px 14px;
-  border: 3px solid var(--sun);
-  border-radius: 12px;
-  background: linear-gradient(rgba(255, 225, 77, 0.12), rgba(255, 51, 85, 0.08));
-  box-shadow: 0 0 22px rgba(255, 225, 77, 0.18);
+/* The run's place on the board: one quiet line, and small buttons for those who care. */
+.placed { display: grid; justify-items: center; gap: 8px; }
+.placed-line { font-size: 17px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.placed-line b { font-weight: 400; color: var(--sun); }
+.placed-buttons { display: flex; justify-content: center; gap: 6px; }
+.ghost {
+  padding: 3px 12px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 15px;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
-.placed-rank {
-  font-family: var(--font-pixel);
-  font-size: 2rem;
-  line-height: 1.1;
-  color: var(--sun);
-  text-shadow: 3px 3px 0 var(--coral), 0 0 18px rgba(255, 225, 77, 0.55);
-  animation: rank-in 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
-}
-.placed-rank .hash { font-size: 0.6em; margin-right: 2px; color: var(--coral); text-shadow: 2px 2px 0 var(--ink); }
-@keyframes rank-in { from { transform: scale(0.4); opacity: 0; } }
-.placed-label { font-size: 16px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
-.placed-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
-.card-over .btn.btn-mini {
-  margin-top: 0;
-  padding: calc(0.4rem + 0.3em) 0.4rem;
-  border-width: 2px;
-  border-radius: 10px;
-  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.3), inset 3px 3px 0 rgba(255, 255, 255, 0.2), 3px 3px 0 var(--ink);
-  font-size: 0.5rem;
-  background: var(--sun);
-  color: var(--ink);
-  text-shadow: none;
-}
-.card-over .btn.btn-mini:hover { background: #FFEB80; }
-.card-over .btn.btn-mini.btn-watch { background: var(--sky); }
-.card-over .btn.btn-mini.btn-watch:hover { background: #6BBEFF; }
-.card-over .btn.btn-mini.btn-line { background: var(--bg-warm); color: var(--text-dim); }
-.card-over .btn.btn-mini.btn-line:hover { background: var(--border); }
+.ghost:hover { border-color: var(--text-muted); color: var(--text); }
 
 /* A just-made login code: the code, copy, and what it is. */
 .login-code {
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 2px solid var(--sun);
+  border: 2px solid var(--border);
   border-radius: 12px;
-  background: var(--bg-off);
   text-align: left;
 }
-.login-label { font-family: var(--font-pixel); font-size: 9px; text-transform: uppercase; color: var(--sun); }
+.login-label { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 .login-row { display: flex; align-items: center; gap: 6px; }
 .login-row code {
   flex: 1;
@@ -407,9 +383,9 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
   border-radius: 8px;
   background: var(--bg);
   font-family: var(--font-code);
-  font-size: 18px;
+  font-size: 17px;
   letter-spacing: 0.06em;
-  color: var(--text);
+  color: var(--text-dim);
   user-select: all;
   overflow-wrap: anywhere;
 }
@@ -421,12 +397,12 @@ html.pad-on .card-start .btn:focus { background: var(--coral); border-color: var
   height: 34px;
   border: 2px solid var(--border);
   border-radius: 8px;
-  background: var(--bg-warm);
-  color: var(--text-dim);
+  background: transparent;
+  color: var(--text-muted);
 }
-.icon-btn:hover { border-color: var(--sun); color: var(--sun); }
+.icon-btn:hover { border-color: var(--text-muted); color: var(--text); }
 .icon-btn.info { font-family: var(--font-pixel); font-size: 11px; }
-.icon-btn.info[aria-expanded='true'] { background: var(--sun); border-color: var(--sun); color: var(--ink); }
+.icon-btn.info[aria-expanded='true'] { border-color: var(--text-muted); color: var(--text); }
 .login-info { font-size: 15px; line-height: 1.25; color: var(--text-dim); }
 .login-note { font-size: 15px; color: var(--text-muted); }
 .link-btn { padding: 0; border: 0; background: none; color: var(--sky); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

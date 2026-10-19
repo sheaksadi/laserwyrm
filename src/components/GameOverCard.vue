@@ -59,12 +59,11 @@ async function copyCode() {
         </p>
       </form>
       <div v-else-if="scoreEntry.entry.phase === 'saved'" class="placed">
-        <p class="placed-rank"><span class="hash">#</span>{{ scoreEntry.entry.rank }}</p>
-        <p class="placed-label">{{ account.name }} on the {{ state.mode === 'hardcore' ? 'hardcore ' : '' }}high scores</p>
+        <p class="placed-line"><b>#{{ scoreEntry.entry.rank }}</b> on the {{ state.mode === 'hardcore' ? 'hardcore ' : '' }}high scores</p>
         <div class="placed-buttons">
-          <button class="btn btn-mini" @click="go(`#/scores/${scoreEntry.entry.id}`)"><span class="text-trim">Board</span></button>
-          <button class="btn btn-mini btn-watch" @click="go(`#/watch/${scoreEntry.entry.id}`)"><span class="text-trim">Watch</span></button>
-          <button class="btn btn-mini btn-line" @click="openAccount"><span class="text-trim">Manage</span></button>
+          <button class="ghost" @click="go(`#/scores/${scoreEntry.entry.id}`)">Board</button>
+          <button class="ghost" @click="go(`#/watch/${scoreEntry.entry.id}`)">Watch</button>
+          <button class="ghost" @click="openAccount">Manage</button>
         </div>
       </div>
       <div v-if="scoreEntry.newLoginCode" class="login-code">
