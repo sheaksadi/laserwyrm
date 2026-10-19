@@ -14,7 +14,7 @@
  * game's music volume. Strudel is AGPL-3.0, and so is this game.
  */
 import { musicOutput, setBackgroundMusic, setCustomMusic, VARIANTS, type Variant } from './audio'
-import { tierOf } from './game'
+import { tierOf } from './game/catalog'
 
 /* ─── The stock track, as Strudel code ───────────────────────────────── */
 
