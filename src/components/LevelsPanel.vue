@@ -6,6 +6,7 @@
  * the tabs below. A level only keeps what was changed; the rest follows the
  * global curve.
  */
+import { ui } from '../app/ui'
 import { computed, nextTick, ref, watch } from 'vue'
 import { cheatLevel, laserTiers, play, reset, state, tierOf } from '../game'
 import { design, MAX_LEVELS, setCustom, STOCK_LEVELS, stopShared } from '../design'
@@ -16,7 +17,11 @@ import WallEditor from './WallEditor.vue'
 
 const emit = defineEmits<{ close: [] }>()
 
-const selected = ref(Math.min(state.level, design.levels.length - 1))
+/** The level picked: kept in `ui.editor`, so the editor opens again on it (first time: the level in play). */
+const selected = computed({
+  get: () => Math.min(ui.editor.level ?? state.level, design.levels.length - 1),
+  set: (v: number) => (ui.editor.level = v),
+})
 const edit = computed(() => design.levels[selected.value]!)
 const edited = (i: number) => Object.keys(design.levels[i] ?? {}).length > 0
 const tierColor = (i: number) => TIER_COLOR[laserTiers()[tierOf(i)]!.kind]
@@ -100,7 +105,8 @@ const TABS: { id: Tab; name: string }[] = [
   { id: 'music', name: 'Music' },
   { id: 'background', name: 'Backing' },
 ]
-const tab = ref<Tab>('pacing')
+/** The level's tab, kept with the rest of the editor's place. */
+const tab = computed({ get: () => ui.editor.levelTab as Tab, set: (v: Tab) => (ui.editor.levelTab = v) })
 /** The wall editor, whose tools float beside the card. */
 const walls = ref<InstanceType<typeof WallEditor> | null>(null)
 const tabChanged = (t: Tab) => {

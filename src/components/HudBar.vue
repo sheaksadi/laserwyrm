@@ -12,6 +12,7 @@ import { shared } from '../design'
 import { mp } from '../multiplayer'
 import { sync } from '../sync'
 import { touchControls } from '../controls'
+import { keyFor } from '../keys'
 import { go } from '../app/route'
 import { openAccount, openAgent, openCustom, openSettings, restart, status, toggleMusic, toggleMute, ui } from '../app/ui'
 import HeldPills from './HeldPills.vue'
@@ -104,7 +105,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onPointerDown))
               <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
               <path v-if="!musicOn" d="M3 3l18 18" />
             </svg>
-            <span>Music</span><span class="state" :class="{ on: musicOn }">{{ musicOn ? 'on' : 'off' }}</span><kbd class="hide-touch">B</kbd>
+            <span>Music</span><span class="state" :class="{ on: musicOn }">{{ musicOn ? 'on' : 'off' }}</span><kbd class="hide-touch">{{ keyFor('music') }}</kbd>
           </button>
           <!-- Phones: switch between the D-pad and the stick without going into settings -->
           <button v-if="layout.pad !== 'none'" class="menu-item" role="menuitem" @click="touchControls = touchControls === 'dpad' ? 'stick' : 'dpad'">
@@ -121,11 +122,11 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onPointerDown))
               <path v-if="muted" d="m22 9-6 6M16 9l6 6" />
               <path v-else d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
             </svg>
-            <span>Sound</span><span class="state" :class="{ on: !muted }">{{ muted ? 'off' : 'on' }}</span><kbd class="hide-touch">M</kbd>
+            <span>Sound</span><span class="state" :class="{ on: !muted }">{{ muted ? 'off' : 'on' }}</span><kbd class="hide-touch">{{ keyFor('mute') }}</kbd>
           </button>
           <button class="menu-item" role="menuitem" @click="restart">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
-            <span>Restart</span><span></span><kbd class="hide-touch">R</kbd>
+            <span>Restart</span><span></span><kbd class="hide-touch">{{ keyFor('restart') }}</kbd>
           </button>
           <button class="menu-item" role="menuitem" @click="ui.menuOpen = false; go('#/scores')">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" /></svg>
@@ -145,7 +146,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onPointerDown))
           </button>
           <button class="menu-item" role="menuitem" @click="openCustom">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 14 10M14 4v3M14 13v3M10 7H7M21 7h-3M17 4l-1.5 1.5M17 10l-1.5-1.5" /></svg>
-            <span>Custom</span><span></span><kbd class="hide-touch">C</kbd>
+            <span>Custom</span><span></span><span></span>
           </button>
         </div>
       </div>

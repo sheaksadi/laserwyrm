@@ -9,6 +9,7 @@ import { touchControls } from '../controls'
 import { computed } from 'vue'
 import { HEART_PATH, isTouch, POWER_KINDS, POWERS, type Mode } from '../game'
 import { pad } from '../gamepad'
+import { bindings, keyFor, keyLabel } from '../keys'
 import PadGlyph from './PadGlyph.vue'
 import PowerIcon from './PowerIcon.vue'
 
@@ -62,14 +63,15 @@ const touch = computed(() => isTouch() && !pad.connected)
         </template>
         <template v-else>
           <p>
-            <span class="caps arrows"><kbd class="up">↑</kbd><kbd class="left">←</kbd><kbd class="down">↓</kbd><kbd class="right">→</kbd></span>
-            <span>move <i>or WASD</i></span>
+            <!-- The keys as bound in Settings → Controls -->
+            <span class="caps arrows"><kbd class="up">{{ keyLabel(bindings.up[0] ?? '') }}</kbd><kbd class="left">{{ keyLabel(bindings.left[0] ?? '') }}</kbd><kbd class="down">{{ keyLabel(bindings.down[0] ?? '') }}</kbd><kbd class="right">{{ keyLabel(bindings.right[0] ?? '') }}</kbd></span>
+            <span>move<template v-if="bindings.up[1]"> <i>or {{ [bindings.up[1], bindings.left[1], bindings.down[1], bindings.right[1]].map((k) => keyLabel(k ?? '')).join('') }}</i></template></span>
           </p>
-          <p><span class="caps"><kbd class="space">space</kbd></span><span>power-up</span></p>
-          <p><span class="caps"><kbd>P</kbd><kbd>Esc</kbd></span><span>pause</span></p>
-          <p><span class="caps"><kbd>R</kbd></span><span>restart</span></p>
-          <p><span class="caps"><kbd>B</kbd><kbd>M</kbd></span><span>music, sound</span></p>
-          <p><span class="caps"><kbd>C</kbd></span><span>custom</span></p>
+          <p><span class="caps"><kbd class="space">{{ keyFor('use').toLowerCase() }}</kbd></span><span>power-up</span></p>
+          <p><span class="caps"><kbd>{{ keyFor('pause') }}</kbd><kbd>Esc</kbd></span><span>pause</span></p>
+          <p><span class="caps"><kbd>{{ keyFor('restart') }}</kbd></span><span>restart</span></p>
+          <p><span class="caps"><kbd>{{ keyFor('music') }}</kbd><kbd>{{ keyFor('mute') }}</kbd></span><span>music, sound</span></p>
+          <p><span class="caps"><kbd>{{ keyFor('cheats') }}</kbd><kbd>{{ keyFor('editor') }}</kbd></span><span>cheats, editor</span></p>
         </template>
       </div>
     </div>

@@ -1,7 +1,8 @@
 /**
  * Input for the whole app: the keyboard, swipes on touch screens, and the
  * controller's buttons. What a key does depends on what is open: a panel
- * gets Escape, a replay gets the seek keys, the game gets the rest.
+ * gets Escape, a replay gets the seek keys, the game gets the rest. Keys
+ * go through the player's bindings (src/keys.ts), except Esc and Enter.
  */
 import { match, pause, play, reset, toggle, turn, useItem, type DirName } from '../game'
 import { leaveFullscreen } from '../fullscreen'
@@ -9,13 +10,8 @@ import { navMove, navPress, navScope } from '../menuNav'
 import { mp } from '../multiplayer'
 import { seekBy, togglePlay } from '../replayPlayer'
 import { go, route } from './route'
-import { begin, closeBriefing, openCustom, status, toggleMusic, toggleMute, toMainMenu, ui } from './ui'
-
-export const KEYMAP: Record<string, DirName> = {
-  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
-  w: 'up', s: 'down', a: 'left', d: 'right',
-  W: 'up', S: 'down', A: 'left', D: 'right',
-}
+import { actionOf, dirOf } from '../keys'
+import { begin, closeBriefing, openCustom, status, toggleCheats, toggleEditor, toggleMusic, toggleMute, toMainMenu, ui } from './ui'
 
 export function onKey(event: KeyboardEvent) {
   if (event.metaKey || event.ctrlKey || event.altKey) return
@@ -44,43 +40,45 @@ export function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape' && mp.phase === 'off') ui.mpOpen = false
     return
   }
-  if (ui.accountOpen) {
-    if (event.key === 'Escape') ui.accountOpen = false
-    return
+  // Cheats (C) and the editor (E) open and close from anywhere in the game, unless typing.
+  const action = actionOf(event.key)
+  const typing = !!document.activeElement?.matches('input:not([type=range]), textarea')
+  if (!typing && !ui.agentOpen && (action === 'cheats' || action === 'editor')) {
+    event.preventDefault()
+    return action === 'cheats' ? toggleCheats() : toggleEditor()
   }
   if (ui.settingsOpen) {
     if (event.key === 'Escape') ui.settingsOpen = false
     return
   }
   if (ui.agentOpen) {
-    if (event.key === 'Escape' && !document.activeElement?.matches('input:not([type=range]), textarea')) ui.agentOpen = false
+    if (event.key === 'Escape' && !typing) ui.agentOpen = false
     return
   }
   if (ui.customOpen) {
     // Typing in the search or share box: the keys are text.
-    if (document.activeElement?.matches('input:not([type=range]), textarea')) return
-    if (event.key === 'Escape' || event.key === 'c' || event.key === 'C') ui.customOpen = false
+    if (typing) return
+    if (event.key === 'Escape') ui.customOpen = false
     return
   }
-  if (ui.briefing && status.value === 'ready' && !ui.accountOpen && !ui.cheatOpen) {
+  if (ui.briefing && status.value === 'ready' && !ui.cheatOpen) {
     event.preventDefault()
     if (event.key === 'Escape') closeBriefing()
-    else begin(KEYMAP[event.key])
+    else begin(dirOf(event.key))
     return
   }
-  // Typing a level name or a share code in the cheat menu: the keys are text.
-  if (ui.cheatOpen && document.activeElement?.matches('input:not([type=range]), textarea')) return
-  if (event.key === 'c' || event.key === 'C') return ui.cheatOpen ? (ui.cheatOpen = false) : openCustom()
+  // Typing a level name or a share code in the editor: the keys are text.
+  if (ui.cheatOpen && typing) return
   if (ui.cheatOpen) {
     if (event.key === 'Escape') ui.cheatOpen = false
     return
   }
-  const dir = KEYMAP[event.key]
+  const dir = dirOf(event.key)
   if (dir) {
     event.preventDefault()
     turn(dir)
-  } else if (event.key === ' ') {
-    // Mid-game Space uses a held pill; otherwise it starts or resumes.
+  } else if (action === 'use') {
+    // Mid-game it uses a held pill; otherwise it starts or resumes.
     event.preventDefault()
     if (status.value === 'running') useItem()
     else toggle()
@@ -90,14 +88,14 @@ export function onKey(event: KeyboardEvent) {
   } else if (event.key === 'Escape' && status.value !== 'running' && !ui.menuOpen) {
     // Mid-game Esc pauses; on the pause screen it leaves full screen.
     leaveFullscreen()
-  } else if (event.key === 'Escape' || event.key === 'p' || event.key === 'P') {
+  } else if (event.key === 'Escape' || action === 'pause') {
     ui.menuOpen = false
     pause()
-  } else if (event.key === 'r' || event.key === 'R') {
+  } else if (action === 'restart') {
     reset()
-  } else if (event.key === 'm' || event.key === 'M') {
+  } else if (action === 'mute') {
     toggleMute()
-  } else if (event.key === 'b' || event.key === 'B') {
+  } else if (action === 'music') {
     toggleMusic()
   }
 }
@@ -158,7 +156,6 @@ export const padHandlers = {
     if (ui.menuOpen) return (ui.menuOpen = false)
     if (match.on && mp.phase === 'playing') return (ui.mpMenu = !ui.mpMenu)
     if (ui.mpOpen && mp.phase === 'off') return (ui.mpOpen = false)
-    if (ui.accountOpen) return (ui.accountOpen = false)
     if (ui.settingsOpen) return (ui.settingsOpen = false)
     if (ui.customOpen) return (ui.customOpen = false)
     if (ui.agentOpen) return (ui.agentOpen = false)

@@ -31,11 +31,15 @@ rises and more lasers come.
 - Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
 - Settings (☰, the start screen, or the cog on the pause screen), in tabs:
   Sound (all sound, music and effects volume), Controls (controller
-  vibration and strength, phone D-pad or stick, the keyboard keys),
-  Display (full screen, the board renderer: SVG or an experimental canvas,
-  the FPS meter with 1% low and graph), Cheats (any level, god mode, no
-  lasers, items, reset your best; never counted) and About (shortcuts to
-  scores, replays, account, custom games, AI agent; source and license)
+  vibration and strength, phone D-pad or stick with a picture of each, and
+  every key, rebindable), Display (full screen, the board renderer: SVG or
+  an experimental canvas, the FPS meter with 1% low and graph), Account
+  (every Account button opens it), Cheats (C: any level, god mode, no
+  lasers, items, reset your best; picking a level or item closes Settings
+  and plays on; never counted) and About (shortcuts to scores, replays,
+  custom games, AI agent; source and license)
+- E opens the editor and closes it again; it comes back where it was left
+  (its tab, the level, that level's tab)
 - When a controller joins, a notice says so; before any click it also asks
   for one (browsers only allow full screen and sound after a click or key);
   after that the controller does everything. While playing, the mouse pointer
@@ -50,7 +54,7 @@ rises and more lasers come.
   (blue 11, purple 21, white 31), so their replays play back the same
 - Playing goes full screen and stays there. Esc pauses; Esc again, or the
   pause screen's button, leaves full screen. Turn it off in the ☰ menu
-- C (or ☰ → Custom, or the Custom button) opens custom play: play your own game
+- ☰ → Custom, or the Custom button, opens custom play: play your own game
   or a shared one, or open the editor. The editor (workshop) has tabs:
   - Game rules: your game's hearts (start, most, refill), starting length,
     power-up slots and starting level, and its share code (cheats are in

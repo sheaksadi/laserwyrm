@@ -3,6 +3,7 @@
  * magnet), and which bonus item drops when a game's items are changed.
  */
 import { live, type Stack } from '../design'
+import { keyFor } from '../keys'
 import { revision, customItem, DASH_CELLS, FRUIT_GROW, isCustom, isPower, POWER_KINDS, POWERS, TOTEM, type CustomId, type Holdable, type Item, type ItemKind, type Vec } from './catalog'
 import { addItem, isWall, notice, popup } from './board'
 import { heldSlots, lifeOf, maxHearts, rateOf } from './curve'
@@ -37,7 +38,7 @@ export function eat(item: Item) {
       mark('power')
       sound.pill()
       popup(item, power.name, power.tone)
-      notice(item.kind, `${power.name} stored`, `${power.blurb}. Space to use.`)
+      notice(item.kind, `${power.name} stored`, `${power.blurb}. ${keyFor('use')} to use.`)
     } else {
       activate(item.kind, item)
     }
@@ -77,7 +78,7 @@ export function eatCustom(item: Item, kind: CustomId) {
       mark('power')
       sound.pill()
       popup(item, c.name, 'mint')
-      notice(kind, `${c.name} stored`, `${c.blurb}. Space to use.`)
+      notice(kind, `${c.name} stored`, `${c.blurb}. ${keyFor('use')} to use.`)
     } else {
       activate(kind, item)
     }

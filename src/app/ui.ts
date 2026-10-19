@@ -10,21 +10,23 @@ import { library, setCustom, stopShared } from '../design'
 import { enterFullscreen, isFullscreen, leaveFullscreen } from '../fullscreen'
 import { createRoom, leaveRoom, mp } from '../multiplayer'
 
-export type SettingsTab = 'sound' | 'controls' | 'display' | 'cheats' | 'about'
+export type SettingsTab = 'sound' | 'controls' | 'display' | 'account' | 'cheats' | 'about'
+export type WorkshopTab = 'cheats' | 'global' | 'levels' | 'music' | 'art'
 
 export const ui = reactive({
   /** The hamburger menu on the right holds music, sound and restart. */
   menuOpen: false,
-  /** Account, from the menu or the start card. */
-  accountOpen: false,
   /** Settings, from the menu, the start card or the pause card. */
   settingsOpen: false,
   /** Which settings tab shows. */
   settingsTab: 'sound' as SettingsTab,
-  /** The workshop (cheats and the editor), from the custom screen; C or Escape closes it. */
+  /** The workshop (the custom game's editor): E, the custom screen or the pause card; E or Escape closes it. */
   cheatOpen: false,
-  /** Which workshop tab opens first: cheats from C, the level editor from custom play. */
-  cheatTab: 'cheats' as 'cheats' | 'global' | 'levels',
+  /**
+   * Where the editor was left, so opening it again comes back there: its
+   * tab, the level picked, and that level's own tab.
+   */
+  editor: { view: 'levels' as WorkshopTab, level: null as number | null, levelTab: 'pacing' },
   /** AI agents (☰ → AI agent): connect one to edit your custom games over MCP. */
   agentOpen: false,
   /** Multiplayer: the start screen's button, an invite from the custom screen, or a #/mp/123456 link. */
@@ -70,10 +72,9 @@ export function restart() {
   reset()
 }
 
+/** The account lives in Settings: every Account button opens that tab. */
 export function openAccount() {
-  ui.menuOpen = false
-  ui.accountOpen = true
-  pause()
+  openSettings('account')
 }
 
 export function openBriefing(mode: Mode) {
@@ -130,13 +131,38 @@ export function playCustom() {
   reset()
   openBriefing('normal')
 }
-/** The level editor, from the custom screen or the pause screen. */
+/** The editor, from E, the custom screen or the pause screen: back where it was left. */
 export function openEditor() {
   ui.customOpen = false
-  ui.cheatTab = 'levels'
+  ui.settingsOpen = false
   ui.cheatOpen = true
   ui.menuOpen = false
   pause()
+}
+/** E: the editor, or out of it. */
+export function toggleEditor() {
+  if (ui.cheatOpen) ui.cheatOpen = false
+  else openEditor()
+}
+/** C: Settings → Cheats, or out of it. */
+export function toggleCheats() {
+  if (ui.settingsOpen && ui.settingsTab === 'cheats') ui.settingsOpen = false
+  else {
+    ui.cheatOpen = false
+    ui.customOpen = false
+    openSettings('cheats')
+  }
+}
+/**
+ * A cheat that means "take me there": do it, close Settings and play on
+ * (from the start screen, a fresh run; after game over, a new one first).
+ */
+export function cheatThenPlay(cheat: () => void) {
+  if (state.status === 'over') reset()
+  cheat()
+  ui.settingsOpen = false
+  ui.briefing = null
+  play()
 }
 
 /** Leave the run for the start screen. */

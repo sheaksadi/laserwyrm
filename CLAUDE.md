@@ -43,6 +43,7 @@ src/
   replayPlayer.ts    watching a recorded run (speed, seek)
   account.ts api.ts  the player on this device; the HTTP client for server/
   sync.ts            syncing custom games to the account (for AI agents over MCP)
+  keys.ts          keyboard bindings (two keys per action, saved on the device); input reads them
   looks.ts sprites.ts gamepad.ts controls.ts fullscreen.ts menuNav.ts
   components/        Vue components (groups below)
   styles/cards.css   the start/pause/game-over cards and overlays (see "Styles")
@@ -67,8 +68,8 @@ Components, by area:
   AutoSlider
 - **Custom games:** CustomPanel, ExplorePanel
 - **Scores and replays:** Leaderboard, ReplaysPanel, ReplayViewer
-- **Settings** (tabs: Sound, Controls, Display, Cheats, About; `ui.settingsTab`, `openSettings(tab)`): SettingsPanel, CheatsPanel
-- **Account:** AccountPanel, NameEdit, LookPicker, AgentPanel
+- **Settings** (tabs: Sound, Controls, Display, Account, Cheats, About; `ui.settingsTab`, `openSettings(tab)`): SettingsPanel, CheatsPanel, AccountPanel (`embedded` there)
+- **Account bits:** NameEdit, LookPicker; AgentPanel (AI agents)
 - **Multiplayer:** MultiplayerPanel, MpBar, MpResults
 
 ## The engine (`src/game/`)

@@ -23,7 +23,6 @@ import { onKey, onTouchMove, onTouchStart, padHandlers } from './app/input'
 import { watchGameOver } from './app/scoreEntry'
 import Briefing from './components/Briefing.vue'
 import MpResults from './components/MpResults.vue'
-import AccountPanel from './components/AccountPanel.vue'
 import HudBar from './components/HudBar.vue'
 import PlayNotices from './components/PlayNotices.vue'
 import StartCard from './components/StartCard.vue'
@@ -64,7 +63,7 @@ watch(
 watch(
   () =>
     route.value.name === 'game' && status.value === 'ready' && !ui.briefing &&
-    !ui.customOpen && !ui.cheatOpen && !ui.settingsOpen && !ui.accountOpen && !ui.agentOpen &&
+    !ui.customOpen && !ui.cheatOpen && !ui.settingsOpen && !ui.agentOpen &&
     !ui.mpOpen && mp.phase === 'off' && !match.on,
   (on) => (on ? startDemo() : stopDemo()),
   { immediate: true },
@@ -121,7 +120,7 @@ watch(
   { immediate: true },
 )
 watch(
-  () => [status.value, route.value.name, ui.customOpen, ui.cheatOpen, ui.settingsOpen, ui.accountOpen, ui.briefing, ui.menuOpen, pad.connected],
+  () => [status.value, route.value.name, ui.customOpen, ui.cheatOpen, ui.settingsOpen, ui.settingsTab, ui.briefing, ui.menuOpen, pad.connected],
   () => {
     if (!pad.connected) return
     // After the screen's fade-in has put it in place.
@@ -251,11 +250,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Account -->
-      <div v-else-if="ui.accountOpen" class="overlay">
-        <AccountPanel @close="ui.accountOpen = false" />
-      </div>
-
       <!-- Settings -->
       <div v-else-if="ui.settingsOpen" class="overlay">
         <SettingsPanel @close="ui.settingsOpen = false" />
@@ -263,7 +257,7 @@ onBeforeUnmount(() => {
 
       <!-- Cheats, and the custom game's editor -->
       <div v-else-if="ui.cheatOpen" class="overlay">
-        <CheatMenu :start="ui.cheatTab" @close="ui.cheatOpen = false" />
+        <CheatMenu @close="ui.cheatOpen = false" />
       </div>
 
       <!-- AI agents -->

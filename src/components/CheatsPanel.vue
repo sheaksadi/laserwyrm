@@ -7,6 +7,7 @@
 import { computed, ref } from 'vue'
 import { cheatGive, cheatLevel, cheats, cheatToggle, HEART_PATH, laserTiers, MAX_LEVEL, POWER_KINDS, POWERS, resetBest, state, TOTEM, type CustomId } from '../game'
 import { design } from '../design'
+import { cheatThenPlay } from '../app/ui'
 import PowerIcon from './PowerIcon.vue'
 
 const customPowers = computed(() => design.custom.filter((c) => c.kind === 'power'))
@@ -18,11 +19,15 @@ function clearBest() {
 }
 const TIER_COLOR = { red: 'var(--coral)', blue: 'var(--sky)', purple: 'var(--lavender)', white: '#FFFFFF', green: 'var(--sage)', gold: 'var(--sun)', prism: 'linear-gradient(90deg, #FF3355, #FFE14D, #5CFF5C, #3FA9FF, #B26BFF)' } as const
 const pickLevel = (value: number) => cheatLevel(value)
+/** Jump to a level and play it: Settings closes and the game goes on there. */
+const goToLevel = (value: number) => cheatThenPlay(() => cheatLevel(value))
+/** Hand something out and play on with it. */
+const give = (kind: Parameters<typeof cheatGive>[0]) => cheatThenPlay(() => cheatGive(kind))
 </script>
 
 <template>
   <div class="cheats-panel">
-    <p class="warn-note">For this run only. A run that used any cheat never counts toward a best or the boards.</p>
+    <p class="warn-note">For this run only: a run that used a cheat never counts. Picking a level or an item closes Settings and plays on with it.</p>
   <section>
     <h3>Level</h3>
     <div class="level-pick">
@@ -39,7 +44,8 @@ const pickLevel = (value: number) => cheatLevel(value)
       <button class="step" aria-label="Level up" :disabled="state.level >= MAX_LEVEL - 1" @click="pickLevel(state.level + 1)">+</button>
       <b class="level-now">{{ state.level + 1 }}</b>
     </div>
-    <!-- Jump straight to where each new kind of laser arrives -->
+    <button class="go" @click="goToLevel(state.level)">Play level {{ state.level + 1 }}</button>
+    <!-- Jump straight to where each new kind of laser arrives, and play -->
     <div class="tiers">
       <button
         v-for="tier in laserTiers()"
@@ -47,7 +53,7 @@ const pickLevel = (value: number) => cheatLevel(value)
         class="tier"
         :class="{ on: state.level >= tier.level }"
         :title="`${tier.name}: ${tier.blurb}`"
-        @click="pickLevel(tier.level)"
+        @click="goToLevel(tier.level)"
       >
         <span class="swatch" :style="{ background: TIER_COLOR[tier.kind] }"></span>{{ tier.level + 1 }}
       </button>
@@ -69,20 +75,20 @@ const pickLevel = (value: number) => cheatLevel(value)
   <section>
     <h3>Give</h3>
     <div class="gives">
-      <button v-for="kind in POWER_KINDS" :key="kind" class="give" :title="POWERS[kind].blurb" @click="cheatGive(kind)">
+      <button v-for="kind in POWER_KINDS" :key="kind" class="give" :title="POWERS[kind].blurb" @click="give(kind)">
         <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon :kind="kind" /></svg>
         <span>{{ POWERS[kind].name }}</span>
       </button>
-      <button v-for="c in customPowers" :key="c.id" class="give" :title="c.blurb" @click="cheatGive(c.id as CustomId)">
+      <button v-for="c in customPowers" :key="c.id" class="give" :title="c.blurb" @click="give(c.id as CustomId)">
         <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon :kind="c.id as CustomId" /></svg>
         <span>{{ c.name }}</span>
       </button>
-      <button class="give" :title="TOTEM.blurb" :class="{ on: state.totem }" @click="cheatGive('totem')">
+      <button class="give" :title="TOTEM.blurb" :class="{ on: state.totem }" @click="give('totem')">
         <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon kind="totem" /></svg>
         <span>Totem</span>
       </button>
-      <button class="give" @click="cheatGive('heart')"><svg viewBox="-0.5 -0.5 8 7" width="26" height="26"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg><span>Full hearts</span></button>
-      <button class="give" @click="cheatGive('grow')"><span class="big">+10</span><span>Length</span></button>
+      <button class="give" @click="give('heart')"><svg viewBox="-0.5 -0.5 8 7" width="26" height="26"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg><span>Full hearts</span></button>
+      <button class="give" @click="give('grow')"><span class="big">+10</span><span>Length</span></button>
     </div>
   </section>
 
@@ -120,6 +126,8 @@ h3 {
 }
 .step:hover:not(:disabled) { border-color: var(--sage); color: var(--text); }
 .step:disabled { opacity: 0.4; cursor: default; }
+.go { width: 100%; margin-top: 8px; padding: 7px 10px; border: 2px solid var(--sage); border-radius: 8px; background: var(--bg-off); font-size: 15px; text-transform: uppercase; color: var(--sage); }
+.go:hover { background: var(--sage); color: var(--ink); }
 .level-now { min-width: 3ch; font-family: var(--font-pixel); font-size: 14px; font-weight: 400; text-align: right; color: var(--sage); }
 .tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
 .tier {

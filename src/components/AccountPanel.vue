@@ -13,6 +13,8 @@ import GameCode from './GameCode.vue'
 import LookPicker from './LookPicker.vue'
 import NameEdit from './NameEdit.vue'
 
+/** `embedded`: drawn inside Settings (its Account tab), without a card or a close button of its own. */
+defineProps<{ embedded?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const nameInput = ref('')
@@ -117,8 +119,8 @@ function leave() {
 </script>
 
 <template>
-  <div class="account" role="dialog" aria-label="Account">
-    <header>
+  <div class="account" :class="{ embedded }" :role="embedded ? undefined : 'dialog'" aria-label="Account">
+    <header v-if="!embedded">
       <h2>Account</h2>
       <button class="close" aria-label="Close" @click="emit('close')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -215,6 +217,8 @@ function leave() {
   box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px var(--sky), 10px 10px 0 6px var(--ink);
 }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+/* Inside Settings: the tab's own frame holds it. */
+.account.embedded { width: auto; max-height: none; overflow: visible; padding: 0; border: 0; background: none; box-shadow: none; }
 h2 {
   margin: 0;
   font-family: var(--font-pixel);

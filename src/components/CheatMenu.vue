@@ -9,7 +9,8 @@
  * level's tabs, the drawing tools) float off the card's right side. Undo
  * and redo cover every change (Ctrl+Z, Ctrl+Shift+Z).
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ui, type WorkshopTab } from '../app/ui'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { play, reset, state } from '../game'
 import { custom, design, history, redo, setCustom, shared, STOCK_GLOBAL, STOCK_RULES, stopShared, undo } from '../design'
 import GlobalPanel from './GlobalPanel.vue'
@@ -18,8 +19,6 @@ import LevelsPanel from './LevelsPanel.vue'
 import RulesPanel from './RulesPanel.vue'
 import SpritePanel from './SpritePanel.vue'
 
-export type WorkshopTab = 'cheats' | 'global' | 'levels' | 'music' | 'art'
-const props = defineProps<{ start?: WorkshopTab }>()
 const emit = defineEmits<{ close: [] }>()
 
 const VIEWS: { id: WorkshopTab; name: string; icon: string }[] = [
@@ -29,7 +28,8 @@ const VIEWS: { id: WorkshopTab; name: string; icon: string }[] = [
   { id: 'music', name: 'Music', icon: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z' },
   { id: 'art', name: 'Art', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h3v3h-3zM17 17h3v3h-3z' },
 ]
-const view = ref<WorkshopTab>(props.start ?? 'levels')
+/** The tab shown: kept in `ui.editor`, so the editor opens again where it was left. */
+const view = computed({ get: () => ui.editor.view, set: (v: WorkshopTab) => (ui.editor.view = v) })
 const changed = computed<Record<WorkshopTab, boolean>>(() => ({
   cheats: JSON.stringify(design.rules) !== JSON.stringify(STOCK_RULES),
   global: JSON.stringify(design.global) !== JSON.stringify(STOCK_GLOBAL) || design.levels.some((l) => l.difficulty !== undefined),

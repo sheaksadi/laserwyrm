@@ -76,7 +76,7 @@ export async function onRoute() {
   if (next.name !== 'game') {
     ui.menuOpen = false
     ui.cheatOpen = false
-    ui.accountOpen = false
+    ui.settingsOpen = false
     pause()
   }
   if (next.name === 'watch') {
