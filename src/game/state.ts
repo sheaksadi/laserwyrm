@@ -16,6 +16,8 @@ export const run = {
   recording: { v: 1, mode: 'normal', seed: 1, cols: 30, rows: 20, steps: 0, events: [] } as Replay,
   stepsDone: 0,
   uid: 0,
+  /** The mode picked for live games; it holds while the start screen's backdrop (a replay) plays. */
+  mode: 'normal' as Mode,
 }
 
 /** v2: scores are length × beats now, so old fruit-count bests do not compare. */
@@ -107,6 +109,10 @@ export const state = reactive({
   held: [] as Holdable[],
   /** Holding a Totem of Undying. */
   totem: false,
+  /** Energy for dashing (revision 7), 0 to `ENERGY.max`. */
+  energy: 0,
+  /** The run's rules revision, for the view (the engine reads `revision`). */
+  rev: revision.rev,
   /** A short note under the HUD: what was picked up or used, and what it does. */
   notice: null as { id: number; kind: Holdable | 'totem'; title: string; sub: string } | null,
   /** The last game beat the stored best. */

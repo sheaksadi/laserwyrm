@@ -14,7 +14,7 @@ export const ACTIONS: { id: Action; name: string }[] = [
   { id: 'down', name: 'Down' },
   { id: 'left', name: 'Left' },
   { id: 'right', name: 'Right' },
-  { id: 'use', name: 'Use a power-up · start' },
+  { id: 'use', name: 'Dash · start' },
   { id: 'pause', name: 'Pause' },
   { id: 'restart', name: 'Restart' },
   { id: 'mute', name: 'Sound on or off' },
@@ -99,5 +99,5 @@ export function resetKeys() {
 const NAMES: Record<string, string> = { ' ': 'Space', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backspace: '⌫', Delete: 'Del', Shift: 'Shift', Control: 'Ctrl', Alt: 'Alt' }
 /** A key as people read it. */
 export const keyLabel = (key: string) => NAMES[key] ?? (key.length === 1 ? key.toUpperCase() : key)
-/** The first key bound to an action, for hints ("Space to use"). */
+/** The first key bound to an action, for hints ("Space to dash"). */
 export const keyFor = (action: Action) => keyLabel(bindings[action][0] || bindings[action][1] || '')

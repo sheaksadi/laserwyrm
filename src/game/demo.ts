@@ -2,11 +2,11 @@
  * Attract mode: behind the start screen the real game plays itself, as a
  * replay steered by a simple pilot. Nothing is recorded or scored.
  */
-import { DIRS, ITEMS_REV, type Beam, type DirName, type Vec } from './catalog'
+import { DIRS, ENERGY, ITEMS_REV, usesEnergy, type Beam, type DirName, type Vec } from './catalog'
 import { isWall } from './board'
 import { queueTurn } from './controls'
 import { onStep } from './engine'
-import { activate } from './items'
+import { activate, spendDash } from './items'
 import { fitGrid } from './layout'
 import { edgesFor, multiplier } from './levels'
 import { startReplay, stopReplay } from './replay'
@@ -132,4 +132,6 @@ export function pilot() {
   if (best && !same(DIRS[best.name], state.direction)) queueTurn(best.name)
   // Use what it carries, now and then.
   if (state.held.length && Math.random() < 0.02) activate(state.held.shift()!, head)
+  // Dash now and then, when there is energy to spare.
+  if (usesEnergy() && state.energy >= ENERGY.dash + 20 && Math.random() < 0.01) spendDash()
 }

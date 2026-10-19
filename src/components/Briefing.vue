@@ -40,11 +40,12 @@ const touch = computed(() => isTouch() && !padInUse.value)
           <template v-else> Walls wrap around. Each level gives a heart back.</template>
         </li>
         <li>
-          <b class="sun">Power-ups</b>: hold two, use the oldest.
+          <b class="sun">Power-ups</b> go off as you eat them.
           <span class="powers">
             <svg v-for="k in POWER_KINDS" :key="k" viewBox="-0.5 -0.5 1 1" width="18" height="18" :aria-label="POWERS[k].name"><title>{{ POWERS[k].name }}: {{ POWERS[k].blurb }}</title><PowerIcon :kind="k" /></svg>
           </span>
         </li>
+        <li><b class="sun">Dash</b> four cells ahead, over your own body, for energy. Fruit fills it, and it slowly comes back.</li>
         <li class="extra"><b class="lav">The snipper</b> hunts your middle. Bite it first.</li>
         <li class="extra"><b class="sky">Faster</b> every 8 bars; new kinds of laser at levels 5, 12 and 21.</li>
       </ul>
@@ -52,7 +53,7 @@ const touch = computed(() => isTouch() && !padInUse.value)
       <div class="how">
         <template v-if="padInUse">
           <p><span class="caps"><PadGlyph button="dpad" /><PadGlyph button="stick" /></span><span>move</span></p>
-          <p><span class="caps"><PadGlyph button="a" /><PadGlyph button="rt" /></span><span>power-up</span></p>
+          <p><span class="caps"><PadGlyph button="a" /><PadGlyph button="rt" /></span><span>dash</span></p>
           <p><span class="caps"><PadGlyph button="start" /></span><span>pause</span></p>
           <p><span class="caps"><PadGlyph button="b" /></span><span>pause, back</span></p>
           <p><span class="caps"><PadGlyph button="back" /></span><span>custom</span></p>
@@ -60,7 +61,7 @@ const touch = computed(() => isTouch() && !padInUse.value)
         <template v-else-if="touch">
           <p v-if="touchControls === 'dpad'"><span class="caps zone">d-pad</span><span>tap, or hold and slide, to steer</span></p>
           <p v-else><span class="caps zone">left half</span><span>touch and drag to steer</span></p>
-          <p><span class="caps zone">right half</span><span>tap to use a power-up</span></p>
+          <p><span class="caps zone">right half</span><span>tap to dash</span></p>
           <p><span class="caps zone">❚❚</span><span>pause, top right</span></p>
         </template>
         <template v-else>
@@ -69,7 +70,7 @@ const touch = computed(() => isTouch() && !padInUse.value)
             <span class="caps arrows"><kbd class="up">{{ keyLabel(bindings.up[0] ?? '') }}</kbd><kbd class="left">{{ keyLabel(bindings.left[0] ?? '') }}</kbd><kbd class="down">{{ keyLabel(bindings.down[0] ?? '') }}</kbd><kbd class="right">{{ keyLabel(bindings.right[0] ?? '') }}</kbd></span>
             <span>move<template v-if="bindings.up[1]"> <i>or {{ [bindings.up[1], bindings.left[1], bindings.down[1], bindings.right[1]].map((k) => keyLabel(k ?? '')).join('') }}</i></template></span>
           </p>
-          <p><span class="caps"><kbd class="space">{{ keyFor('use').toLowerCase() }}</kbd></span><span>power-up</span></p>
+          <p><span class="caps"><kbd class="space">{{ keyFor('use').toLowerCase() }}</kbd></span><span>dash</span></p>
           <p><span class="caps"><kbd>{{ keyFor('pause') }}</kbd><kbd>Esc</kbd></span><span>pause</span></p>
           <p><span class="caps"><kbd>{{ keyFor('restart') }}</kbd></span><span>restart</span></p>
           <p><span class="caps"><kbd>{{ keyFor('music') }}</kbd><kbd>{{ keyFor('mute') }}</kbd></span><span>music, sound</span></p>

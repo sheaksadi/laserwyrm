@@ -7,12 +7,12 @@ import { watch } from 'vue'
 import { conductor, now, queue } from '../audio'
 import { musicForLevel, warmUp } from '../music'
 import { design, isStock, itemsStock, live, snapshot } from '../design'
-import { DIRS, HEART_CHANCE, ITEMS_REV, POWER_KINDS, revision, TOTEM_CHANCE, tierOf, type Mode, type Vec } from './catalog'
+import { DIRS, ENERGY, HEART_CHANCE, ITEMS_REV, POWER_KINDS, revision, TOTEM_CHANCE, tierOf, usesEnergy, type Mode, type Vec } from './catalog'
 import { addItem, clearWalls, isWall, setWalls } from './board'
 import { armedFor, backgroundFor, gameRules, intensity, lasersFor, levelAtBar, lifeOf, maxHearts, musicFor, rateOf, snipperFor, tempoFor } from './curve'
 import { demoFrame } from './demo'
 import { die } from './hits'
-import { dropWeighted, eat, pullFruit } from './items'
+import { dropWeighted, eat, gainEnergy, pullFruit } from './items'
 import { spawnLaser, strike, trackLasers } from './lasers'
 import { fitGrid } from './layout'
 import { applyLevel, edgesFor, enterLevel, endIntro, multiplier } from './levels'
@@ -30,7 +30,7 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
   }
   const seed = from?.seed ?? (Math.floor(Math.random() * 2 ** 32) >>> 0)
   reseed(seed)
-  if (from) state.mode = from.mode ?? 'normal'
+  state.mode = from ? (from.mode ?? 'normal') : run.mode
   revision.rev = from ? ((from as { rev?: number }).rev ?? 1) : ITEMS_REV
   run.recording = { v: 1, mode: state.mode, seed, cols: state.cols, rows: state.rows, steps: 0, events: [], rev: revision.rev }
   if (!isStock(live())) run.recording.design = snapshot(live())
@@ -56,6 +56,8 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     effects: { shield: 0, double: 0, slow: 0, magnet: 0, ghost: 0 },
     held: [],
     totem: false,
+    energy: ENERGY.start,
+    rev: revision.rev,
     notice: null,
     newBest: false,
     levelOffset: 0,
@@ -199,6 +201,7 @@ export function onStep(step: number) {
   if (state.intro) return
   if (step % 16 === 0) onBar(step / 16)
   if (step % 4 === 0) onBeat(step)
+  if (usesEnergy() && step % ENERGY.regenSteps === 0) gainEnergy(1)
 
   // Slow-mo: before revision 6 the snake moved on 8ths instead of 16ths. From 6 the snake keeps
   // its pace and the world holds still every other step: its clocks wait a step.

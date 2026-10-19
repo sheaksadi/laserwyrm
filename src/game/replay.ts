@@ -4,11 +4,11 @@
  */
 import { conductor } from '../audio'
 import { playWith } from '../design'
-import { CODE_DIR, type Replay, type ReplayEvent } from './catalog'
+import { CODE_DIR, usesEnergy, type Replay, type ReplayEvent } from './catalog'
 import { levelAtBar, tempoFor } from './curve'
 import { queueTurn } from './controls'
 import { onStep, reset } from './engine'
-import { activate } from './items'
+import { activate, spendDash } from './items'
 import { cheats, demo, replay, state, timers } from './state'
 
 let replayEvents: ReplayEvent[] = []
@@ -40,7 +40,9 @@ export function replayTo(target: number) {
   while (replay.at < target && !replay.ended) {
     while (replayCursor < replayEvents.length && replayEvents[replayCursor]![0] <= replay.at) {
       const code = replayEvents[replayCursor++]![1]
-      if (code === 'i') {
+      if (code === 'i' && usesEnergy()) {
+        spendDash()
+      } else if (code === 'i') {
         const kind = state.held.shift()
         if (kind) activate(kind, state.snake[0]!)
       } else {

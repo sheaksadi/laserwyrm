@@ -94,6 +94,7 @@ const give = (kind: Parameters<typeof cheatGive>[0]) => cheatThenPlay(() => chea
         <svg viewBox="-0.5 -0.5 1 1" width="26" height="26"><PowerIcon kind="totem" /></svg>
         <span>Totem</span>
       </button>
+      <button class="give" @click="give('energy')"><svg viewBox="0 0 12 16" width="20" height="26"><path d="M7 0 0 9h5l-1 7 8-10H7z" fill="var(--sun)" stroke="var(--ink)" stroke-width="0.8" /></svg><span>Full energy</span></button>
       <button class="give" @click="give('heart')"><svg viewBox="-0.5 -0.5 8 7" width="26" height="26"><path :d="HEART_PATH" fill="var(--coral)" stroke="var(--ink)" stroke-width="0.6" /></svg><span>Full hearts</span></button>
       <button class="give" @click="give('grow')"><span class="big">+10</span><span>Length</span></button>
     </div>

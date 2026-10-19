@@ -5,7 +5,7 @@ fire on the beat. A laser slices the wyrm where it crosses: the head side lives
 on, the rest pops away. A laser through the head costs a heart. Every 8 bars the tempo
 rises and more lasers come.
 
-- Arrows / WASD to steer, Space to use a pill, P to pause, R to restart; music and sound live in
+- Arrows / WASD to steer, Space to dash, P to pause, R to restart; music and sound live in
   the menu (or press B and M)
 - Score: every beat you survive scores your multiplier, which grows faster
   than your length and rises with each level
@@ -22,12 +22,14 @@ rises and more lasers come.
   go past it, to five): a laser through the head costs one, walls and biting yourself cost all of
   them; rare heart drops give one back (up to five)
 - Fruit grows the snake: apple +1, cookie +2, cherries +3, starry cookie +4 (rare, stays longer, bursts into stars), star +5. A wizard cookie clears every laser and keeps them away for two bars
-- Power-ups: shield, double points, slow-mo (the world slows, you don't), dash, magnet, ghost. Hold up to two
-  and press Space (or tap the slots) to use the oldest
-- Totem of Undying: very rare, cheats death once
+- Dash: Space lunges four cells ahead, over your own body, for energy. The
+  energy bar at the top fills from fruit (stars and cookies the most) and
+  slowly by itself
+- Power-ups: shield, double points, slow-mo (the world slows, you don't), dash, magnet, ghost. They go
+  off as you eat them
+- Totem of Undying: very rare, fills your hearts and energy
 - Phones play sideways with the board full screen: touch anywhere on the left
-  half and a faint stick appears under your thumb; tap the right half to use a
-  power-up
+  half and a faint stick appears under your thumb; tap the right half to dash
 - Every screen plays the same 48 × 26 board, scaled to fit, so runs compare fairly
 - Settings (☰, the start screen, or the cog on the pause screen), in tabs:
   Sound (all sound, music and effects volume), Controls (controller
@@ -44,8 +46,8 @@ rises and more lasers come.
   for one (browsers only allow full screen and sound after a click or key);
   after that the controller does everything. While playing, the mouse pointer
   hides until the mouse moves
-- Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 for
-  power-ups, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;
+- Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 to
+  dash, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;
   prompts switch to match
 - 100 levels. New lasers arrive as you climb: purple (5, row and column at
   once), blue (12, three wide), white (21, half the warning), green (41,

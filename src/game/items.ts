@@ -1,10 +1,11 @@
 /**
  * Items: eating fruit and picking up power-ups, using them (effects, dash,
- * magnet), and which bonus item drops when a game's items are changed.
+ * magnet), energy for dashing, and which bonus item drops when a game's
+ * items are changed.
  */
 import { live, type Stack } from '../design'
 import { keyFor } from '../keys'
-import { revision, customItem, DASH_CELLS, FRUIT_GROW, isCustom, isPower, POWER_KINDS, POWERS, TOTEM, type CustomId, type Holdable, type Item, type ItemKind, type Vec } from './catalog'
+import { revision, customItem, DASH_CELLS, ENERGY, FRUIT_GROW, isCustom, isPower, POWER_KINDS, POWERS, TOTEM, usesEnergy, type CustomId, type FruitKind, type Holdable, type Item, type ItemKind, type Vec } from './catalog'
 import { addItem, isWall, notice, popup } from './board'
 import { heldSlots, lifeOf, maxHearts, rateOf } from './curve'
 import { edgesFor } from './levels'
@@ -22,6 +23,11 @@ export function eat(item: Item) {
     mark('heal')
     return
   }
+  if (item.kind === 'totem' && usesEnergy()) {
+    refill()
+    popup(item, 'totem!', 'sun')
+    return
+  }
   if (item.kind === 'totem') {
     state.totem = true
     sound.level()
@@ -33,7 +39,7 @@ export function eat(item: Item) {
   if (isCustom(item.kind)) return eatCustom(item, item.kind)
   if (isPower(item.kind)) {
     const power = POWERS[item.kind]
-    if (state.held.length < heldSlots()) {
+    if (state.held.length < heldSlots() && !usesEnergy()) {
       state.held.push(item.kind)
       mark('power')
       sound.pill()
@@ -57,6 +63,7 @@ export function eat(item: Item) {
   const grow = live().items[item.kind]?.grow ?? FRUIT_GROW[item.kind]
   state.grow += grow
   state.stats.eaten++
+  if (usesEnergy()) gainEnergy(ENERGY.fruit[item.kind as FruitKind] ?? grow * ENERGY.perGrow)
   sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' || item.kind === 'cookie' ? 1 : 2)
   feel('eat', grow)
   popup(item, `+${grow} ×`, item.kind === 'star' || item.kind === 'starry' ? 'sun' : 'mint')
@@ -73,7 +80,7 @@ export function eatCustom(item: Item, kind: CustomId) {
   const c = customItem(kind)
   if (!c) return
   if (c.kind === 'power') {
-    if (c.hold && state.held.length < heldSlots()) {
+    if (c.hold && state.held.length < heldSlots() && !usesEnergy()) {
       state.held.push(kind)
       mark('power')
       sound.pill()
@@ -87,6 +94,7 @@ export function eatCustom(item: Item, kind: CustomId) {
   state.grow += c.grow
   state.score += c.points
   state.stats.eaten++
+  if (usesEnergy()) gainEnergy(c.grow * ENERGY.perGrow)
   if (c.hearts) {
     state.hearts = Math.min(maxHearts(), state.hearts + c.hearts)
     mark('heal')
@@ -160,6 +168,34 @@ export function dropWeighted(roll: number, level: number) {
     at -= weight
     if (at < 0) return addItem(kind, steps)
   }
+}
+
+/* ─── Energy (revision 7) ────────────────────────────────────────────── */
+
+export function gainEnergy(amount: number) {
+  state.energy = Math.min(ENERGY.max, state.energy + amount)
+}
+
+/** The use button: dash if there is energy for it. False (and nothing happens) when there is not. */
+export function spendDash(): boolean {
+  if (state.energy < ENERGY.dash) {
+    sound.turn()
+    return false
+  }
+  state.energy -= ENERGY.dash
+  dash()
+  sound.pill()
+  mark('use')
+  return true
+}
+
+/** The totem (revision 7): hearts and energy full, at once. */
+export function refill() {
+  state.hearts = maxHearts()
+  state.energy = ENERGY.max
+  sound.level()
+  notice('totem', TOTEM.name, 'Hearts and energy refilled')
+  mark('heal')
 }
 
 /** Lunge ahead, passing over the body; through the wall in normal mode, stopping short of it in hardcore. */

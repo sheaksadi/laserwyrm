@@ -111,13 +111,32 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
  * come first (level 5), then blue (12) and white (21). 5: far fewer lasers;
  * their number grows slowly and steps up with each new kind (see
  * `lasersFor`). 6: slow-mo slows the world, not the snake (see
- * `worldSlowed`). Replays keep the revision they were played with, so old
+ * `worldSlowed`). 7: energy and dashing. The use button dashes, paid for
+ * with energy that fruit and time fill; power-ups go off as they are eaten
+ * instead of being held, and a totem refills hearts and energy at once
+ * (see `ENERGY`). Replays keep the revision they were played with, so old
  * runs play back the same.
  */
-export const ITEMS_REV = 6
+export const ITEMS_REV = 7
 
 /** The revision of the run in play (set by `reset`): everything that differs between revisions reads it. */
 export const revision = { rev: ITEMS_REV }
+
+/** Revision 7 on: the use button dashes for energy, and power-ups are not held. */
+export const usesEnergy = () => revision.rev >= 7
+/**
+ * Energy (revision 7): a dash costs `dash`; it starts at `start`, comes back
+ * one point every `regenSteps` steps (about one a second), and fruit adds
+ * its share (a home-made fruit: `perGrow` a cell it grows).
+ */
+export const ENERGY = {
+  max: 100,
+  start: 40,
+  dash: 35,
+  regenSteps: 8,
+  fruit: { apple: 6, cherry: 10, cookie: 20, star: 30, starry: 50 } as Record<FruitKind, number>,
+  perGrow: 4,
+}
 
 /** When each laser trick unlocks, by the rules in play. */
 export const laserTraits = (): TraitTable => (revision.rev >= 4 ? TRAITS_V4 : TRAITS_V1)

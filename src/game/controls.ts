@@ -3,18 +3,22 @@
  * the mode, and the cheats. Live input is recorded for the replay here.
  */
 import { conductor } from '../audio'
-import { DIR_CODE, DIRS, tierOf, type DirName, type Holdable, type Mode } from './catalog'
+import { DIR_CODE, DIRS, ENERGY, tierOf, usesEnergy, type DirName, type Holdable, type Mode } from './catalog'
 import { setWalls } from './board'
 import { heldSlots, levelAtBar, maxHearts } from './curve'
 import { stopDemo } from './demo'
 import { reset } from './engine'
-import { activate } from './items'
+import { activate, gainEnergy, refill, spendDash } from './items'
 import { applyLevel } from './levels'
-import { cheats, match, replay, run, same, saveBest, sound, state } from './state'
+import { cheats, demo, match, replay, run, same, saveBest, sound, state } from './state'
 
-/** Use the oldest held power-up. */
+/** The use button: a dash for energy (revision 7 on), or the oldest held power-up before that. */
 export function useItem() {
   if (state.status !== 'running' || replay.active) return
+  if (usesEnergy()) {
+    if (spendDash()) run.recording.events.push([run.stepsDone, 'i'])
+    return
+  }
   const kind = state.held.shift()
   if (!kind) return
   run.recording.events.push([run.stepsDone, 'i'])
@@ -45,10 +49,14 @@ export function resetBest() {
   saveBest(0)
 }
 
-export function cheatGive(kind: Holdable | 'totem' | 'heart' | 'grow') {
+export function cheatGive(kind: Holdable | 'totem' | 'heart' | 'grow' | 'energy') {
   state.cheated = true
   state.usedCheats = true
-  if (kind === 'totem') state.totem = true
+  if (kind === 'energy') gainEnergy(ENERGY.max)
+  else if (kind === 'totem' && usesEnergy()) refill()
+  // Revision 7 holds nothing: a power-up goes off at once.
+  else if (kind !== 'heart' && kind !== 'grow' && kind !== 'totem' && usesEnergy()) activate(kind, state.snake[0]!)
+  else if (kind === 'totem') state.totem = true
   else if (kind === 'heart') state.hearts = maxHearts()
   else if (kind === 'grow') state.grow += 10
   else if (state.held.length < heldSlots()) state.held.push(kind)
@@ -57,7 +65,10 @@ export function cheatGive(kind: Holdable | 'totem' | 'heart' | 'grow') {
 
 /** Pick normal or hardcore for the next game. */
 export function setMode(mode: Mode) {
-  if (state.status === 'running' || replay.active) return
+  if (state.status === 'running' && !demo.on) return
+  // Picked over the backdrop: the next live game (set up by reset) takes it.
+  run.mode = mode
+  if (replay.active) return
   state.mode = mode
   run.recording.mode = mode
 }

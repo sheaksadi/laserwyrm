@@ -108,7 +108,7 @@ saved on the server, must play back exactly. So:
   `checkReplay` (`server/checks.mjs`).
 - Changing what happens in play (item tables, laser rolls, the order of `random()`
   calls) changes old runs. Gate it behind a new rules revision: bump `ITEMS_REV`
-  in `catalog.ts` and branch on `revision.rev`, as revisions 2–4 do. Laser tiers
+  in `catalog.ts` and branch on `revision.rev`, as revisions 2–7 do (7: energy and dashing; power-ups no longer held, `usesEnergy()`). Laser tiers
   differ by revision (4 moved purple to level 5): read them with `laserTraits()`
   and `laserTiers()`, never a fixed table, so replays and notices follow the run.
 - To check a refactor: play recorded runs with `startReplay` + `replayTo` before
