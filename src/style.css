@@ -144,7 +144,7 @@ html.pad-on :is(button, a, input, textarea, select, [tabindex]):focus {
   box-shadow: 0 0 0 6px rgba(255, 225, 77, 0.16), 0 0 22px rgba(255, 225, 77, 0.45);
 }
 
-/* Every ✕ says how else to get out: Esc on a keyboard, B on a controller. */
+/* Every ✕ says how else to get out on a keyboard: Esc. (With a controller, B is plain enough.) */
 .close { position: relative; overflow: visible; }
 .close::after {
   content: 'esc';
@@ -160,7 +160,7 @@ html.pad-on :is(button, a, input, textarea, select, [tabindex]):focus {
   color: var(--text-muted);
   pointer-events: none;
 }
-html.pad-on .close::after { content: 'B'; font-family: var(--font-pixel); font-size: 8px; color: var(--coral); }
+html.pad-on .close::after { content: none; }
 @media (pointer: coarse) {
-  html:not(.pad-on) .close::after { content: none; }
+  .close::after { content: none; }
 }

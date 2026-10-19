@@ -2,8 +2,9 @@
 /**
  * The briefing, between Press start and the first move: what the game is on
  * the left, how to play it on the right (keyboard, controller or touch,
- * whichever is in use). Any key, click, tap or A starts; the warm-up music
- * plays meanwhile.
+ * whichever is in use). Any key, click, tap or A starts, Esc or B goes back;
+ * the warm-up music plays meanwhile. It shows before a device's first game
+ * only (see `briefed` in app/ui.ts).
  */
 import { touchControls } from '../controls'
 import { computed } from 'vue'
@@ -21,7 +22,8 @@ const touch = computed(() => isTouch() && !pad.connected)
 
 <template>
   <div class="briefing" role="dialog" aria-label="How to play" @pointerdown.prevent="emit('start')">
-    <button class="close" aria-label="Back" @pointerdown.stop @click.stop="emit('back')">✕</button>
+    <!-- Not in the controller's highlight: A starts and B goes back, whatever is highlighted -->
+    <button class="close" tabindex="-1" aria-label="Back" @pointerdown.stop @click.stop="emit('back')">✕</button>
     <header>
       <p class="mode" :class="props.mode">{{ props.mode === 'hardcore' ? 'Hardcore' : 'Normal' }}</p>
       <h2>How to play</h2>
@@ -44,7 +46,7 @@ const touch = computed(() => isTouch() && !pad.connected)
           </span>
         </li>
         <li class="extra"><b class="lav">The snipper</b> hunts your middle. Bite it first.</li>
-        <li class="extra"><b class="sky">Faster</b> every 8 bars; a new kind of laser every 10 levels.</li>
+        <li class="extra"><b class="sky">Faster</b> every 8 bars; new kinds of laser at levels 5, 12 and 21.</li>
       </ul>
 
       <div class="how">
@@ -77,7 +79,10 @@ const touch = computed(() => isTouch() && !pad.connected)
     </div>
 
     <p class="go">
-      <template v-if="pad.connected">Press <PadGlyph button="a" /> to start</template>
+      <template v-if="pad.connected">
+        <span class="hint">Press <PadGlyph button="a" class="big" /> to start</span>
+        <span class="hint dim"><PadGlyph button="b" class="big" /> back</span>
+      </template>
       <template v-else-if="touch">Tap anywhere to start</template>
       <template v-else>Press any key or click to start</template>
     </p>
@@ -174,6 +179,7 @@ kbd.space { min-width: 5em; }
   justify-content: center;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   margin: 1.3rem 0 0;
   font-family: var(--font-pixel);
   font-size: 11px;
@@ -181,6 +187,12 @@ kbd.space { min-width: 5em; }
   color: var(--text);
   animation: blink-text 1.1s steps(1) infinite;
 }
+.go:has(.hint) { gap: 28px; animation: none; }
+.hint { display: inline-flex; align-items: center; gap: 8px; }
+.hint:first-child .big { animation: press 1.1s ease-in-out infinite; }
+@keyframes press { 50% { transform: scale(1.18); filter: brightness(1.4); } }
+.hint.dim { color: var(--text-muted); }
+.go .big { width: 30px; height: 30px; }
 @media (max-height: 520px) {
   header { margin-bottom: 0.5rem; }
   .what { gap: 0.3rem; }

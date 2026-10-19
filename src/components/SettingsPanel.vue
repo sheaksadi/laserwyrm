@@ -13,7 +13,7 @@ import { isTouch } from '../game'
 import { showFps, showGraph, showLow } from '../perf'
 import { htmlInCanvas, renderer } from '../renderer'
 import { go } from '../app/route'
-import { openAgent, openCustom, ui, type SettingsTab } from '../app/ui'
+import { openAgent, openCustom, showHowToPlay, ui, type SettingsTab } from '../app/ui'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { ACTIONS, bind, bindings, FIXED, keyLabel, resetKeys, type Action } from '../keys'
 import AccountPanel from './AccountPanel.vue'
@@ -234,6 +234,7 @@ function setStrength(e: Event) {
         <section>
           <h3>More</h3>
           <div class="links">
+            <button class="link" @click="showHowToPlay">How to play</button>
             <button class="link" @click="go('#/scores')">High scores</button>
             <button class="link" @click="go('#/replays')">Replays</button>
             <button class="link" @click="ui.settingsTab = 'account'">Account</button>

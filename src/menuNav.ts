@@ -7,7 +7,8 @@
  */
 import type { DirName } from './game'
 
-const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), textarea, select, [tabindex]:not([tabindex="-1"])'
+/** What the highlight can land on; `tabindex="-1"` keeps a button out of it. */
+const FOCUSABLE = ':is(button:not([disabled]), a[href], input:not([disabled]), textarea, select, [tabindex]):not([tabindex="-1"])'
 
 /** Where the buttons are: the ☰ menu if it is open, else the screen on top, else nothing. */
 export function navScope(): HTMLElement | null {

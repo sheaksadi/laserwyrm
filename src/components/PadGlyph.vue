@@ -13,6 +13,8 @@ const LABELS = {
   xbox: { rt: 'RT', start: 'MENU', back: 'VIEW', stick: 'LS' },
   playstation: { rt: 'R2', start: 'OPTIONS', back: 'SHARE', stick: 'L' },
 } as const
+/** The face button's colour: Xbox A green, B red; PlayStation Cross blue, Circle red. */
+const ring = computed(() => (props.button === 'a' ? (ps.value ? '#7FA8FF' : '#5CE65C') : '#FF5566'))
 const label = computed(() => {
   const set = LABELS[pad.kind]
   return props.button in set ? set[props.button as keyof typeof set] : ''
@@ -22,7 +24,8 @@ const label = computed(() => {
 <template>
   <!-- Face buttons: round, coloured like the real thing -->
   <svg v-if="button === 'a' || button === 'b'" class="glyph face" viewBox="0 0 24 24" :aria-label="ps ? (button === 'a' ? 'Cross' : 'Circle') : button.toUpperCase()" role="img">
-    <circle cx="12" cy="12" r="10.5" fill="#1C1C2C" stroke="#000" stroke-width="1.5" />
+    <!-- Ringed in the button's own colour, so it reads at a glance -->
+    <circle cx="12" cy="12" r="10.5" fill="#1C1C2C" :stroke="ring" stroke-width="2" />
     <template v-if="ps">
       <path v-if="button === 'a'" d="M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5" stroke="#7FA8FF" stroke-width="2.4" stroke-linecap="square" />
       <circle v-else cx="12" cy="12" r="5" fill="none" stroke="#FF6B7A" stroke-width="2.4" />

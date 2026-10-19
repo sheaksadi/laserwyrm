@@ -77,14 +77,44 @@ export function openAccount() {
   openSettings('account')
 }
 
-export function openBriefing(mode: Mode) {
+/** Whether this device has seen the briefing: it shows before the first game only (About → How to play brings it back). */
+export const briefed = ref(readFlag('laserwyrm-briefed'))
+function readFlag(key: string) {
+  try {
+    return localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+function saveBriefed(on: boolean) {
+  briefed.value = on
+  try {
+    if (on) localStorage.setItem('laserwyrm-briefed', '1')
+    else localStorage.removeItem('laserwyrm-briefed')
+  } catch {
+    /* storage blocked: it shows again next visit */
+  }
+}
+
+/** Start a game: the briefing first on a device that has not seen it, else straight in. */
+export function openBriefing(mode: Mode, force = false) {
   setMode(mode)
+  if (briefed.value && !force) return play()
   ui.briefing = mode
   conductor.warmup()
+}
+/** About → How to play: the briefing now on the start screen, else before the next game. */
+export function showHowToPlay() {
+  saveBriefed(false)
+  if (status.value !== 'ready') return
+  ui.settingsOpen = false
+  ui.menuOpen = false
+  openBriefing(state.mode, true)
 }
 export function begin(dir?: DirName) {
   if (!ui.briefing) return
   ui.briefing = null
+  saveBriefed(true)
   play()
   if (dir) turn(dir)
 }
