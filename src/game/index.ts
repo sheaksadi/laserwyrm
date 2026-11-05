@@ -47,6 +47,7 @@
  *   lasers    making, moving and striking lasers
  *   hits      cuts, death, the totem and respawns
  *   snipper   the snipper
+ *   boss      the Wardens that guard each new kind of laser
  *   items     eating, power-ups and their effects, item drops
  *   controls  play, pause, steer, use, mode, cheats (input is recorded here)
  *   replay    playing back a recorded run
@@ -58,7 +59,7 @@
 export {
   DIRS, FRUIT_GROW, GRID, HEART_PATH, laserTiers, laserTraits, MAX_HEARTS, MAX_HELD, MAX_LEVEL, POWERS, POWER_KINDS,
   START_HEARTS, TIER_NOTE_MS, TONE_COLOR, TOTEM, customItem, isCustom, isPower, itemInfo, tierOf,
-  type Beam, type CustomId, type Debris, type DirName, type Feel, type FruitKind, type Holdable, type Item, type ItemKind,
+  type Beam, type Boss, type BossPhase, type CustomId, type Debris, type DirName, type Feel, type FruitKind, type Holdable, type Item, type ItemKind,
   type Laser, type LaserKind, type LaserTrait, type Mark, type Mode, type Popup, type PowerKind, type Replay, type ReplayEvent,
   type Tier, type Tone, type Vec,
 } from './catalog'

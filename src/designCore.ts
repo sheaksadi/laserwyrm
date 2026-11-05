@@ -117,6 +117,8 @@ export interface LevelEdit {
   heal?: number
   /** Stop for two bars to introduce this level. */
   intro?: boolean
+  /** A Warden on this level, or none; unset: stock, the level before each new kind of laser. */
+  boss?: boolean
   /** Bars of fewer lasers after the level starts. */
   calm?: number
   /** × on points scored. */
@@ -367,6 +369,7 @@ function cleanLevel(raw: unknown): LevelEdit {
   if (Array.isArray(l.traits)) out.traits = TRAITS.filter((t) => (l.traits as unknown[]).includes(t))
   if (l.edges === 'wrap' || l.edges === 'kill') out.edges = l.edges
   if (typeof l.intro === 'boolean') out.intro = l.intro
+  if (typeof l.boss === 'boolean') out.boss = l.boss
   if (l.items && typeof l.items === 'object') {
     const items: Record<string, number> = {}
     for (const [id, v] of Object.entries(l.items)) {

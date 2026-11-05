@@ -41,6 +41,9 @@ export function freeCell(): Vec {
   for (const c of toRaw(state.snake)) taken.add(c.y * cols + c.x)
   for (const i of toRaw(state.items)) taken.add(i.y * cols + i.x)
   if (state.snipper.active) taken.add(state.snipper.y * cols + state.snipper.x)
+  // Nothing drops under a boss, out of reach.
+  const boss = state.boss
+  if (boss) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) taken.add((boss.y + dy) * cols + boss.x + dx)
   // Same scan order as always, so the same seed picks the same cell.
   const free: Vec[] = []
   for (let y = 1; y < state.rows - 1; y++)

@@ -66,6 +66,9 @@ export function replaySeek(target: number, run: Replay) {
   state.popups = []
   state.debris = []
   state.dashes = []
+  state.sparks = []
+  state.gulps = []
+  state.bursts = []
   state.banner = null
   state.notice = null
   state.lasers = state.lasers.filter((l) => !l.struck)

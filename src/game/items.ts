@@ -10,7 +10,7 @@ import { addItem, isWall, notice, popup } from './board'
 import { heldSlots, lifeOf, maxHearts, rateOf } from './curve'
 import { edgesFor } from './levels'
 import { arrive } from './engine'
-import { feel, later, mark, run, same, sound, state } from './state'
+import { feel, gulp, later, mark, run, same, sound, spark, state } from './state'
 
 /* ─── Eating ─────────────────────────────────────────────────────────── */
 
@@ -67,6 +67,8 @@ export function eat(item: Item) {
   sound.eat(item.kind === 'apple' ? 0 : item.kind === 'cherry' || item.kind === 'cookie' ? 1 : 2)
   feel('eat', grow)
   popup(item, `+${grow} ×`, item.kind === 'star' || item.kind === 'starry' ? 'sun' : 'mint')
+  spark(item, item.kind === 'star' || item.kind === 'starry' ? 'sun' : item.kind === 'apple' || item.kind === 'cherry' ? 'coral' : 'mint')
+  gulp()
   if (item.kind === 'starry') {
     const id = ++run.uid
     state.bursts.push({ id, x: item.x, y: item.y })
@@ -215,7 +217,7 @@ export function dash() {
     if (state.grow > 0) state.grow--
     else state.snake.pop()
     passed.push({ ...next })
-    arrive(next)
+    arrive(next, true)
   }
   // A beat of ghost, so landing on the body is not a bite.
   state.effects.ghost = Math.max(state.effects.ghost, state.step + 4)

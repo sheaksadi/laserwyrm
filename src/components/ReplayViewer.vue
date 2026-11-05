@@ -17,8 +17,9 @@ const FILTERS = [
   { key: 'heal', label: 'Hearts gained', color: 'var(--rose)' },
   { key: 'level', label: 'Levels', color: 'var(--sun)' },
   { key: 'totem', label: 'Totem', color: 'var(--lavender)' },
+  { key: 'boss', label: 'Boss', color: 'var(--rose)' },
 ] as const satisfies readonly { key: Mark; label: string; color: string }[]
-const shown = reactive<Record<Mark, boolean>>({ power: true, use: true, cut: true, hurt: true, heal: true, level: true, totem: true, die: true })
+const shown = reactive<Record<Mark, boolean>>({ power: true, use: true, cut: true, hurt: true, heal: true, level: true, totem: true, boss: true, die: true })
 const colorOf = (kind: Mark) => FILTERS.find((f) => f.key === kind)?.color ?? 'var(--text)'
 const counts = computed(() => {
   const n: Partial<Record<Mark, number>> = {}

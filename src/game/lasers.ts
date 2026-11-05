@@ -57,7 +57,8 @@ export function kindOf(traits: LaserTrait[]): LaserKind {
   return table[latest].kind
 }
 
-export function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
+/** Send a laser: on a given line if asked, and with given tricks (a boss's) instead of rolling them. */
+export function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>, own?: LaserTrait[]) {
   const head = state.snake[0]!
   const body = state.snake.slice(2)
   const busy = (axis: Beam['axis'], index: number) =>
@@ -88,7 +89,7 @@ export function spawnLaser(forced?: Pick<Beam, 'axis' | 'index'>) {
     }
     if (busy(axis, index)) continue
 
-    const traits = rollTraits()
+    const traits = own ?? rollTraits()
     const width = traits.includes('wide') ? 3 : 1
     const beams: Beam[] = [{ axis, index, width, bolt: '' }]
     // A cross adds the other direction through the same target.
@@ -182,6 +183,7 @@ export function strike(laser: Laser) {
   // The body can be sliced freely; only the head costs a heart.
   if (headHit) {
     state.hearts--
+    state.hurts++
     feel('hurt', state.hearts)
     mark('hurt')
     state.shake++

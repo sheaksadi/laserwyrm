@@ -112,7 +112,7 @@ const walls = ref<InstanceType<typeof WallEditor> | null>(null)
 const tabChanged = (t: Tab) => {
   const e = edit.value
   if (t === 'pacing') return ['difficulty', 'bpm', 'lasers', 'armed', 'warn', 'bars', 'traits'].some((k) => k in e)
-  if (t === 'feel') return ['edges', 'snipper', 'heal', 'intro', 'calm', 'score'].some((k) => k in e)
+  if (t === 'feel') return ['edges', 'snipper', 'heal', 'intro', 'boss', 'calm', 'score'].some((k) => k in e)
   if (t === 'items') return 'items' in e
   return t === 'music' ? 'music' in e : 'background' in e
 }

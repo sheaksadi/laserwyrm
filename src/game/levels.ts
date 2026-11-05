@@ -8,8 +8,9 @@ import { editOf, live, type Edges } from '../design'
 import { musicForLevel } from '../music'
 import { CALM_STEPS, INTRO_STEPS, laserTiers, revision, TIER_NOTE_MS, tierOf } from './catalog'
 import { banner, popup, setWalls } from './board'
+import { startBoss } from './boss'
 import { armedFor, backgroundFor, barsFor, gameRules, intensity, lasersFor, maxHearts, musicFor, snipperFor, startHearts, tempoFor, traitsFor, warnFor } from './curve'
-import { feel, isActive, later, mark, run, sound, state } from './state'
+import { feel, isActive, later, mark, match, run, sound, state } from './state'
 
 export const edgesFor = (level: number): Edges => editOf(live(), level).edges ?? (state.mode === 'hardcore' ? 'kill' : 'wrap')
 
@@ -21,6 +22,13 @@ export const isTierLevel = (level: number) => level > 0 && laserTiers().some((t)
 /** Stop to introduce a level: a level that asks for it; before revision 3, each new kind of laser in normal play. */
 export const introFor = (level: number) =>
   editOf(live(), level).intro ?? (revision.rev < 3 && state.mode === 'normal' && isTierLevel(level))
+
+/**
+ * A Warden on this level? From revision 9, on the level before each new kind
+ * of laser, or wherever a level asks. Never in a match, whose runs are not kept
+ * as replays and which everyone must be able to finish side by side.
+ */
+export const bossFor = (level: number) => revision.rev >= 9 && !match.on && (editOf(live(), level).boss ?? isTierLevel(level + 1))
 
 /**
  * How a level plays by the current design, for the editor: every value, and
@@ -40,6 +48,7 @@ export const levelPlan = (level: number) => {
     snipper: snipperFor(level),
     heal: e.heal ?? (state.mode === 'normal' ? gameRules().refill : 0),
     intro: introFor(level),
+    boss: editOf(live(), level).boss ?? isTierLevel(level + 1),
     calm: e.calm ?? (introFor(level) ? CALM_STEPS / 16 : 0),
     score: e.score ?? 1,
   }
@@ -80,6 +89,9 @@ export function enterLevel(level: number): boolean {
   sound.level()
   feel('level')
   mark('level')
+  state.sweeps++
+  const boss = bossFor(level)
+  if (boss) startBoss(level)
   const tierIndex = laserTiers().findIndex((t) => t.level === level && level > 0)
   if (introFor(level)) {
     startIntro(tierIndex > 0 ? tierIndex : tierOf(level))
@@ -106,7 +118,8 @@ export function enterLevel(level: number): boolean {
     })
   }
   const sub = e.name ?? (tier ? `${tier.name}: ${tier.blurb}` : `${state.bpm} bpm · more lasers`)
-  banner(`Level ${level + 1}`, heal > 0 ? `${sub} · +${heal} heart${heal === 1 ? '' : 's'}` : sub)
+  // A boss's arrival has its own, bigger announcement.
+  if (!boss) banner(`Level ${level + 1}`, heal > 0 ? `${sub} · +${heal} heart${heal === 1 ? '' : 's'}` : sub)
   return false
 }
 
@@ -124,6 +137,10 @@ export function startIntro(tier: number) {
   for (const item of state.items) if (item.until !== null) item.until += INTRO_STEPS
   if (state.wizardUntil > state.step) state.wizardUntil += INTRO_STEPS
   state.snipper.until += INTRO_STEPS
+  if (state.boss) {
+    state.boss.until += INTRO_STEPS
+    state.boss.giveUp += INTRO_STEPS
+  }
   state.hearts += heal
   conductor.setStyle(tier, 'intro', state.step)
   mark('level')

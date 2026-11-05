@@ -9,7 +9,8 @@ import { heldSlots, levelAtBar, maxHearts } from './curve'
 import { stopDemo } from './demo'
 import { reset } from './engine'
 import { activate, gainEnergy, refill, spendDash } from './items'
-import { applyLevel } from './levels'
+import { startBoss } from './boss'
+import { applyLevel, bossFor } from './levels'
 import { cheats, demo, match, replay, run, same, saveBest, sound, state } from './state'
 
 /** The use button: a dash for energy (revision 7 on), or the oldest held power-up before that. */
@@ -35,6 +36,8 @@ export function cheatLevel(level: number) {
   applyLevel(level)
   setWalls(level)
   conductor.setStyle(tierOf(level), 'play', state.step)
+  state.boss = null
+  if (bossFor(level)) startBoss(level)
 }
 
 export function cheatToggle(name: keyof typeof cheats) {

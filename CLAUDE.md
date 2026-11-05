@@ -89,6 +89,7 @@ after every module has loaded. To make something public, add it to that list.
 | engine | `reset`, `onStep`/`onBeat`/`onBar`, `tick`, the frame loop, `startEngine` |
 | levels | rules that depend on the run (edges, healing, intros), `multiplier`, entering a level |
 | lasers / hits / snipper / items | their mechanics (cuts and death are in hits) |
+| boss | the Wardens: one on the level before each new kind of laser (`bossFor`). The next level waits for it |
 | controls | play, pause, turn, use item, mode, cheats: live input is recorded here |
 | replay / match / demo | playback, a multiplayer match, the start screen's self-playing backdrop |
 
@@ -109,7 +110,7 @@ saved on the server, must play back exactly. So:
   `checkReplay` (`server/checks.mjs`).
 - Changing what happens in play (item tables, laser rolls, the order of `random()`
   calls) changes old runs. Gate it behind a new rules revision: bump `ITEMS_REV`
-  in `catalog.ts` and branch on `revision.rev`, as revisions 2–8 do (7: energy and dashing; power-ups no longer held, `usesEnergy()`; 8: no dash pill, `powerKinds()`).
+  in `catalog.ts` and branch on `revision.rev`, as revisions 2–8 do (7: energy and dashing; power-ups no longer held, `usesEnergy()`; 8: no dash pill, `powerKinds()`; 9: bosses, `bossFor()`).
   Matches always play the current revision (`prepareMatch`). Laser tiers
   differ by revision (4 moved purple to level 5): read them with `laserTraits()`
   and `laserTiers()`, never a fixed table, so replays and notices follow the run.

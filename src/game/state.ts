@@ -5,7 +5,7 @@
  */
 import { reactive } from 'vue'
 import { now, sound as rawSound } from '../audio'
-import { DIRS, revision, START_HEARTS, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Vec } from './catalog'
+import { DIRS, revision, START_HEARTS, type Boss, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Tone, type Vec } from './catalog'
 import { tempoFor } from './curve'
 
 /**
@@ -137,6 +137,16 @@ export const state = reactive({
   bursts: [] as { id: number; x: number; y: number }[],
   /** Dashes, for the board to draw: the cells passed (where it set off first) and the way it went. */
   dashes: [] as { id: number; cells: Vec[]; dir: Vec }[],
+  /** Rings and sparks where something happened, for the board to draw; `big` for a boss. */
+  sparks: [] as { id: number; x: number; y: number; tone: Tone; big: boolean }[],
+  /** Food going down the snake: each bulge starts at the head on step `at`. */
+  gulps: [] as { id: number; at: number }[],
+  /** Bumped when the head is hurt, so the view can flash red once. */
+  hurts: 0,
+  /** Bumped on reaching a level, so the view can sweep light across the board. */
+  sweeps: 0,
+  /** The boss on the board, if any. */
+  boss: null as Boss | null,
   /** Until this step, after a wizard cookie, no lasers. */
   wizardUntil: 0,
   /** A new kind of laser just arrived (without stopping play): the notice saying so. */
@@ -151,7 +161,7 @@ export const state = reactive({
     resting: false,
   },
 
-  stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0 },
+  stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0, bosses: 0 },
   /** Wall cells (y × cols + x), from a home-made level. */
   walls: [] as number[],
   /** Bumped on every hit, so the view can shake once. */
@@ -172,6 +182,28 @@ export const clock = () => now() * 1000
 export const timers: { at: number; run: () => void }[] = []
 export function later(ms: number, run: () => void) {
   timers.push({ at: clock() + ms, run })
+}
+
+/* ─── Little effects for the board (never part of play) ─────────────────── */
+
+/** Effects get their own ids, so the run's ids (items, debris) stay as they were. */
+let fxIds = 0
+/** How long the slowest effect lasts on the board. */
+const FX_MS = 700
+const GULP_MS = 1600
+
+/** A ring and sparks at a cell. */
+export function spark(cell: Vec, tone: Tone, big = false) {
+  const id = ++fxIds
+  state.sparks.push({ id, x: cell.x, y: cell.y, tone, big })
+  later(FX_MS, () => (state.sparks = state.sparks.filter((s) => s.id !== id)))
+}
+
+/** Send a bulge down the snake, from the head to the tail. */
+export function gulp() {
+  const id = ++fxIds
+  state.gulps.push({ id, at: state.step })
+  later(GULP_MS, () => (state.gulps = state.gulps.filter((g) => g.id !== id)))
 }
 
 /**

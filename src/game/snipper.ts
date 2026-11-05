@@ -7,7 +7,7 @@ import { popup } from './board'
 import { snipperFor } from './curve'
 import { cut } from './hits'
 import { rand, random } from './rng'
-import { same, sound, state } from './state'
+import { same, sound, spark, state } from './state'
 
 export function spawnSnipper() {
   const s = state.snipper
@@ -63,4 +63,5 @@ export function eatSnipper() {
   state.stats.snippers++
   sound.bonus()
   popup(s, '+3 × crunch', 'sun')
+  spark(s, 'lavender')
 }

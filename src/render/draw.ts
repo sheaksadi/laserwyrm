@@ -99,6 +99,10 @@ export interface Frame {
   wall: number
   beatAt: number
   downbeat: boolean
+  /** Wall-clock ms of the last hurt, level sweep and hit on a boss. */
+  hurtAt: number
+  sweepAt: number
+  bossHitAt: number
   puffs: Puff[]
 }
 
@@ -291,7 +295,32 @@ export function drawFront(f: Frame, keep: Set<string>) {
   // Over the snake: its body fills the cells it dashed through.
   for (const d of state.dashes) drawDash(f, d, keep)
   drawSnipper(f, keep)
+  drawBoss(f, keep)
   for (const laser of state.lasers) if (laser.struck) drawStrike(f, laser, keep)
+  for (const k of state.sparks) drawSpark(f, k, keep)
+
+  // A new level: a band of light sweeps over the board.
+  const sweep = clamp01((f.wall - f.sweepAt) / 700)
+  if (sweep < 1) {
+    const dx = easeOut(sweep) * (cols + rows + 8)
+    ctx.globalAlpha = lerp(0.3, 0.1, sweep)
+    ctx.fillStyle = '#fff'
+    ctx.beginPath()
+    ctx.moveTo(-4 + dx, 0)
+    ctx.lineTo(-1 + dx, 0)
+    ctx.lineTo(-1 - rows + dx, rows)
+    ctx.lineTo(-4 - rows + dx, rows)
+    ctx.closePath()
+    ctx.fill()
+  }
+  // The head is hurt: the board flashes red.
+  const hurt = clamp01((f.wall - f.hurtAt) / 320)
+  if (hurt < 1) {
+    ctx.globalAlpha = 0.32 * (1 - easeOut(hurt))
+    ctx.fillStyle = col('var(--coral)')
+    ctx.fillRect(0, 0, cols, rows)
+  }
+  ctx.globalAlpha = 1
 
   // Floating numbers: rise in eight steps and fade.
   for (const p of state.popups) {
@@ -472,6 +501,131 @@ function drawDebris(f: Frame, piece: (typeof state.debris)[number], keep: Set<st
   ctx.globalAlpha = 1
 }
 
+/** A ring and six sparks at a cell, as Board.vue draws them. */
+function drawSpark(f: Frame, k: (typeof state.sparks)[number], keep: Set<string>) {
+  const { ctx, s, dpr, now } = f
+  const key = `k${k.id}`
+  keep.add(key)
+  const age = since(key, now)
+  const color = col(TONE_COLOR[k.tone])
+  ctx.save()
+  ctx.translate(k.x + 0.5, k.y + 0.5)
+  ctx.scale(k.big ? 2.4 : 1, k.big ? 2.4 : 1)
+  const r = easeOut(clamp01(age / 450))
+  ctx.globalAlpha = lerp(0.9, 0, r)
+  ctx.beginPath()
+  ctx.arc(0, 0, 0.45 * lerp(0.4, 1.9, r), 0, Math.PI * 2)
+  ctx.strokeStyle = color
+  ctx.lineWidth = (2 * dpr) / s / (k.big ? 2.4 : 1)
+  ctx.stroke()
+  const e = easeOut(clamp01(age / 500))
+  ctx.globalAlpha = 1 - e
+  ctx.fillStyle = color
+  for (const [dx, dy] of SPARKS) {
+    ctx.beginPath()
+    ctx.arc(dx * e, dy * e, 0.09 * lerp(1, 0.2, e), 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
+}
+
+/* A Warden, from the SVG board's paths. */
+const BOSS_HULL = new Path2D('M-1 -1.45H1L1.45 -1V1L1 1.45H-1L-1.45 1V-1Z')
+const BOSS_PLATE = new Path2D('M-1.45 -0.45V-1H-1L-0.45 -1.45H-0.2L-0.2 -1.05H-0.75L-1.05 -0.75V-0.2H-1.45Z')
+/** Where the boss is drawn: it glides after its cell, and its plates part smoothly. */
+const bossShown = { id: 0, x: 0, y: 0, part: 0, at: 0 }
+
+function drawBoss(f: Frame, keep: Set<string>) {
+  const { ctx, s, dpr, now } = f
+  const b = state.boss
+  if (!b) return
+  const key = `boss${b.id}`
+  keep.add(key)
+  const age = since(key, now)
+  const phaseKey = `${key}:${b.phase}`
+  keep.add(phaseKey)
+  const phaseAge = since(phaseKey, now)
+  // Glide: about the SVG's 0.28 s transition.
+  if (bossShown.id !== b.id) Object.assign(bossShown, { id: b.id, x: b.x, y: b.y, part: 0, at: now })
+  const dt = now - bossShown.at
+  bossShown.at = now
+  const glide = 1 - Math.exp(-dt / 80)
+  bossShown.x = lerp(bossShown.x, b.x, glide)
+  bossShown.y = lerp(bossShown.y, b.y, glide)
+  bossShown.part = lerp(bossShown.part, b.phase === 'open' ? 1 : 0, 1 - Math.exp(-dt / 50))
+  const fill = (x: number, y: number, w: number, h: number) => laserFill(ctx, b.kind, x, y, w, h)
+  const line = (2 * dpr) / s
+  ctx.save()
+  ctx.translate(bossShown.x + 0.5, bossShown.y + 0.5)
+  // Flying in, shaking apart, flying off.
+  if (b.phase === 'leaving') {
+    const e = clamp01(phaseAge / 500) ** 2
+    ctx.translate(0, -12 * e)
+    ctx.scale(lerp(1, 0.4, e), lerp(1, 0.4, e))
+    ctx.globalAlpha = 1 - e
+  } else if (b.phase === 'dying') {
+    const k = Math.floor(now / 70) % 2 ? 1 : -1
+    ctx.translate(0.12 * k, -0.08 * k)
+  } else {
+    const e = easeOut(clamp01(age / 600))
+    ctx.translate(0, -12 * (1 - e))
+    ctx.scale(lerp(0.4, 1, e), lerp(0.4, 1, e))
+    ctx.globalAlpha = e
+  }
+  const alpha = ctx.globalAlpha
+  // Three shards circle it.
+  ctx.save()
+  ctx.rotate(((f.world % 2400) / 2400) * Math.PI * 2)
+  ctx.fillStyle = fill(-2.15, -2.15, 4.3, 4.3)
+  for (let k = 0; k < 3; k++) {
+    ctx.rotate((Math.PI * 2) / 3)
+    ctx.fillRect(-0.14, -2.15, 0.28, 0.28)
+  }
+  ctx.restore()
+  ctx.fillStyle = '#15102E'
+  ctx.fill(BOSS_HULL)
+  ctx.strokeStyle = fill(-1.45, -1.45, 2.9, 2.9)
+  ctx.lineWidth = line
+  ctx.stroke(BOSS_HULL)
+  for (let k = 0; k < 4; k++) {
+    ctx.save()
+    ctx.rotate((k * Math.PI) / 2)
+    ctx.translate(-0.34 * bossShown.part, -0.34 * bossShown.part)
+    ctx.fillStyle = '#2A2350'
+    ctx.fill(BOSS_PLATE)
+    ctx.stroke(BOSS_PLATE)
+    ctx.restore()
+  }
+  // The core throbs, faster and bigger while open.
+  const open = b.phase === 'open'
+  const period = open ? 360 : 1000
+  const phase = (f.world % period) / (period / 2)
+  const throb = lerp(0.92, 1.06, easeInOut(phase <= 1 ? phase : 2 - phase)) * (open ? 1.25 : 1)
+  ctx.beginPath()
+  ctx.arc(0, 0, 0.62 * throb, 0, Math.PI * 2)
+  ctx.fillStyle = fill(-0.62, -0.62, 1.24, 1.24)
+  ctx.fill()
+  ctx.strokeStyle = '#000'
+  ctx.stroke()
+  // One eye, on the head.
+  const head = state.snake[0]!
+  const dx = head.x - b.x
+  const dy = head.y - b.y
+  const d = Math.hypot(dx, dy) || 1
+  ctx.beginPath()
+  ctx.arc((dx / d) * 0.26, (dy / d) * 0.26, 0.24, 0, Math.PI * 2)
+  ctx.fillStyle = '#000'
+  ctx.fill()
+  // Hit: a white flash.
+  const hit = clamp01((f.wall - f.bossHitAt) / 180)
+  if (hit < 1) {
+    ctx.globalAlpha = alpha * 0.95 * (1 - easeOut(hit))
+    ctx.fillStyle = '#fff'
+    ctx.fill(BOSS_HULL)
+  }
+  ctx.restore()
+}
+
 /** The snake as runs of touching cells: the line breaks where it wraps through an edge. */
 function runs(cells: { x: number; y: number }[]) {
   const out: { x: number; y: number }[][] = []
@@ -565,6 +719,16 @@ function drawSnake(f: Frame) {
   if (rainbow) for (let i = 1; i < snake.length; i++) {
     ctx.fillStyle = RAINBOW[(i - 1) % RAINBOW.length]!
     ctx.fillRect(snake[i]!.x + 0.15, snake[i]!.y + 0.15, 0.7, 0.7)
+  }
+  // Food going down: a bulge two cells further along each step.
+  for (const g of state.gulps) {
+    const c = snake[(state.step - g.at) * 2]
+    if (!c || state.step <= g.at) continue
+    ctx.fillStyle = body
+    ctx.fillRect(c.x + 0.02, c.y + 0.02, 0.96, 0.96)
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = (1.5 * dpr) / s
+    ctx.strokeRect(c.x + 0.02, c.y + 0.02, 0.96, 0.96)
   }
   ctx.globalAlpha = 0.45
   ctx.fillStyle = '#000'

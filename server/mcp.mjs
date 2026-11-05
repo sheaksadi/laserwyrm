@@ -85,6 +85,7 @@ const levelFields = {
   snipper: { type: 'number', description: 'Snipper frequency × (0 = never), 0–2' },
   heal: { type: 'number', description: 'Hearts given back on reaching this level, 0–5' },
   intro: { type: 'boolean', description: 'Pause two bars to introduce this level' },
+  boss: { type: 'boolean', description: 'A Warden boss on this level; unset: the level before each new kind of laser' },
   calm: { type: 'number', description: 'Bars of fewer lasers at the start, 0–16' },
   score: { type: 'number', description: '× on points, 0–5' },
   items: { type: 'object', additionalProperties: { type: 'number' }, description: 'Item id → × on its chance on this level (0–4)' },

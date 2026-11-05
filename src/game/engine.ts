@@ -9,6 +9,7 @@ import { musicForLevel, warmUp } from '../music'
 import { design, isStock, itemsStock, live, snapshot } from '../design'
 import { DIRS, ENERGY, HEART_CHANCE, ITEMS_REV, powerKinds, revision, TOTEM_CHANCE, tierOf, usesEnergy, type Mode, type Vec } from './catalog'
 import { addItem, clearWalls, isWall, setWalls } from './board'
+import { bossBeat, bossStep, touchBoss } from './boss'
 import { armedFor, backgroundFor, gameRules, intensity, lasersFor, levelAtBar, lifeOf, maxHearts, musicFor, rateOf, snipperFor, tempoFor } from './curve'
 import { demoFrame } from './demo'
 import { die } from './hits'
@@ -73,10 +74,13 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     popups: [],
     bursts: [],
     dashes: [],
+    sparks: [],
+    gulps: [],
+    boss: null,
     wizardUntil: 0,
     tierNote: null,
     banner: null,
-    stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0 },
+    stats: { eaten: 0, lost: 0, cuts: 0, snippers: 0, blocked: 0, bosses: 0 },
   })
   state.snipper.active = false
   state.snipper.until = 0
@@ -99,7 +103,12 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
 
 export function onBar(bar: number) {
   if (state.intro) return
-  const level = state.levelOffset + levelAtBar(bar - state.pausedBars)
+  let level = state.levelOffset + levelAtBar(bar - state.pausedBars)
+  // A boss holds the way on: its bars do not count until it is gone.
+  if (state.boss && level !== state.level) {
+    state.pausedBars++
+    level = state.level
+  }
   if (level !== state.level && enterLevel(level)) return
 
   // Bonus fruit and pills, at most two extras at a time.
@@ -129,12 +138,16 @@ export function onBeat(step: number) {
   if (state.intro) return
   state.beat++
   state.score += multiplier()
+  bossBeat(step)
   const bar = Math.floor(step / 16)
   if (bar < 1 || cheats.noLasers || match.calm) return // one bar of intro; none at all in a laser-free match
   // Slow-mo (revision 6): the world's beat comes half as often.
   if (worldSlowed() && (step / 4) % 2 === 1) return
 
   trackLasers()
+
+  // A boss brings its own lasers.
+  if (state.boss) return
 
   // More lasers per bar, and more armed at once, as the intensity climbs.
   // A wizard cookie keeps the lasers away for a moment.
@@ -186,14 +199,15 @@ export function tick() {
   arrive(next)
 }
 
-/** The head has moved onto `cell`: eat what is there. */
-export function arrive(cell: Vec) {
+/** The head has moved onto `cell` (`dashed`: by a dash): eat what is there, and meet any boss. */
+export function arrive(cell: Vec, dashed = false) {
   const item = state.items.find((i) => same(i, cell))
   if (item) eat(item)
   state.longest = Math.max(state.longest, state.snake.length)
 
   const s = state.snipper
   if (s.active && same(s, cell)) eatSnipper()
+  touchBoss(cell, dashed)
 }
 
 export function onStep(step: number) {
@@ -215,10 +229,11 @@ export function onStep(step: number) {
   if (isActive('magnet') && step % 2 === 0) pullFruit()
 
   for (const laser of state.lasers) if (!laser.struck && laser.strikeStep <= step) strike(laser)
+  bossStep(step)
 
   const s = state.snipper
   if (s.active && step % (slowWorld ? 4 : 2) === 0) moveSnipper()
-  if (!s.active && snipperFor(state.level) > 0 && (state.level >= 1 || state.snake.length >= 8) && state.step >= s.until) spawnSnipper()
+  if (!s.active && !state.boss && snipperFor(state.level) > 0 && (state.level >= 1 || state.snake.length >= 8) && state.step >= s.until) spawnSnipper()
   if (s.active && s.resting && state.step >= s.until) s.resting = false
 
   state.items = state.items.filter((i) => i.until === null || i.until > step)
@@ -230,6 +245,10 @@ function holdWorld(step: number) {
   for (const item of state.items) if (item.until !== null) item.until++
   state.snipper.until++
   if (state.calmUntil > step) state.calmUntil++
+  if (state.boss) {
+    state.boss.until++
+    state.boss.giveUp++
+  }
 }
 
 /* ─── The frame loop ──────────────────────────────────────────────────── */

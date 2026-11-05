@@ -48,6 +48,16 @@ const rainbowCells = computed(() => {
   return out
 })
 
+/** Food going down the snake: a bulge two cells further along each step. */
+const bulges = computed(() => {
+  let d = ''
+  for (const g of state.gulps) {
+    const c = state.snake[(state.step - g.at) * 2]
+    if (c && state.step > g.at) d += square(c.x + 0.02, c.y + 0.02, 0.96)
+  }
+  return d
+})
+
 /** In multiplayer: everyone else's snake, as a hologram (broken where it wraps, like this one). */
 const holograms = computed(() =>
   Object.values(mp.peers)
@@ -83,6 +93,9 @@ const bodyColor = computed(() => (isActive('double') ? 'var(--sun)' : shown.valu
 /** Rainbow: each cell its own colour, over a white tube. */
 const rainbow = computed(() => shown.value.color.id === 'rainbow' && !isActive('double'))
 const headColor = computed(() => (shown.value.color.id === 'green' ? 'var(--mint)' : shown.value.color.id === 'rainbow' ? 'var(--sun)' : shown.value.color.value))
+/** A Warden's shell, drawn around (0, 0): the hull, and one corner plate (the others are it, turned). */
+const BOSS_HULL = 'M-1 -1.45H1L1.45 -1V1L1 1.45H-1L-1.45 1V-1Z'
+const BOSS_PLATE = 'M-1.45 -0.45V-1H-1L-0.45 -1.45H-0.2L-0.2 -1.05H-0.75L-1.05 -0.75V-0.2H-1.45Z'
 const RAINBOW = ['#FF3355', '#FF9966', '#FFE14D', '#5CFF5C', '#3FA9FF', '#B26BFF']
 const CONFETTI = ['var(--coral)', 'var(--sun)', 'var(--mint)', 'var(--sky)', 'var(--rose)', 'var(--lavender)']
 
@@ -157,6 +170,18 @@ const beamsAt = (laser: { beams: Beam[] }) => laser.beams.map((b) => b.index).jo
 /** Emitters grow with the band they fire. */
 const emitterSize = (beam: Beam) => (beam.width === 3 ? 1.6 : 0.7)
 
+/** The boss's colour: the laser it guards. */
+const bossColor = computed(() => (state.boss ? LASER_COLOR[state.boss.kind] : 'none'))
+/** Its eye follows the head. */
+const bossEye = computed(() => {
+  const b = state.boss
+  if (!b) return { x: 0, y: 0 }
+  const dx = head.value.x - b.x
+  const dy = head.value.y - b.y
+  const d = Math.hypot(dx, dy) || 1
+  return { x: (dx / d) * 0.26, y: (dy / d) * 0.26 }
+})
+
 /** Items blink in their last two beats. */
 const fading = (until: number | null) => until !== null && until - state.step <= 8
 
@@ -194,7 +219,7 @@ watch(
  * game answering you, keep theirs. Checked each step, since new things
  * start their animations at full speed.
  */
-const WORLD = '.warn, .fuse, .emitter, .pop, .fading, .pincer, .spin, .beat-throb, .twinkle'
+const WORLD = '.warn, .fuse, .emitter, .pop, .fading, .pincer, .spin, .beat-throb, .twinkle, .boss-orbit, .boss-core'
 watch(
   () => [state.step, worldSlowed()] as const,
   ([, slow]) => {
@@ -203,6 +228,28 @@ watch(
       const target = (a.effect as KeyframeEffect | null)?.target
       if (a.playbackRate !== rate && target instanceof Element && target.matches(WORLD)) a.playbackRate = rate
     }
+  },
+)
+/** A red flash when the head is hurt, light sweeping over the board at a new level, a white flash on a hit boss. */
+const hurtFlash = ref<SVGRectElement | null>(null)
+const sweepBand = ref<SVGPolygonElement | null>(null)
+const bossFlash = ref<SVGPathElement | null>(null)
+watch(
+  () => state.hurts,
+  () => hurtFlash.value?.animate([{ opacity: 0.32 }, { opacity: 0 }], { duration: 320, easing: 'ease-out' }),
+)
+watch(
+  () => state.sweeps,
+  () =>
+    sweepBand.value?.animate(
+      [{ transform: 'translateX(0)', opacity: 0.3 }, { transform: `translateX(${state.cols + state.rows + 8}px)`, opacity: 0.1 }],
+      { duration: 700, easing: 'ease-out' },
+    ),
+)
+watch(
+  () => state.boss?.hits,
+  (hits) => {
+    if (hits) bossFlash.value?.animate([{ opacity: 0.95 }, { opacity: 0 }], { duration: 180, easing: 'ease-out' })
   },
 )
 watch(
@@ -414,6 +461,7 @@ watch(
     <template v-if="rainbow">
       <path v-for="(d, k) in rainbowCells" :key="`r${k}`" :d="d" :fill="RAINBOW[k]" />
     </template>
+    <path :d="bulges" :fill="bodyColor" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
     <path :d="belly" fill="var(--ink)" opacity="0.45" />
     <circle
       v-if="shielded"
@@ -476,6 +524,29 @@ watch(
       </g>
     </g>
 
+    <!-- A Warden: a shell of four plates around a core with one eye; the plates part when the core opens -->
+    <g
+      v-if="state.boss"
+      :key="`boss${state.boss.id}`"
+      class="boss"
+      :class="state.boss.phase"
+      :style="{ transform: `translate(${state.boss.x + 0.5}px, ${state.boss.y + 0.5}px)` }"
+    >
+      <g class="boss-body">
+        <g class="boss-orbit">
+          <circle r="2.15" fill="none" />
+          <rect v-for="k in 3" :key="k" x="-0.14" y="-2.15" width="0.28" height="0.28" :fill="bossColor" :transform="`rotate(${k * 120})`" />
+        </g>
+        <path :d="BOSS_HULL" fill="#15102E" :stroke="bossColor" stroke-width="2" vector-effect="non-scaling-stroke" />
+        <g v-for="k in 4" :key="k" :transform="`rotate(${k * 90})`">
+          <path class="boss-plate" :d="BOSS_PLATE" fill="#2A2350" :stroke="bossColor" stroke-width="2" vector-effect="non-scaling-stroke" />
+        </g>
+        <circle class="boss-core" r="0.62" :fill="bossColor" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+        <circle :cx="bossEye.x" :cy="bossEye.y" r="0.24" fill="var(--ink)" />
+        <path ref="bossFlash" :d="BOSS_HULL" fill="#fff" opacity="0" />
+      </g>
+    </g>
+
     <!-- Laser strikes: a straight beam and a jagged bolt, over everything -->
     <g v-for="laser in state.lasers" :key="`s${laser.id}`" v-memo="[laser.struck, state.cols, state.rows]">
       <template v-if="laser.struck">
@@ -498,6 +569,24 @@ watch(
         </g>
       </template>
     </g>
+
+    <!-- A ring and sparks where something happened: fruit eaten, a boss hit -->
+    <g v-for="k in state.sparks" :key="`k${k.id}`" v-memo="[k.id]" :transform="`translate(${k.x + 0.5} ${k.y + 0.5}) scale(${k.big ? 2.4 : 1})`">
+      <circle class="ring" r="0.45" fill="none" :stroke="TONE_COLOR[k.tone]" stroke-width="2" vector-effect="non-scaling-stroke" />
+      <circle
+        v-for="(spark, i) in SPARKS"
+        :key="i"
+        class="spark"
+        :style="{ '--sx': `${spark.dx}px`, '--sy': `${spark.dy}px` }"
+        r="0.09"
+        :fill="TONE_COLOR[k.tone]"
+      />
+    </g>
+
+    <!-- A new level: a band of light sweeps over the board -->
+    <polygon ref="sweepBand" :points="`-4,0 -1,0 ${-1 - state.rows},${state.rows} ${-4 - state.rows},${state.rows}`" fill="#fff" opacity="0" />
+    <!-- The head is hurt: the board flashes red -->
+    <rect ref="hurtFlash" :width="state.cols" :height="state.rows" fill="var(--coral)" opacity="0" />
 
     <!-- Floating numbers -->
     <text
@@ -662,6 +751,33 @@ watch(
 @keyframes snap {
   from { transform: rotate(-12deg); }
   to { transform: rotate(10deg); }
+}
+
+/* ─── Boss ─── */
+.boss { transition: transform 0.28s var(--ease-out); }
+.boss-body { animation: boss-in 0.6s var(--ease-out) both; }
+@keyframes boss-in {
+  from { transform: translateY(-12px) scale(0.4); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.boss-orbit { transform-box: fill-box; transform-origin: center; animation: spin 2.4s linear infinite; }
+.boss-plate { transition: transform 0.18s var(--ease-out); }
+.boss.open .boss-plate { transform: translate(-0.34px, -0.34px); }
+.boss-core { animation: boss-throb 0.5s ease-in-out infinite alternate; }
+.boss.open .boss-core { animation-duration: 0.18s; scale: 1.25; }
+@keyframes boss-throb {
+  from { transform: scale(0.92); }
+  to { transform: scale(1.06); }
+}
+.boss.dying .boss-body { animation: boss-shake 0.07s linear infinite alternate; }
+@keyframes boss-shake {
+  from { transform: translate(-0.12px, 0.08px); }
+  to { transform: translate(0.12px, -0.08px); }
+}
+.boss.leaving .boss-body { animation: boss-out 0.5s ease-in both; }
+@keyframes boss-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateY(-12px) scale(0.4); opacity: 0; }
 }
 
 /* ─── Popups ─── */

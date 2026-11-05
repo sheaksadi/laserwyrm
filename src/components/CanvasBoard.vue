@@ -100,6 +100,16 @@ watch(
   },
 )
 
+/* ─── A red flash when hurt, a sweep at each level, a flash on a hit boss ─── */
+let hurtAt = -1e9
+let sweepAt = -1e9
+let bossHitAt = -1e9
+watch(() => state.hurts, () => (hurtAt = performance.now()))
+watch(() => state.sweeps, () => (sweepAt = performance.now()))
+watch(() => state.boss?.hits, (hits) => {
+  if (hits) bossHitAt = performance.now()
+})
+
 /* ─── Drawing ─── */
 let ctx: CanvasRenderingContext2D | null = null
 const back = document.createElement('canvas')
@@ -134,7 +144,7 @@ function render() {
   ctx.clearRect(0, 0, c.width, c.height)
   ctx.drawImage(back, 0, 0)
   const keep = new Set<string>()
-  drawFront({ ctx, s, ox, oy, dpr, now: anim, world, wall, beatAt, downbeat, puffs }, keep)
+  drawFront({ ctx, s, ox, oy, dpr, now: anim, world, wall, beatAt, downbeat, hurtAt, sweepAt, bossHitAt, puffs }, keep)
   sweep(keep)
 }
 

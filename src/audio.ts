@@ -651,4 +651,40 @@ export const sound = {
       o.frequency.exponentialRampToValueAtTime(40, t + 0.9)
     }),
   level: () => sfx((t, bus) => stab(t, [69, 72, 76, 81], bus)),
+  /** A siren, twice, as a boss flies in. */
+  bossEnter: () =>
+    sfx((t, bus) => {
+      for (const at of [0, 0.45]) {
+        const g = ctx!.createGain()
+        g.connect(bus)
+        env(g, t + at, 0.28, 0.02, 0.4)
+        const o = osc('sawtooth', 220, t + at, 0.4, g)
+        o.frequency.exponentialRampToValueAtTime(660, t + at + 0.32)
+      }
+    }),
+  /** A boss's core opens: a bright rising run. */
+  bossOpen: () =>
+    sfx((t, bus) => {
+      for (const [i, midi] of [64, 71, 76, 83].entries()) pluck(t + i * 0.05, midi, bus, 0.15)
+    }),
+  /** A heavy hit on a boss. */
+  bossHit: () =>
+    sfx((t, bus) => {
+      const g = ctx!.createGain()
+      g.connect(bus)
+      env(g, t, 0.6, 0.002, 0.35)
+      const o = osc('square', 260, t, 0.35, g)
+      o.frequency.exponentialRampToValueAtTime(45, t + 0.3)
+      stab(t, [81, 88], bus)
+    }),
+  /** A boss comes apart: a long fall under a run of blasts. */
+  bossDie: () =>
+    sfx((t, bus) => {
+      const g = ctx!.createGain()
+      g.connect(bus)
+      env(g, t, 0.5, 0.005, 1.4)
+      const o = osc('sawtooth', 520, t, 1.4, g)
+      o.frequency.exponentialRampToValueAtTime(30, t + 1.4)
+      for (let i = 0; i < 6; i++) hat(t + i * 0.13, false, bus, 0.35)
+    }),
 }

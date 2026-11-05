@@ -92,6 +92,41 @@ export interface Laser {
   echo: boolean
 }
 
+/**
+ * What a boss is doing. It flies in, attacks in volleys, then its core lies
+ * open for a moment: the only time it can be hurt. Beaten, it comes apart;
+ * left too long, it leaves.
+ */
+export type BossPhase = 'enter' | 'attack' | 'open' | 'dying' | 'leaving'
+/** A Warden: three by three cells around (x, y), firing the kind of laser it guards. */
+export interface Boss {
+  id: number
+  name: string
+  kind: LaserKind
+  /** The tricks of its lasers: those of the laser that comes after it. */
+  traits: LaserTrait[]
+  x: number
+  y: number
+  /** Where it is drifting to, a cell each beat. */
+  goal: Vec
+  hp: number
+  maxHp: number
+  phase: BossPhase
+  /** Step the phase ends (not `attack`, which ends when its volleys are spent). */
+  until: number
+  /** Volleys left in this attack, and the step of the next. */
+  volleys: number
+  nextShot: number
+  /** Attacks so far: each one fires a little more. */
+  round: number
+  /** Touching it hurts only from this step on. */
+  graceUntil: number
+  /** It leaves at this step if it is still attacking. */
+  giveUp: number
+  /** Bumped on every hit, so the view can flash once. */
+  hits: number
+}
+
 export type PowerKind = 'shield' | 'double' | 'slow' | 'dash' | 'magnet' | 'ghost'
 export type FruitKind = 'apple' | 'cherry' | 'star' | 'cookie' | 'starry'
 /** A home-made item, by id: `c` and a number. */
@@ -115,10 +150,11 @@ export const FRUIT_GROW: Record<FruitKind, number> = { apple: 1, cherry: 3, star
  * with energy that fruit and time fill; power-ups go off as they are eaten
  * instead of being held, and a totem refills hearts and energy at once
  * (see `ENERGY`). 8: the dash power-up no longer drops, as the use button
- * dashes anyway (see `powerKinds`). Replays keep the revision they were
- * played with, so old runs play back the same.
+ * dashes anyway (see `powerKinds`). 9: a boss guards each new kind of
+ * laser, on the level before it (see `bossFor`). Replays keep the revision
+ * they were played with, so old runs play back the same.
  */
-export const ITEMS_REV = 8
+export const ITEMS_REV = 9
 
 /** The revision of the run in play (set by `reset`): everything that differs between revisions reads it. */
 export const revision = { rev: ITEMS_REV }
@@ -213,6 +249,28 @@ export const BOLT_MS = 320
 export const SNIPPER_RESPAWN_STEPS = 64
 export const SNIPPER_REST_STEPS = 20
 export const DASH_CELLS = 4
+/** A boss's timing, in steps, and what it takes to beat one. A dash into its open core counts double. */
+export const BOSS = {
+  enterSteps: 32,
+  openSteps: 32,
+  dyingSteps: 24,
+  leavingSteps: 16,
+  volleyGap: 8,
+  volleys: 3,
+  graceSteps: 16,
+  maxSteps: 16 * 40,
+  dashDamage: 2,
+}
+/** A Warden's name, by the kind of laser it guards. */
+export const BOSS_NAMES: Record<LaserKind, string> = {
+  red: 'Crimson Warden',
+  purple: 'Violet Warden',
+  blue: 'Azure Warden',
+  white: 'Pale Warden',
+  green: 'Verdant Warden',
+  gold: 'Gilded Warden',
+  prism: 'Prism Warden',
+}
 /** Chance per bar that a totem drops, from level 2 on. */
 export const TOTEM_CHANCE = 0.012
 export const NOTICE_MS = 1800
@@ -250,7 +308,7 @@ export type Feel = 'cut' | 'hurt' | 'die' | 'block' | 'revive' | 'level' | 'eat'
  * Moments worth finding again on a replay's timeline. These fire in replays
  * too (unlike feel), so the viewer can scan a run once and mark its bar.
  */
-export type Mark = 'power' | 'use' | 'cut' | 'hurt' | 'heal' | 'level' | 'totem' | 'die'
+export type Mark = 'power' | 'use' | 'cut' | 'hurt' | 'heal' | 'level' | 'totem' | 'boss' | 'die'
 
 /**
  * Every screen plays the same board: 48 × 26 cells, scaled to fit. A big

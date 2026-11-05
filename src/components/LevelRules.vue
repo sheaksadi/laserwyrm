@@ -61,6 +61,11 @@ const EDGES: { value: Edges | undefined; name: string }[] = [
   { value: 'wrap', name: 'Wrap round' },
   { value: 'kill', name: 'Walls kill' },
 ]
+const BOSS: { value: boolean | undefined; name: string }[] = [
+  { value: undefined, name: 'Auto' },
+  { value: true, name: 'Warden' },
+  { value: false, name: 'No boss' },
+]
 const INTRO: { value: boolean | undefined; name: string }[] = [
   { value: undefined, name: 'Auto' },
   { value: true, name: 'Pause to show it' },
@@ -128,6 +133,18 @@ const INTRO: { value: boolean | undefined; name: string }[] = [
           @click="setValue('intro', o.value)"
         >
           {{ o.name }}<template v-if="o.value === undefined"> ({{ plan.intro ? 'pause' : 'none' }})</template>
+        </button>
+      </div>
+      <div class="row-label"><span class="label">Boss</span></div>
+      <div class="chips">
+        <button
+          v-for="o in BOSS"
+          :key="o.name"
+          class="chip"
+          :class="{ on: edit.boss === o.value, own: o.value !== undefined }"
+          @click="setValue('boss', o.value)"
+        >
+          {{ o.name }}<template v-if="o.value === undefined"> ({{ plan.boss ? 'Warden' : 'none' }})</template>
         </button>
       </div>
       <div class="grid">
