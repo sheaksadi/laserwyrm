@@ -18,6 +18,7 @@ import { spawnLaser, strike, trackLasers } from './lasers'
 import { fitGrid } from './layout'
 import { applyLevel, edgesFor, enterLevel, endIntro, multiplier } from './levels'
 import { forgetTimes } from './replay'
+import { meetCreatures, minisBeat, peopleBar, peopleStep } from './people'
 import { pick, random, reseed } from './rng'
 import { eatSnipper, moveSnipper, spawnSnipper } from './snipper'
 import { worldSlowed, cheats, demo, isActive, match, replay, run, same, sound, state, timers, clock } from './state'
@@ -76,6 +77,8 @@ export function reset(from?: { seed: number; cols: number; rows: number; mode?: 
     dashes: [],
     sparks: [],
     gulps: [],
+    people: [],
+    minis: [],
     boss: null,
     wizardUntil: 0,
     tierNote: null,
@@ -132,6 +135,7 @@ export function onBar(bar: number) {
   const heartOut = state.items.some((i) => i.kind === 'heart')
   if (bar > 0 && !heartOut && state.hearts < maxHearts() && random() < HEART_CHANCE * rateOf('heart', level))
     addItem('heart', lifeOf('heart', 40))
+  peopleBar(bar, level)
 }
 
 export function onBeat(step: number) {
@@ -139,6 +143,7 @@ export function onBeat(step: number) {
   state.beat++
   state.score += multiplier()
   bossBeat(step)
+  minisBeat(step)
   const bar = Math.floor(step / 16)
   if (bar < 1 || cheats.noLasers || match.calm) return // one bar of intro; none at all in a laser-free match
   // Slow-mo (revision 6): the world's beat comes half as often.
@@ -208,6 +213,7 @@ export function arrive(cell: Vec, dashed = false) {
   const s = state.snipper
   if (s.active && same(s, cell)) eatSnipper()
   touchBoss(cell, dashed)
+  meetCreatures(cell)
 }
 
 export function onStep(step: number) {
@@ -230,6 +236,7 @@ export function onStep(step: number) {
 
   for (const laser of state.lasers) if (!laser.struck && laser.strikeStep <= step) strike(laser)
   bossStep(step)
+  peopleStep(step)
 
   const s = state.snipper
   if (s.active && step % (slowWorld ? 4 : 2) === 0) moveSnipper()
@@ -249,6 +256,11 @@ function holdWorld(step: number) {
     state.boss.until++
     state.boss.giveUp++
   }
+  for (const p of state.people) {
+    p.until++
+    p.ready++
+  }
+  for (const m of state.minis) m.until++
 }
 
 /* ─── The frame loop ──────────────────────────────────────────────────── */

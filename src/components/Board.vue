@@ -4,12 +4,13 @@
  * are drawing positions. The snake is drawn as one tube (a dark polyline under
  * a lighter one), with square caps for a blocky, 8-bit look.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { HEART_PATH, isActive, match, state, TONE_COLOR, worldSlowed, type Beam, type LaserKind } from '../game'
 import ItemArt from './ItemArt.vue'
 import { colorOf, mp, playerName, zoneColor, zones } from '../multiplayer'
 import { shown } from '../looks'
 import Hat from './Hat.vue'
+import { BOSS_HULL, BOSS_PLATE, bossLook, MINI_SCALE, personBlocks, tentacle } from '../render/creatures'
 
 
 /**
@@ -93,9 +94,6 @@ const bodyColor = computed(() => (isActive('double') ? 'var(--sun)' : shown.valu
 /** Rainbow: each cell its own colour, over a white tube. */
 const rainbow = computed(() => shown.value.color.id === 'rainbow' && !isActive('double'))
 const headColor = computed(() => (shown.value.color.id === 'green' ? 'var(--mint)' : shown.value.color.id === 'rainbow' ? 'var(--sun)' : shown.value.color.value))
-/** A Warden's shell, drawn around (0, 0): the hull, and one corner plate (the others are it, turned). */
-const BOSS_HULL = 'M-1 -1.45H1L1.45 -1V1L1 1.45H-1L-1.45 1V-1Z'
-const BOSS_PLATE = 'M-1.45 -0.45V-1H-1L-0.45 -1.45H-0.2L-0.2 -1.05H-0.75L-1.05 -0.75V-0.2H-1.45Z'
 const RAINBOW = ['#FF3355', '#FF9966', '#FFE14D', '#5CFF5C', '#3FA9FF', '#B26BFF']
 const CONFETTI = ['var(--coral)', 'var(--sun)', 'var(--mint)', 'var(--sky)', 'var(--rose)', 'var(--lavender)']
 
@@ -182,6 +180,26 @@ const bossEye = computed(() => {
   return { x: (dx / d) * 0.26, y: (dy / d) * 0.26 }
 })
 
+/** What this Warden has grown. */
+const look = computed(() => bossLook(state.boss?.stage ?? 1))
+/** Tentacles writhe on their own clock, only while a Warden with some is on the board. */
+const writhe = ref(0)
+let writheFrame = 0
+function writhing() {
+  if (state.status !== 'paused') writhe.value = performance.now()
+  writheFrame = state.boss && look.value.tentacles ? requestAnimationFrame(writhing) : 0
+}
+watch(
+  () => state.boss?.id,
+  () => {
+    if (state.boss && !writheFrame) writheFrame = requestAnimationFrame(writhing)
+  },
+)
+onBeforeUnmount(() => cancelAnimationFrame(writheFrame))
+const arms = computed(() =>
+  Array.from({ length: look.value.tentacles }, (_, i) => tentacle(i, look.value.tentacles, look.value.reach, writhe.value).map((n) => n.toFixed(2)).join(' ')),
+)
+
 /** Items blink in their last two beats. */
 const fading = (until: number | null) => until !== null && until - state.step <= 8
 
@@ -219,7 +237,7 @@ watch(
  * game answering you, keep theirs. Checked each step, since new things
  * start their animations at full speed.
  */
-const WORLD = '.warn, .fuse, .emitter, .pop, .fading, .pincer, .spin, .beat-throb, .twinkle, .boss-orbit, .boss-core'
+const WORLD = '.warn, .fuse, .emitter, .pop, .fading, .pincer, .spin, .beat-throb, .twinkle, .boss-orbit, .boss-core, .mini-glow'
 watch(
   () => [state.step, worldSlowed()] as const,
   ([, slow]) => {
@@ -305,6 +323,7 @@ watch(
         <stop offset="0.75" stop-color="#3FA9FF" />
         <stop offset="1" stop-color="#B26BFF" />
       </linearGradient>
+      <clipPath id="board-edge"><rect :width="state.cols" :height="state.rows" /></clipPath>
       <pattern v-for="kind in LASER_KINDS" :id="`hatch-${kind}`" :key="kind" width="0.5" height="0.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <rect width="0.22" height="0.5" :fill="LASER_COLOR[kind]" />
       </pattern>
@@ -524,6 +543,21 @@ watch(
       </g>
     </g>
 
+    <!-- Humans, running for it -->
+    <g v-for="p in state.people" :key="`h${p.id}`" :transform="`translate(${p.x} ${p.y})`">
+      <rect v-for="(b, i) in personBlocks(p, state.step)" :key="i" :x="b.x" :y="b.y" :width="b.w" :height="b.h" :fill="b.c" />
+    </g>
+
+    <!-- Little Wardens: the same shell and eye, in a glow -->
+    <g v-for="m in state.minis" :key="`m${m.id}`" :transform="`translate(${m.x + 0.5} ${m.y + 0.5})`">
+      <circle class="mini-glow" r="0.7" :fill="LASER_COLOR[m.kind]" />
+      <g :transform="`scale(${MINI_SCALE})`">
+        <path :d="BOSS_HULL" fill="#15102E" :stroke="LASER_COLOR[m.kind]" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <circle r="0.8" :fill="LASER_COLOR[m.kind]" />
+        <circle r="0.32" fill="var(--ink)" />
+      </g>
+    </g>
+
     <!-- A Warden: a shell of four plates around a core with one eye; the plates part when the core opens -->
     <g
       v-if="state.boss"
@@ -533,16 +567,22 @@ watch(
       :style="{ transform: `translate(${state.boss.x + 0.5}px, ${state.boss.y + 0.5}px)` }"
     >
       <g class="boss-body">
+        <circle v-for="k in look.aura" :key="`a${k}`" class="boss-aura" :style="{ animationDelay: `${k * 0.45}s` }" r="2" fill="none" :stroke="bossColor" stroke-width="2" vector-effect="non-scaling-stroke" />
+        <polygon v-for="(p, k) in arms" :key="`t${k}`" :points="p" fill="#15102E" :stroke="bossColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
         <g class="boss-orbit">
           <circle r="2.15" fill="none" />
-          <rect v-for="k in 3" :key="k" x="-0.14" y="-2.15" width="0.28" height="0.28" :fill="bossColor" :transform="`rotate(${k * 120})`" />
+          <rect v-for="k in look.shards" :key="k" x="-0.14" y="-2.15" width="0.28" height="0.28" :fill="bossColor" :transform="`rotate(${(k * 360) / look.shards})`" />
         </g>
+        <path v-if="look.horns" :d="look.horns" fill="#2A2350" :stroke="bossColor" stroke-width="2" vector-effect="non-scaling-stroke" />
+        <path v-if="look.spikes" :d="look.spikes" :fill="bossColor" />
         <path :d="BOSS_HULL" fill="#15102E" :stroke="bossColor" stroke-width="2" vector-effect="non-scaling-stroke" />
         <g v-for="k in 4" :key="k" :transform="`rotate(${k * 90})`">
           <path class="boss-plate" :d="BOSS_PLATE" fill="#2A2350" :stroke="bossColor" stroke-width="2" vector-effect="non-scaling-stroke" />
         </g>
-        <circle class="boss-core" r="0.62" :fill="bossColor" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
-        <circle :cx="bossEye.x" :cy="bossEye.y" r="0.24" fill="var(--ink)" />
+        <path v-if="look.teeth" :d="look.teeth" fill="#F0F0FF" />
+        <circle class="boss-core" r="0.62" :fill="look.slit ? 'var(--coral)' : bossColor" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke" />
+        <ellipse :cx="bossEye.x" :cy="bossEye.y" :rx="look.slit ? 0.09 : 0.24" :ry="look.slit ? 0.36 : 0.24" fill="var(--ink)" />
+        <circle v-for="(e, k) in look.eyes" :key="`e${k}`" :cx="e[0]" :cy="e[1]" r="0.13" fill="var(--coral)" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
         <path ref="bossFlash" :d="BOSS_HULL" fill="#fff" opacity="0" />
       </g>
     </g>
@@ -584,7 +624,9 @@ watch(
     </g>
 
     <!-- A new level: a band of light sweeps over the board -->
-    <polygon ref="sweepBand" :points="`-4,0 -1,0 ${-1 - state.rows},${state.rows} ${-4 - state.rows},${state.rows}`" fill="#fff" opacity="0" />
+    <g clip-path="url(#board-edge)">
+      <polygon ref="sweepBand" :points="`-4,0 -1,0 ${-1 - state.rows},${state.rows} ${-4 - state.rows},${state.rows}`" fill="#fff" opacity="0" />
+    </g>
     <!-- The head is hurt: the board flashes red -->
     <rect ref="hurtFlash" :width="state.cols" :height="state.rows" fill="var(--coral)" opacity="0" />
 
@@ -778,6 +820,18 @@ watch(
 @keyframes boss-out {
   from { transform: none; opacity: 1; }
   to { transform: translateY(-12px) scale(0.4); opacity: 0; }
+}
+
+/* Later Wardens: rings of menace go out from them, and the little ones glow. */
+.boss-aura { transform-box: fill-box; transform-origin: center; animation: boss-aura 0.9s ease-out infinite; }
+@keyframes boss-aura {
+  from { transform: scale(0.8); opacity: 0.6; }
+  to { transform: scale(2.3); opacity: 0; }
+}
+.mini-glow { transform-box: fill-box; transform-origin: center; animation: mini-glow 0.6s ease-in-out infinite alternate; }
+@keyframes mini-glow {
+  from { transform: scale(0.8); opacity: 0.2; }
+  to { transform: scale(1.1); opacity: 0.5; }
 }
 
 /* ─── Popups ─── */

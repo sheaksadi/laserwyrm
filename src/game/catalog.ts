@@ -125,7 +125,55 @@ export interface Boss {
   giveUp: number
   /** Bumped on every hit, so the view can flash once. */
   hits: number
+  /** How far along it is, from 1: later Wardens look far worse, and are only a little tougher. */
+  stage: number
 }
+
+/**
+ * How a human gets away. Each trick arrives at a level (0-based), as humans
+ * learn: run, dive aside, dress up as fruit, jump on a jetpack, leave a
+ * cardboard copy behind, take a skateboard.
+ */
+export type Tactic = 'run' | 'dive' | 'fruit' | 'jetpack' | 'cutout' | 'skate'
+export const TACTICS: { tactic: Tactic; level: number }[] = [
+  { tactic: 'run', level: 0 },
+  { tactic: 'dive', level: 2 },
+  { tactic: 'fruit', level: 4 },
+  { tactic: 'jetpack', level: 7 },
+  { tactic: 'cutout', level: 10 },
+  { tactic: 'skate', level: 13 },
+]
+/** What a human shouts on seeing the snake, by trick. */
+export const QUIPS: Record<Tactic, string[]> = {
+  run: ['aaah!', 'snake!', 'nope!'],
+  dive: ['hup!', 'not today', 'too slow'],
+  fruit: ['i am apple', 'just fruit here', 'totally apple'],
+  jetpack: ['liftoff!', 'so long!', 'bye bye'],
+  cutout: ['eat that!', 'decoy time', 'fooled you'],
+  skate: ['radical!', 'kickflip!', 'catch me'],
+}
+/** A human on the board. `fake`: a cardboard copy, worth nothing. */
+export interface Person {
+  id: number
+  x: number
+  y: number
+  tactic: Tactic
+  /** Looks left or right. */
+  facing: number
+  /** Dressed as fruit, standing still. */
+  disguised: boolean
+  fake: boolean
+  /** Has shouted already. */
+  spoke: boolean
+  /** Its trick is ready again at this step. */
+  ready: number
+  /** Its jetpack burns until this step. */
+  flame: number
+  /** It wanders off the board at this step. */
+  until: number
+}
+/** A little copy of a Warden, glowing: it creeps to the snake's middle and bites through it. Eat it first. */
+export interface Mini { id: number; x: number; y: number; kind: LaserKind; until: number }
 
 export type PowerKind = 'shield' | 'double' | 'slow' | 'dash' | 'magnet' | 'ghost'
 export type FruitKind = 'apple' | 'cherry' | 'star' | 'cookie' | 'starry'
@@ -261,6 +309,9 @@ export const BOSS = {
   maxSteps: 16 * 40,
   dashDamage: 2,
 }
+/** How long humans and minis stay (steps), and what eating one gives. Minis also: the most at once, and which levels bring them. */
+export const PEOPLE = { life: 16 * 16, score: 2, energy: 8 }
+export const MINIS = { max: 3, life: 16 * 8, firstLevel: 5, every: 4, energy: 10 }
 /** A Warden's name, by the kind of laser it guards. */
 export const BOSS_NAMES: Record<LaserKind, string> = {
   red: 'Crimson Warden',

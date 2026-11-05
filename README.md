@@ -54,7 +54,9 @@ rises and more lasers come.
 - Controllers work too: d-pad or left stick to steer, A / Cross or RT / R2 to
   dash, Start or B / Circle to pause, B / Circle to go back, View / Share for custom;
   prompts switch to match
-- A boss, a Warden, guards each new kind of laser, on the level before it. It fires that laser at you in volleys, then its core opens for two bars: run into it to hurt it, or dash in for double. Touching the closed shell costs a heart. The next level waits until the Warden is beaten (a heart, full energy, a star) or leaves. Level rules in the Workshop can add or remove one
+- A boss, a Warden, guards each new kind of laser, on the level before it. It fires that laser at you in volleys, then its core opens for two bars: run into it to hurt it, or dash in for double. Touching the closed shell costs a heart. The next level waits until the Warden is beaten (a heart, full energy, a star) or leaves. Level rules in the Workshop can add or remove one. Later Wardens grow spikes, tentacles, horns and more eyes, but take only a little more to beat
+- Humans wander the board and run from you. Catch one for points, a cell and energy. They learn as levels pass: diving aside (3), dressing as fruit (5), jetpacks (8), cardboard copies worth nothing (11), skateboards (14)
+- Minis, little glowing Wardens, come on every fourth level from 6 and with later Wardens. They creep to your middle and bite through it. Eat one with your head first
 - 100 levels. New lasers arrive as you climb: purple (5, row and column at
   once), blue (12, three wide), white (21, half the warning), green (41,
   follows your head), gold (51, strikes twice); from 61 they mix two tricks,

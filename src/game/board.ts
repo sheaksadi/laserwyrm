@@ -41,6 +41,8 @@ export function freeCell(): Vec {
   for (const c of toRaw(state.snake)) taken.add(c.y * cols + c.x)
   for (const i of toRaw(state.items)) taken.add(i.y * cols + i.x)
   if (state.snipper.active) taken.add(state.snipper.y * cols + state.snipper.x)
+  for (const p of toRaw(state.people)) taken.add(p.y * cols + p.x)
+  for (const m of toRaw(state.minis)) taken.add(m.y * cols + m.x)
   // Nothing drops under a boss, out of reach.
   const boss = state.boss
   if (boss) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) taken.add((boss.y + dy) * cols + boss.x + dx)

@@ -11,6 +11,7 @@ import { toRaw } from 'vue'
 import { HEART_PATH, isActive, match, state as live, TONE_COLOR, type Beam, type Laser, type LaserKind } from '../game'
 import { shown } from '../looks'
 import { colorOf, mp, playerName, zoneColor, zones } from '../multiplayer'
+import { BOSS_HULL as HULL_PATH, BOSS_PLATE as PLATE_PATH, bossLook, MINI_SCALE, personBlocks, tentacle } from './creatures'
 import { drawIcon, HAT_BOX, ITEM_BOX } from './icons'
 
 /**
@@ -295,6 +296,7 @@ export function drawFront(f: Frame, keep: Set<string>) {
   // Over the snake: its body fills the cells it dashed through.
   for (const d of state.dashes) drawDash(f, d, keep)
   drawSnipper(f, keep)
+  drawCreatures(f)
   drawBoss(f, keep)
   for (const laser of state.lasers) if (laser.struck) drawStrike(f, laser, keep)
   for (const k of state.sparks) drawSpark(f, k, keep)
@@ -303,6 +305,10 @@ export function drawFront(f: Frame, keep: Set<string>) {
   const sweep = clamp01((f.wall - f.sweepAt) / 700)
   if (sweep < 1) {
     const dx = easeOut(sweep) * (cols + rows + 8)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, 0, cols, rows)
+    ctx.clip()
     ctx.globalAlpha = lerp(0.3, 0.1, sweep)
     ctx.fillStyle = '#fff'
     ctx.beginPath()
@@ -312,6 +318,7 @@ export function drawFront(f: Frame, keep: Set<string>) {
     ctx.lineTo(-4 - rows + dx, rows)
     ctx.closePath()
     ctx.fill()
+    ctx.restore()
   }
   // The head is hurt: the board flashes red.
   const hurt = clamp01((f.wall - f.hurtAt) / 320)
@@ -501,6 +508,45 @@ function drawDebris(f: Frame, piece: (typeof state.debris)[number], keep: Set<st
   ctx.globalAlpha = 1
 }
 
+/** Humans and little Wardens, as Board.vue draws them. */
+function drawCreatures(f: Frame) {
+  const { ctx, s, dpr } = f
+  for (const p of state.people) {
+    for (const b of personBlocks(p, state.step)) {
+      ctx.fillStyle = b.c
+      ctx.fillRect(p.x + b.x, p.y + b.y, b.w, b.h)
+    }
+  }
+  for (const m of state.minis) {
+    ctx.save()
+    ctx.translate(m.x + 0.5, m.y + 0.5)
+    // The glow breathes, 0.6 s each way.
+    const phase = (f.world % 1200) / 600
+    const e = easeInOut(phase <= 1 ? phase : 2 - phase)
+    ctx.globalAlpha = lerp(0.2, 0.5, e)
+    ctx.fillStyle = laserFill(ctx, m.kind, -0.7, -0.7, 1.4, 1.4)
+    ctx.beginPath()
+    ctx.arc(0, 0, 0.7 * lerp(0.8, 1.1, e), 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalAlpha = 1
+    ctx.scale(MINI_SCALE, MINI_SCALE)
+    ctx.fillStyle = '#15102E'
+    ctx.fill(BOSS_HULL)
+    ctx.strokeStyle = laserFill(ctx, m.kind, -1.45, -1.45, 2.9, 2.9)
+    ctx.lineWidth = (1.5 * dpr) / s / MINI_SCALE
+    ctx.stroke(BOSS_HULL)
+    ctx.fillStyle = laserFill(ctx, m.kind, -0.8, -0.8, 1.6, 1.6)
+    ctx.beginPath()
+    ctx.arc(0, 0, 0.8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#000'
+    ctx.beginPath()
+    ctx.arc(0, 0, 0.32, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
 /** A ring and six sparks at a cell, as Board.vue draws them. */
 function drawSpark(f: Frame, k: (typeof state.sparks)[number], keep: Set<string>) {
   const { ctx, s, dpr, now } = f
@@ -530,8 +576,15 @@ function drawSpark(f: Frame, k: (typeof state.sparks)[number], keep: Set<string>
 }
 
 /* A Warden, from the SVG board's paths. */
-const BOSS_HULL = new Path2D('M-1 -1.45H1L1.45 -1V1L1 1.45H-1L-1.45 1V-1Z')
-const BOSS_PLATE = new Path2D('M-1.45 -0.45V-1H-1L-0.45 -1.45H-0.2L-0.2 -1.05H-0.75L-1.05 -0.75V-0.2H-1.45Z')
+const BOSS_HULL = new Path2D(HULL_PATH)
+const BOSS_PLATE = new Path2D(PLATE_PATH)
+/** Paths for what a Warden has grown, made once per shape. */
+const grown = new Map<string, Path2D>()
+function grownPath(d: string) {
+  let path = grown.get(d)
+  if (!path) grown.set(d, (path = new Path2D(d)))
+  return path
+}
 /** Where the boss is drawn: it glides after its cell, and its plates part smoothly. */
 const bossShown = { id: 0, x: 0, y: 0, part: 0, at: 0 }
 
@@ -573,15 +626,50 @@ function drawBoss(f: Frame, keep: Set<string>) {
     ctx.globalAlpha = e
   }
   const alpha = ctx.globalAlpha
-  // Three shards circle it.
+  const look = bossLook(b.stage)
+  // Rings of menace go out from it.
+  for (let k = 1; k <= look.aura; k++) {
+    const e = easeOut(((now + k * 450) % 900) / 900)
+    ctx.globalAlpha = alpha * lerp(0.6, 0, e)
+    ctx.beginPath()
+    ctx.arc(0, 0, 2 * lerp(0.8, 2.3, e), 0, Math.PI * 2)
+    ctx.strokeStyle = fill(-4, -4, 8, 8)
+    ctx.lineWidth = line
+    ctx.stroke()
+  }
+  ctx.globalAlpha = alpha
+  // Tentacles, from both sides.
+  for (let i = 0; i < look.tentacles; i++) {
+    const pts = tentacle(i, look.tentacles, look.reach, f.now)
+    ctx.beginPath()
+    for (let k = 0; k < pts.length; k += 2) ctx.lineTo(pts[k]!, pts[k + 1]!)
+    ctx.closePath()
+    ctx.fillStyle = '#15102E'
+    ctx.fill()
+    ctx.strokeStyle = fill(-6, -6, 12, 12)
+    ctx.lineWidth = (1.5 * dpr) / s
+    ctx.stroke()
+  }
+  // Shards circle it.
   ctx.save()
   ctx.rotate(((f.world % 2400) / 2400) * Math.PI * 2)
   ctx.fillStyle = fill(-2.15, -2.15, 4.3, 4.3)
-  for (let k = 0; k < 3; k++) {
-    ctx.rotate((Math.PI * 2) / 3)
+  for (let k = 0; k < look.shards; k++) {
+    ctx.rotate((Math.PI * 2) / look.shards)
     ctx.fillRect(-0.14, -2.15, 0.28, 0.28)
   }
   ctx.restore()
+  if (look.horns) {
+    ctx.fillStyle = '#2A2350'
+    ctx.fill(grownPath(look.horns))
+    ctx.strokeStyle = fill(-1.5, -3.1, 3, 2)
+    ctx.lineWidth = line
+    ctx.stroke(grownPath(look.horns))
+  }
+  if (look.spikes) {
+    ctx.fillStyle = fill(-2.3, -2.3, 4.6, 4.6)
+    ctx.fill(grownPath(look.spikes))
+  }
   ctx.fillStyle = '#15102E'
   ctx.fill(BOSS_HULL)
   ctx.strokeStyle = fill(-1.45, -1.45, 2.9, 2.9)
@@ -596,6 +684,10 @@ function drawBoss(f: Frame, keep: Set<string>) {
     ctx.stroke(BOSS_PLATE)
     ctx.restore()
   }
+  if (look.teeth) {
+    ctx.fillStyle = '#F0F0FF'
+    ctx.fill(grownPath(look.teeth))
+  }
   // The core throbs, faster and bigger while open.
   const open = b.phase === 'open'
   const period = open ? 360 : 1000
@@ -603,9 +695,10 @@ function drawBoss(f: Frame, keep: Set<string>) {
   const throb = lerp(0.92, 1.06, easeInOut(phase <= 1 ? phase : 2 - phase)) * (open ? 1.25 : 1)
   ctx.beginPath()
   ctx.arc(0, 0, 0.62 * throb, 0, Math.PI * 2)
-  ctx.fillStyle = fill(-0.62, -0.62, 1.24, 1.24)
+  ctx.fillStyle = look.slit ? col('var(--coral)') : fill(-0.62, -0.62, 1.24, 1.24)
   ctx.fill()
   ctx.strokeStyle = '#000'
+  ctx.lineWidth = line
   ctx.stroke()
   // One eye, on the head.
   const head = state.snake[0]!
@@ -613,9 +706,18 @@ function drawBoss(f: Frame, keep: Set<string>) {
   const dy = head.y - b.y
   const d = Math.hypot(dx, dy) || 1
   ctx.beginPath()
-  ctx.arc((dx / d) * 0.26, (dy / d) * 0.26, 0.24, 0, Math.PI * 2)
+  ctx.ellipse((dx / d) * 0.26, (dy / d) * 0.26, look.slit ? 0.09 : 0.24, look.slit ? 0.36 : 0.24, 0, 0, Math.PI * 2)
   ctx.fillStyle = '#000'
   ctx.fill()
+  for (const [ex, ey] of look.eyes) {
+    ctx.beginPath()
+    ctx.arc(ex!, ey!, 0.13, 0, Math.PI * 2)
+    ctx.fillStyle = col('var(--coral)')
+    ctx.fill()
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = (1.5 * dpr) / s
+    ctx.stroke()
+  }
   // Hit: a white flash.
   const hit = clamp01((f.wall - f.bossHitAt) / 180)
   if (hit < 1) {

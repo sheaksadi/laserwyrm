@@ -90,6 +90,7 @@ after every module has loaded. To make something public, add it to that list.
 | levels | rules that depend on the run (edges, healing, intros), `multiplier`, entering a level |
 | lasers / hits / snipper / items | their mechanics (cuts and death are in hits) |
 | boss | the Wardens: one on the level before each new kind of laser (`bossFor`). The next level waits for it |
+| people | humans fleeing the snake (tricks by level, `TACTICS`) and minis, the little Wardens |
 | controls | play, pause, turn, use item, mode, cheats: live input is recorded here |
 | replay / match / demo | playback, a multiplayer match, the start screen's self-playing backdrop |
 
@@ -132,6 +133,7 @@ Settings → Screen picks how the board is drawn (`src/renderer.ts`, kept per de
   serialized into an image once per size. The canvas carries both `layoutsubtree` (Chromium
   up to 156) and `content="drawable"` (newer), and each icon has `drawable`.
 - Board.vue and draw.ts must show the same picture: a change to one needs the other too.
+  `render/creatures.ts` holds art both use (a Warden's growth, tentacles, humans).
 
 
 

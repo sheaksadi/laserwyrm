@@ -5,7 +5,7 @@
  */
 import { reactive } from 'vue'
 import { now, sound as rawSound } from '../audio'
-import { DIRS, revision, START_HEARTS, type Boss, type Feel, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Tone, type Vec } from './catalog'
+import { DIRS, revision, START_HEARTS, type Boss, type Feel, type Mini, type Person, type Holdable, type Item, type Laser, type Debris, type Popup, type Mark, type Mode, type Replay, type Tone, type Vec } from './catalog'
 import { tempoFor } from './curve'
 
 /**
@@ -145,6 +145,9 @@ export const state = reactive({
   hurts: 0,
   /** Bumped on reaching a level, so the view can sweep light across the board. */
   sweeps: 0,
+  /** Humans running from the snake, and the little glowing Wardens. */
+  people: [] as Person[],
+  minis: [] as Mini[],
   /** The boss on the board, if any. */
   boss: null as Boss | null,
   /** Until this step, after a wizard cookie, no lasers. */

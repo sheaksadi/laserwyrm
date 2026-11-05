@@ -9,6 +9,7 @@ import { addItem, banner, popup } from './board'
 import { maxHearts } from './curve'
 import { die } from './hits'
 import { kindOf, spawnLaser } from './lasers'
+import { spawnMini } from './people'
 import { multiplier } from './levels'
 import { rand, random } from './rng'
 import { cheats, feel, isActive, later, mark, match, sound, spark, state, worldSlowed } from './state'
@@ -41,9 +42,9 @@ function pickSpot(): Vec {
 export function startBoss(level: number) {
   const traits = bossTraits(level)
   const kind = kindOf(traits)
-  // Each Warden is tougher than the last.
-  const tier = laserTiers().findIndex((t) => t.level === level + 1)
-  const maxHp = Math.min(6, 2 + Math.max(1, tier))
+  // Later Wardens look far worse, but take only a little more to beat.
+  const stage = Math.max(1, laserTiers().findIndex((t) => t.level === level + 1))
+  const maxHp = Math.min(5, 3 + Math.floor(stage / 3))
   const head = state.snake[0]!
   const x = Math.floor(state.cols * (head.x < state.cols / 2 ? 0.75 : 0.25))
   const y = Math.floor(state.rows / 2)
@@ -65,6 +66,7 @@ export function startBoss(level: number) {
     graceUntil: 0,
     giveUp: state.step + BOSS.maxSteps,
     hits: 0,
+    stage,
   }
   state.lasers = state.lasers.filter((l) => l.struck)
   state.snipper.active = false
@@ -80,6 +82,8 @@ function startAttack(boss: Boss, first: number) {
   boss.nextShot = first
   boss.round++
   boss.goal = pickSpot()
+  // From the third Warden on, each attack brings a little one out.
+  if (boss.stage >= 3) spawnMini(boss.kind, boss)
 }
 
 /** One volley, aimed at the head: its row or its column, and later both. */

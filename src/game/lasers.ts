@@ -9,6 +9,7 @@ import { BOLT_MS, COMBO_LEVEL, laserTraits, PRISM_LEVEL, SNIPPER_RESPAWN_STEPS, 
 import { popup } from './board'
 import { warnFor } from './curve'
 import { cut, die } from './hits'
+import { zapCreatures } from './people'
 import { pick, rand, random } from './rng'
 import { cheats, feel, isActive, later, mark, run, sound, state } from './state'
 
@@ -166,6 +167,8 @@ export function strike(laser: Laser) {
     state.grow += 2
     popup(s, '+2 × zapped', 'lavender')
   }
+
+  zapCreatures(laser)
 
   if (cheats.god) return
   const headHit = onLine(state.snake[0]!, laser)

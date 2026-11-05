@@ -141,6 +141,8 @@ export function startIntro(tier: number) {
     state.boss.until += INTRO_STEPS
     state.boss.giveUp += INTRO_STEPS
   }
+  for (const p of state.people) p.until += INTRO_STEPS
+  for (const m of state.minis) m.until += INTRO_STEPS
   state.hearts += heal
   conductor.setStyle(tier, 'intro', state.step)
   mark('level')
